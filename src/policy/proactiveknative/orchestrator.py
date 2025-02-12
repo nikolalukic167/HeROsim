@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 from src.placement.orchestrator import Orchestrator
 
 
-class KnativeOrchestrator(Orchestrator):
+class ProactiveKnativeOrchestrator(Orchestrator):
     def initialize_state(self) -> KnativeSystemState:
         # Initialize scheduler state
         scheduler_state = KnativeSchedulerState(

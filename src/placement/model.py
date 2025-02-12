@@ -440,6 +440,7 @@ scheduling_strategies: Dict[str, str] = {
     "kn_hrc": "KN-HRC",
     "kn_rp": "KN-RP",
     "kn_bpff": "KN-BPFF",
+    "prokn_prokn": "PROKN-PROKN"
 }
 
 cache_policies: Set[str] = {

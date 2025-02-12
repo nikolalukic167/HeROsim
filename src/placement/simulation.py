@@ -53,6 +53,9 @@ from src.policy.herocache.scheduler import HRCScheduler
 from src.policy.knative.orchestrator import KnativeOrchestrator
 from src.policy.knative.autoscaler import KnativeAutoscaler
 from src.policy.knative.scheduler import KnativeScheduler
+from src.policy.proactiveknative.autoscaler import ProactiveKnativeAutoscaler
+from src.policy.proactiveknative.orchestrator import ProactiveKnativeOrchestrator
+from src.policy.proactiveknative.scheduler import ProactiveKnativeScheduler
 
 from src.policy.random.scheduler import RandomScheduler
 
@@ -170,6 +173,7 @@ def start_simulation(
         "kn_hrc": (KnativeOrchestrator, KnativeAutoscaler, HRCScheduler),
         "kn_rp": (KnativeOrchestrator, KnativeAutoscaler, RandomScheduler),
         "kn_bpff": (KnativeOrchestrator, KnativeAutoscaler, BPFFScheduler),
+        "prokn_prokn": (ProactiveKnativeOrchestrator, ProactiveKnativeAutoscaler, ProactiveKnativeScheduler)
     }
 
     # Retrieve relevant Autoscaler and Scheduler classes

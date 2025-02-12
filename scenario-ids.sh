@@ -35,7 +35,7 @@ fi
 
 data_directory="data/ids"
 infrastructure_file="data/ids/infrastructure.json"
-workload_trace="data/ids/traces/workload-83-600.json"
+workload_trace="data/ids/traces/workload-83-10.json"
 
 # Platform configuration #####################
 

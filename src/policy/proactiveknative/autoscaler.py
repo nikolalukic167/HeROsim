@@ -40,7 +40,7 @@ from src.placement.model import (
 from src.placement.autoscaler import Autoscaler
 
 
-class KnativeAutoscaler(Autoscaler):
+class ProactiveKnativeAutoscaler(Autoscaler):
     def scaling_level(self, system_state: KnativeSystemState, task_type: TaskType):
         # Scheduling functions called in a Simpy Process must be Generators
         # No-op as per https://stackoverflow.com/a/68628599/9568489

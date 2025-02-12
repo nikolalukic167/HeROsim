@@ -27,7 +27,7 @@ from src.placement.model import SystemState
 from src.placement.scheduler import Scheduler
 
 
-class KnativeScheduler(Scheduler):
+class ProactiveKnativeScheduler(Scheduler):
     def placement(self, system_state: SystemState, task: Task) -> Generator:
         # Scheduling functions called in a Simpy Process must be Generators
         # No-op as per https://stackoverflow.com/a/68628599/9568489

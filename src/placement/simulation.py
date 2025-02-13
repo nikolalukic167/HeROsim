@@ -63,10 +63,10 @@ from src.policy.bpff.scheduler import BPFFScheduler
 
 
 def create_nodes(
-    env: Environment,
-    simulation_data: SimulationData,
-    simulation_policy: SimulationPolicy,
-    infrastructure: Infrastructure,
+        env: Environment,
+        simulation_data: SimulationData,
+        simulation_policy: SimulationPolicy,
+        infrastructure: Infrastructure,
 ) -> FilterStore:
     node_id = 0
     platform_id = 0
@@ -123,10 +123,11 @@ def create_nodes(
 
 
 def start_simulation(
-    simulation_data: SimulationData,
-    simulation_policy: SimulationPolicy,
-    infrastructure: Infrastructure,
-    time_series: TimeSeries,
+        simulation_data: SimulationData,
+        simulation_policy: SimulationPolicy,
+        infrastructure: Infrastructure,
+        time_series: TimeSeries,
+        trace_file: str
 ) -> None:
     # Logger
     simulation_time = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
@@ -191,6 +192,7 @@ def start_simulation(
         time_series=time_series,
         nodes=nodes,
         end_event=finished,
+        trace_file=str(trace_file)
     )
 
     env.run(until=finished)

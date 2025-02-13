@@ -362,6 +362,7 @@ class SimulationStats(TypedDict):
     nodeResults: List[NodeResult]
     taskResults: List[TaskResult]
     scaleEvents: List[ScaleEvent]
+    traceFile: str
 
 
 @final

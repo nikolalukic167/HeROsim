@@ -95,7 +95,7 @@ class Autoscaler:
 
                     elif hardware_scaling > 0:
                         # Scale up
-                        count = abs(math.ceil(hardware_scaling))
+                        count = abs(math.   ceil(hardware_scaling))
                         # logging.error(f"[ {self.env.now} ] Scaling up {function_name} by {count} (currently {len(function_replicas)})")
                         stop = yield self.env.process(
                             self.scale_up(

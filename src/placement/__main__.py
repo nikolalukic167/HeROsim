@@ -142,7 +142,7 @@ def main() -> int:
         time_series: TimeSeries = TimeSeries.from_dict(json.load(infile))
 
     # Run simulation
-    start_simulation(simulation_data, simulation_policy, infrastructure, time_series)
+    start_simulation(simulation_data, simulation_policy, infrastructure, time_series, args.workload_trace.name)
 
     return os.EX_OK
 

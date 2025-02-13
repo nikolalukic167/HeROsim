@@ -23,6 +23,7 @@ from typing import Set, Tuple, TYPE_CHECKING
 
 
 from src.policy.knative.model import KnativeSchedulerState, KnativeSystemState
+from src.policy.proactiveknative.model import ProactiveKnativeSystemState
 
 if TYPE_CHECKING:
     from src.placement.infrastructure import Node, Platform
@@ -41,7 +42,7 @@ from src.placement.autoscaler import Autoscaler
 
 
 class ProactiveKnativeAutoscaler(Autoscaler):
-    def scaling_level(self, system_state: KnativeSystemState, task_type: TaskType):
+    def scaling_level(self, system_state: ProactiveKnativeSystemState, task_type: TaskType):
         # Scheduling functions called in a Simpy Process must be Generators
         # No-op as per https://stackoverflow.com/a/68628599/9568489
         if False:

@@ -58,6 +58,7 @@ class Orchestrator:
         time_series: TimeSeries,
         nodes: FilterStore,
         end_event: Event,
+        trace_file: str
     ):
         self.env = env
         self.mutex = Store(env, capacity=1)
@@ -80,6 +81,7 @@ class Orchestrator:
 
         self.application_archive: List[Application] = []
         self.task_archive: List[Task] = []
+        self.trace_file = trace_file
 
     def stats(self) -> SimulationStats:
         try:
@@ -231,6 +233,7 @@ class Orchestrator:
         return {
             "policy": self.policy,
             "endTime": self.end_time,
+            'traceFile': self.trace_file,
             "unusedPlatforms": unused_platforms * 100,
             "unusedNodes": unused_nodes * 100,
             "averageOccupation": average_occupation,

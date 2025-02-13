@@ -27,5 +27,5 @@ class KnativeSchedulerState(SchedulerState):
 
 
 @dataclass
-class KnativeSystemState(SystemState):
+class ProactiveKnativeSystemState(SystemState):
     scheduler_state: KnativeSchedulerState

@@ -124,6 +124,7 @@ class Application:
             "executionTime": self.execution_time,
             "communicationsTime": self.communications_time,
             "penalty": self.penalty,
+            "type": self.type['name']
         }
 
 

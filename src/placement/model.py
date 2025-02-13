@@ -225,6 +225,7 @@ class ApplicationResult(TypedDict):
     executionTime: DurationSecond
     communicationsTime: DurationSecond
     penalty: bool
+    type: str
 
 
 @final

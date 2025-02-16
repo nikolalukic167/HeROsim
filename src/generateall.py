@@ -1,4 +1,6 @@
 import json
+import pickle
+
 import numpy as np
 from itertools import product
 
@@ -92,6 +94,24 @@ def generate_infrastructure_combinations(config_file):
 
     return all_combinations
 
+
+def generate_structure_mapping(config):
+    """Generate the mapping of array indices to their meaning."""
+    structure = ["network_bandwidth", "cluster_size"]
+    structure.extend(f"device_prop_{dev}" for dev in sorted(config['pci'].keys()))
+    structure.extend(f"workload_{app}" for app in sorted(config['wsc'].keys()))
+    return {i: name for i, name in enumerate(structure)}
+
+def save_combinations(arrays, mapping, output_prefix="combinations"):
+    """Save combinations and mapping."""
+    # Save the combinations array
+    np.save(f"{output_prefix}.npy", arrays)
+
+    # Save the mapping
+    with open(f"{output_prefix}_mapping.pkl", 'wb') as f:
+        pickle.dump(mapping, f)
+
+
 def combination_to_array(combination, config):
     """Convert a combination to a 1-D numpy array."""
     values = []
@@ -112,7 +132,6 @@ def combination_to_array(combination, config):
 
     return np.array(values)
 
-# Example usage
 if __name__ == "__main__":
     config_file = "data/ids/space.json"
 
@@ -125,21 +144,24 @@ if __name__ == "__main__":
         combinations = generate_infrastructure_combinations(config_file)
 
         # Convert to arrays
-        arrays = [combination_to_array(combo, config) for combo in combinations]
+        arrays = np.array([combination_to_array(combo, config) for combo in combinations])
+
+        # Generate and save mapping
+        mapping = generate_structure_mapping(config)
+
+        # Save everything
+        save_combinations(arrays, mapping)
 
         print(f"Generated {len(arrays)} valid combinations")
+        print("\nArray structure:")
+        for idx, name in mapping.items():
+            print(f"Index {idx}: {name}")
 
-        # Example output
-        for i, arr in enumerate(arrays[:3]):  # Show first 3 combinations
+        # Show first few combinations
+        print("\nFirst few combinations:")
+        for i, arr in enumerate(arrays[:3]):
             print(f"\nCombination {i+1}:")
             print(arr)
-
-        # Print array structure explanation
-        print("\nArray structure:")
-        structure = ["network_bandwidth", "cluster_size"]
-        structure.extend(f"device_prop_{dev}" for dev in sorted(config['pci'].keys()))
-        structure.extend(f"workload_{app}" for app in sorted(config['wsc'].keys()))
-        print("Index mapping:", {i: name for i, name in enumerate(structure)})
 
     except FileNotFoundError:
         print(f"Error: Config file {config_file} not found")

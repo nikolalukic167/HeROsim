@@ -21,19 +21,14 @@ import os
 import sys
 
 from src.parser.parser import parse_simulation_data
-
+from src.placement.executor import execute_sim
 from src.placement.model import (
     Infrastructure,
-    PriorityPolicy,
-    SimulationPolicy,
-    SimulationData,
-    TimeSeries,
     dir_path,
     restricted_float,
-    positive_int,
+    positive_int, SimulationData,
 )
 from src.placement.model import priority_policies, scheduling_strategies, cache_policies
-from src.placement.simulation import start_simulation
 
 
 def main() -> int:
@@ -121,30 +116,27 @@ def main() -> int:
         for result in glob.glob("result/*.json"):
             os.remove(result)
 
+    policy = args.task_priority_policy
+    strategy = args.scheduling_strategy
+    cache_policy = args.cache_policy
+    keep_alive = args.keep_alive
+    queue_length = args.queue_length
+    workload_trace = args.workload_trace
+    workload_trace_name = args.workload_trace.name
+    args_infrastructure = args.infrastructure
     # Read infrastructure and policy
-    with args.infrastructure as infile:
+    with args_infrastructure as infile:
         infrastructure: Infrastructure = json.load(infile)
 
-    simulation_policy = SimulationPolicy(
-        priority=PriorityPolicy(tasks=args.task_priority_policy),
-        scheduling=args.scheduling_strategy,
-        cache=args.cache_policy,
-        keep_alive=args.keep_alive,
-        queue_length=args.queue_length,
-        short_name=scheduling_strategies[args.scheduling_strategy],
-    )
-
-    # Parse simulation data
     simulation_data: SimulationData = parse_simulation_data(args.data_directory)
 
-    # Read time series
-    with args.workload_trace as infile:
-        time_series: TimeSeries = TimeSeries.from_dict(json.load(infile))
+    with workload_trace as infile:
+        workload = json.load(infile)
 
-    # Run simulation
-    start_simulation(simulation_data, simulation_policy, infrastructure, time_series, args.workload_trace.name)
+    return execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, policy, queue_length, strategy,
+                       workload, workload_trace_name)
 
-    return os.EX_OK
+
 
 
 if __name__ == "__main__":

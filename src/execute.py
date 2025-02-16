@@ -1,0 +1,372 @@
+import json
+import math
+
+import numpy as np
+import pickle
+from pathlib import Path
+from typing import Dict, List, Any
+import logging
+from datetime import datetime
+from copy import deepcopy
+
+# Assuming increase_events is imported from your previous script
+from event_generator import increase_events
+from src.placement.executor import execute_sim
+from src.placement.model import SimulationData
+
+REQUIRED_SIM_FILES = [
+    'application-types.json',
+    'platform-types.json',
+    'qos-types.json',
+    'storage-types.json',
+    'task-types.json'
+]
+
+
+def setup_logging(output_dir: Path) -> logging.Logger:
+    logger = logging.getLogger('simulation')
+    logger.setLevel(logging.INFO)
+
+    # File handler
+    fh = logging.FileHandler(output_dir / 'simulation.log')
+    fh.setLevel(logging.INFO)
+
+    # Console handler
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+
+    # Formatter
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    ch.setFormatter(formatter)
+
+    logger.addHandler(fh)
+    logger.addHandler(ch)
+
+    return logger
+
+
+def load_simulation_inputs(sim_input_path: Path) -> Dict[str, Any]:
+    """Load all required simulation input files."""
+    sim_inputs = {}
+
+    # Verify all required files exist
+    missing_files = []
+    for filename in REQUIRED_SIM_FILES:
+        if not (sim_input_path / filename).exists():
+            missing_files.append(filename)
+
+    if missing_files:
+        raise FileNotFoundError(
+            f"Missing required simulation input files: {', '.join(missing_files)}"
+        )
+
+    # Load all files
+    for filename in REQUIRED_SIM_FILES:
+        file_path = sim_input_path / filename
+        with open(file_path, 'r') as f:
+            # Use filename without extension as key
+            key = filename.replace('.json', '').replace('-', '_')
+            sim_inputs[key] = json.load(f)
+
+    return sim_inputs
+
+
+def prepare_workloads(
+        sample: np.ndarray,
+        mapping: Dict[int, str],
+        base_workload: Dict,
+        apps: List[str]
+) -> Dict[str, Dict]:
+    """Prepare workloads based on sample values."""
+    reverse_mapping = {name: idx for idx, name in mapping.items()}
+    prepared_workloads = {}
+
+    # Process each application
+    for app_name in apps:
+        # Get the workload factor from sample
+        workload_key = f'workload_{app_name}'
+        if workload_key in reverse_mapping:
+            logging.warning('read factor from sample, currently set to 1 for debugging purposes')
+            # factor = sample[reverse_mapping[workload_key]]
+            factor = 1
+            # Create a deep copy of base workload
+            workload_copy = deepcopy(base_workload)
+            # Apply increase_events with the factor
+            prepared_workloads[app_name] = increase_events(workload_copy['events'], factor)
+
+    return prepared_workloads
+
+
+def load_samples(prefix="lhs_samples"):
+    """Load LHS samples and their mapping."""
+    samples = np.load(f"{prefix}.npy")
+    with open(f"{prefix}_mapping.pkl", 'rb') as f:
+        mapping = pickle.load(f)
+    return samples, mapping
+
+
+def load_config(config_file: str) -> dict:
+    """Load original configuration file with specs."""
+    with open(config_file, 'r') as f:
+        return json.load(f)
+
+
+def create_reverse_mapping(mapping: Dict[int, str]) -> Dict[str, int]:
+    """Create reverse mapping from names to indices."""
+    return {name: idx for idx, name in mapping.items()}
+
+
+def calculate_device_counts(cluster_size: int, proportions: Dict[str, float]) -> Dict[str, int]:
+    """Calculate number of devices for each type."""
+    device_counts = {}
+    remaining_size = cluster_size
+
+    # First round up all device counts
+    for device, proportion in proportions.items():
+        count = math.ceil(cluster_size * proportion)
+        device_counts[device] = count
+        remaining_size -= count
+
+    # If we allocated too many devices, reduce counts one by one
+    # from the device with the smallest proportion
+    if remaining_size < 0:
+        sorted_devices = sorted(proportions.items(), key=lambda x: x[1])
+        idx = 0
+        while remaining_size < 0:
+            device = sorted_devices[idx][0]
+            if device_counts[device] > 1:  # Ensure at least one device remains
+                device_counts[device] -= 1
+                remaining_size += 1
+            idx = (idx + 1) % len(sorted_devices)
+
+    return device_counts
+
+
+def prepare_simulation_config(
+        sample: np.ndarray,
+        mapping: Dict[int, str],
+        original_config: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Prepare simulation configuration from a sample."""
+    reverse_mapping = create_reverse_mapping(mapping)
+
+    # Extract network bandwidth
+    network_bandwidth = sample[reverse_mapping['network_bandwidth']]
+
+    # Extract cluster size
+    cluster_size = int(sample[reverse_mapping['cluster_size']])
+
+    # Extract device proportions
+    device_proportions = {}
+    for device in original_config['pci'].keys():
+        prop_key = f'device_prop_{device}'
+        device_proportions[device] = sample[reverse_mapping[prop_key]]
+
+    # Calculate device counts
+    device_counts = calculate_device_counts(cluster_size, device_proportions)
+
+    # Prepare simulation configuration
+    simulation_config = {
+        "network": {
+            "bandwidth": float(network_bandwidth)
+        },
+        "nodes": []
+    }
+
+    # Generate node list
+    for device_type, count in device_counts.items():
+        device_specs = original_config['pci'][device_type]['specs']
+        for _ in range(count):
+            node_config = device_specs.copy()
+            node_config['type'] = device_type  # Add device type to specs
+            simulation_config['nodes'].append(node_config)
+
+    return simulation_config
+
+
+def execute_simulation(
+        config: Dict[str, Any],
+        sim_inputs: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Execute simulation with full configuration and simulation inputs."""
+
+    simulation_data = SimulationData(
+        platform_types=sim_inputs['platform_types'],
+        storage_types=sim_inputs['storage_types'],
+        qos_types=sim_inputs['qos_types'],
+        application_types=sim_inputs['application_types'],
+        task_types=sim_inputs['task_types'],
+    )
+    cache_policy = 'fifo'
+    task_priority = 'fifo'
+    scheduling_strategy = 'prokn_prokn'
+    keep_alive = 30
+    queue_length = 100
+    execute_sim(simulation_data, config['infrastructure'], cache_policy, keep_alive, task_priority, queue_length,
+                scheduling_strategy, config['workload'], 'workload-mine')
+    return {
+        "status": "success",
+        "config": config,
+        "sim_inputs": sim_inputs
+    }
+
+def flatten_workloads(workloads: Dict[str, Dict]) -> Dict[str, List]:
+    """Flatten multiple workload events into a single sorted list."""
+    # Collect all events
+    all_events = []
+    for app_name, workload in workloads.items():
+        events = workload['events']
+        all_events.extend(events)
+
+    # Sort events by timestamp
+    sorted_events = sorted(all_events, key=lambda x: int(x['timestamp']))
+
+    return {"events": sorted_events}
+
+def flatten_workloads(workloads: Dict[str, Dict]) -> Dict[str, List]:
+    """Flatten multiple workload events into a single sorted list."""
+    # Collect all events
+    all_events = []
+    for app_name, workload in workloads.items():
+        events = workload
+        all_events.extend(events)
+
+    # Sort events by timestamp
+    sorted_events = sorted(all_events, key=lambda x: int(x['timestamp']))
+
+    return {"events": sorted_events}
+
+def calculate_workload_stats(events: List[Dict]) -> Dict[str, float]:
+    """Calculate statistics for the flattened workload."""
+    if not events:
+        return {
+            "average_rps": 0,
+            "duration": 0,
+            "total_events": 0
+        }
+
+    # Get timestamps as integers
+    timestamps = [int(event['timestamp']) for event in events]
+    min_timestamp = min(timestamps)
+    max_timestamp = max(timestamps)
+
+    # Calculate duration in seconds
+    duration = max_timestamp - min_timestamp + 1  # +1 to include both start and end second
+
+    # Calculate average RPS
+    total_events = len(events)
+    average_rps = total_events / duration if duration > 0 else 0
+
+    return {
+        "rps": average_rps,
+        "duration": duration,
+        "total_events": total_events,
+        "start_timestamp": min_timestamp,
+        "end_timestamp": max_timestamp
+    }
+
+def flatten_workloads(workloads: Dict[str, Dict]) -> Dict[str, Any]:
+    """Flatten multiple workload events into a single sorted list with statistics."""
+    # Collect all events
+    all_events = []
+    for app_name, workload in workloads.items():
+        events = workload
+        all_events.extend(events)
+
+    # Sort events by timestamp
+    sorted_events = sorted(all_events, key=lambda x: int(x['timestamp']))
+
+    # Calculate statistics
+    stats = calculate_workload_stats(sorted_events)
+
+    return {
+        "rps": stats['rps'],
+        "duration": stats['duration'],
+        "events": sorted_events
+    }
+
+def main():
+    # Configuration paths
+    base_dir = Path("simulation_data")
+    sim_input_path = Path("data/ids")  # Base path for simulation input files
+    samples_file = base_dir / "lhs_samples.npy"
+    mapping_file = base_dir / "lhs_samples_mapping.pkl"
+    config_file = base_dir / "infrastructure_config.json"
+    workload_base_file = "data/ids/traces/workload-83-10.json"
+    output_dir = base_dir / "results"
+
+    try:
+        # Create output directory
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Setup logging
+        logger = setup_logging(output_dir)
+        logger.info("Starting simulation preparation")
+
+        # Load simulation inputs
+        logger.info("Loading simulation input files")
+        sim_inputs = load_simulation_inputs(sim_input_path)
+
+        # Load samples and mapping
+        logger.info("Loading samples and mapping")
+        samples = np.load(samples_file)
+        with open(mapping_file, 'rb') as f:
+            mapping = pickle.load(f)
+
+        # Load infrastructure config
+        logger.info("Loading infrastructure configuration")
+        with open(config_file, 'r') as f:
+            infra_config = json.load(f)
+
+        # Load workload base
+        logger.info("Loading workload base")
+        with open(workload_base_file, 'r') as f:
+            workload_base = json.load(f)
+
+        # Get list of applications from config
+        apps = [app for app in infra_config['wsc'].keys()]
+
+        # Process each sample
+        for i, sample in enumerate(samples[:1]):
+            logger.info(f"Processing sample {i + 1}/{len(samples)}")
+
+            # Prepare infrastructure configuration
+            sim_config = prepare_simulation_config(sample, mapping, infra_config)
+
+            # Prepare workloads
+            workloads = prepare_workloads(sample, mapping, workload_base, apps)
+            # Flatten workloads into single sorted list
+            flattened_workloads = flatten_workloads(workloads)
+
+            # Combine infrastructure and workload configurations
+            full_config = {
+                "infrastructure": sim_config,
+                "workload": flattened_workloads
+            }
+
+            # Execute simulation with additional inputs
+            try:
+                result = execute_simulation(full_config, sim_inputs)
+
+                # Save result
+                result_file = output_dir / f"simulation_{i + 1}.json"
+                with open(result_file, 'w') as f:
+                    json.dump(result, f, indent=2)
+
+                logger.info(f"Completed simulation {i + 1}")
+
+            except Exception as e:
+                logger.error(f"Error in simulation {i + 1}: {str(e)}")
+                logger.exception(e)
+                continue
+
+        logger.info("Completed all simulations")
+
+    except Exception as e:
+        logger.error(f"Fatal error: {str(e)}")
+        raise
+
+
+if __name__ == "__main__":
+    main()

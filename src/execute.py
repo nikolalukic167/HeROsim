@@ -1,5 +1,6 @@
 import json
 import math
+from collections import defaultdict
 
 import numpy as np
 import pickle
@@ -10,9 +11,12 @@ from datetime import datetime
 from copy import deepcopy
 
 # Assuming increase_events is imported from your previous script
-from event_generator import increase_events
+from src.eventgenerator import increase_events
 from src.placement.executor import execute_sim
-from src.placement.model import SimulationData
+from src.placement.model import SimulationData, DataclassJSONEncoder
+from src.preprocessing import create_train_test_split_per_task, preprocess_workload, create_inputs_outputs, \
+    preprocess_pods, train_xgboost_per_task, evaluate_xgboost_per_task
+from src.train import train_model, save_models
 
 REQUIRED_SIM_FILES = [
     'application-types.json',
@@ -187,7 +191,9 @@ def prepare_simulation_config(
 
 def execute_simulation(
         config: Dict[str, Any],
-        sim_inputs: Dict[str, Any]
+        sim_inputs: Dict[str, Any],
+        scheduling_strategy: str,
+        model_locations: Dict[str, str] = None
 ) -> Dict[str, Any]:
     """Execute simulation with full configuration and simulation inputs."""
 
@@ -200,42 +206,16 @@ def execute_simulation(
     )
     cache_policy = 'fifo'
     task_priority = 'fifo'
-    scheduling_strategy = 'prokn_prokn'
     keep_alive = 30
     queue_length = 100
-    execute_sim(simulation_data, config['infrastructure'], cache_policy, keep_alive, task_priority, queue_length,
-                scheduling_strategy, config['workload'], 'workload-mine')
+    stats = execute_sim(simulation_data, config['infrastructure'], cache_policy, keep_alive, task_priority, queue_length,
+                scheduling_strategy, config['workload'], 'workload-mine', model_locations)
     return {
         "status": "success",
         "config": config,
-        "sim_inputs": sim_inputs
+        "sim_inputs": sim_inputs,
+        "stats": stats
     }
-
-def flatten_workloads(workloads: Dict[str, Dict]) -> Dict[str, List]:
-    """Flatten multiple workload events into a single sorted list."""
-    # Collect all events
-    all_events = []
-    for app_name, workload in workloads.items():
-        events = workload['events']
-        all_events.extend(events)
-
-    # Sort events by timestamp
-    sorted_events = sorted(all_events, key=lambda x: int(x['timestamp']))
-
-    return {"events": sorted_events}
-
-def flatten_workloads(workloads: Dict[str, Dict]) -> Dict[str, List]:
-    """Flatten multiple workload events into a single sorted list."""
-    # Collect all events
-    all_events = []
-    for app_name, workload in workloads.items():
-        events = workload
-        all_events.extend(events)
-
-    # Sort events by timestamp
-    sorted_events = sorted(all_events, key=lambda x: int(x['timestamp']))
-
-    return {"events": sorted_events}
 
 def calculate_workload_stats(events: List[Dict]) -> Dict[str, float]:
     """Calculate statistics for the flattened workload."""
@@ -275,7 +255,7 @@ def flatten_workloads(workloads: Dict[str, Dict]) -> Dict[str, Any]:
         all_events.extend(events)
 
     # Sort events by timestamp
-    sorted_events = sorted(all_events, key=lambda x: int(x['timestamp']))
+    sorted_events = sorted(all_events, key=lambda x: x['timestamp'])
 
     # Calculate statistics
     stats = calculate_workload_stats(sorted_events)
@@ -293,15 +273,15 @@ def main():
     samples_file = base_dir / "lhs_samples.npy"
     mapping_file = base_dir / "lhs_samples_mapping.pkl"
     config_file = base_dir / "infrastructure_config.json"
-    workload_base_file = "data/ids/traces/workload-83-10.json"
+    workload_base_file = "data/ids/traces/workload-83-100.json"
     output_dir = base_dir / "results"
-
+    # Setup logging
+    logger = setup_logging(output_dir)
     try:
         # Create output directory
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Setup logging
-        logger = setup_logging(output_dir)
+
         logger.info("Starting simulation preparation")
 
         # Load simulation inputs
@@ -328,45 +308,93 @@ def main():
         apps = [app for app in infra_config['wsc'].keys()]
 
         # Process each sample
-        for i, sample in enumerate(samples[:1]):
-            logger.info(f"Processing sample {i + 1}/{len(samples)}")
+        execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base)
 
-            # Prepare infrastructure configuration
-            sim_config = prepare_simulation_config(sample, mapping, infra_config)
-
-            # Prepare workloads
-            workloads = prepare_workloads(sample, mapping, workload_base, apps)
-            # Flatten workloads into single sorted list
-            flattened_workloads = flatten_workloads(workloads)
-
-            # Combine infrastructure and workload configurations
-            full_config = {
-                "infrastructure": sim_config,
-                "workload": flattened_workloads
-            }
-
-            # Execute simulation with additional inputs
-            try:
-                result = execute_simulation(full_config, sim_inputs)
-
-                # Save result
-                result_file = output_dir / f"simulation_{i + 1}.json"
-                with open(result_file, 'w') as f:
-                    json.dump(result, f, indent=2)
-
-                logger.info(f"Completed simulation {i + 1}")
-
-            except Exception as e:
-                logger.error(f"Error in simulation {i + 1}: {str(e)}")
-                logger.exception(e)
-                continue
 
         logger.info("Completed all simulations")
 
+        logger.info("Training model now...")
+        models, eval_results = train_model(output_dir, samples)
+        model_paths = save_models(models, output_dir)
+
+        logger.info("Trained models, now evaluating samples again...")
+        execute_proactive_samples(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base, model_paths)
+
+
+
     except Exception as e:
         logger.error(f"Fatal error: {str(e)}")
-        raise
+        raise e
 
+
+
+def execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base):
+    for i, sample in enumerate(samples[:1]):
+        logger.info(f"Processing sample {i + 1}/{len(samples)}")
+
+        # Prepare infrastructure configuration
+        sim_config = prepare_simulation_config(sample, mapping, infra_config)
+
+        # Prepare workloads
+        workloads = prepare_workloads(sample, mapping, workload_base, apps)
+        # Flatten workloads into single sorted list
+        flattened_workloads = flatten_workloads(workloads)
+
+        # Combine infrastructure and workload configurations
+        full_config = {
+            "infrastructure": sim_config,
+            "workload": flattened_workloads
+        }
+
+        # Execute simulation with additional inputs
+        try:
+            scheduling_strategy = 'kn_kn'
+            result = execute_simulation(full_config, sim_inputs, scheduling_strategy)
+
+            # Save result
+            result_file = output_dir / f"simulation_{i + 1}.json"
+            with open(result_file, 'w') as f:
+                json.dump(result, f, indent=2, cls=DataclassJSONEncoder)
+
+            logger.info(f"Completed simulation {i + 1}")
+
+        except Exception as e:
+            logger.error(f"Error in simulation {i + 1}: {str(e)}")
+            logger.exception(e)
+
+def execute_proactive_samples(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base, models_locations):
+    for i, sample in enumerate(samples[:1]):
+        logger.info(f"Processing sample {i + 1}/{len(samples)}")
+
+        # Prepare infrastructure configuration
+        sim_config = prepare_simulation_config(sample, mapping, infra_config)
+
+        # Prepare workloads
+        workloads = prepare_workloads(sample, mapping, workload_base, apps)
+        # Flatten workloads into single sorted list
+        flattened_workloads = flatten_workloads(workloads)
+
+        # Combine infrastructure and workload configurations
+        full_config = {
+            "infrastructure": sim_config,
+            "workload": flattened_workloads
+        }
+
+        # Execute simulation with additional inputs
+        try:
+            scheduling_strategy = 'prokn_prokn'
+            result = execute_simulation(full_config, sim_inputs, scheduling_strategy, models_locations)
+
+            # Save result
+            result_file = output_dir / f"simulation_{i + 1}.json"
+            with open(result_file, 'w') as f:
+                json.dump(result, f, indent=2, cls=DataclassJSONEncoder)
+
+            logger.info(f"Completed simulation {i + 1}")
+
+        except Exception as e:
+            logger.error(f"Error in simulation {i + 1}: {str(e)}")
+            logger.exception(e)
 
 if __name__ == "__main__":
     main()

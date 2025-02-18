@@ -34,7 +34,7 @@ from src.placement.model import (
     Infrastructure,
     SimulationData,
     SimulationPolicy,
-    TimeSeries,
+    TimeSeries, SimulationStats,
 )
 
 from src.placement.orchestrator import Orchestrator
@@ -127,8 +127,9 @@ def start_simulation(
         simulation_policy: SimulationPolicy,
         infrastructure: Infrastructure,
         time_series: TimeSeries,
-        trace_file: str
-) -> None:
+        trace_file: str,
+        model_locations = None
+) -> SimulationStats:
     # Logger
     simulation_time = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
@@ -192,7 +193,8 @@ def start_simulation(
         time_series=time_series,
         nodes=nodes,
         end_event=finished,
-        trace_file=str(trace_file)
+        trace_file=str(trace_file),
+        model_locations=model_locations
     )
 
     env.run(until=finished)
@@ -202,8 +204,8 @@ def start_simulation(
     # Statistics
     stats = orchestrator.stats()
 
-    with open(os.path.join("result", f"{simulation_time}.json"), "w") as outfile:
-        json.dump(stats, outfile, indent=2, cls=DataclassJSONEncoder)
+    # with open(os.path.join("result", f"{simulation_time}.json"), "w") as outfile:
+    #     json.dump(stats, outfile, indent=2, cls=DataclassJSONEncoder)
 
     logging.warning(f"Total time: {env.now / 3600} hours")
     logging.warning(f"Average elapsed time: {stats['averageElapsedTime']}")
@@ -211,3 +213,4 @@ def start_simulation(
     logging.warning(f"Total energy: {stats['energy']}")
     logging.warning(f"Penalty proportion: {stats['penaltyProportion']}")
     logging.warning(f"Cold start proportion: {stats['coldStartProportion']}")
+    return stats

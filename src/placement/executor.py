@@ -1,21 +1,15 @@
-import json
-import json
-import os
-
-from src.parser.parser import parse_simulation_data
 from src.placement.model import (
     PriorityPolicy,
     SimulationPolicy,
-    SimulationData,
-    TimeSeries,
+    TimeSeries, SimulationStats,
 )
 from src.placement.model import scheduling_strategies
 from src.placement.simulation import start_simulation
 
 
-def execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, policy, queue_length, strategy, workload_trace,
-                workload_trace_name):
-
+def execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, policy, queue_length, strategy,
+                workload_trace,
+                workload_trace_name, model_locations=None) -> SimulationStats:
     simulation_policy = SimulationPolicy(
         priority=PriorityPolicy(tasks=policy),
         scheduling=strategy,
@@ -28,5 +22,5 @@ def execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, polic
     # Read time series
     time_series: TimeSeries = TimeSeries.from_dict(workload_trace)
     # Run simulation
-    start_simulation(simulation_data, simulation_policy, infrastructure, time_series, workload_trace_name)
-    return os.EX_OK
+    stats = start_simulation(simulation_data, simulation_policy, infrastructure, time_series, workload_trace_name, model_locations)
+    return stats

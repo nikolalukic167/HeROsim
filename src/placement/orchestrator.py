@@ -49,16 +49,17 @@ from src.placement.model import (
 
 class Orchestrator:
     def __init__(
-        self,
-        env: Environment,
-        data: SimulationData,
-        policy: SimulationPolicy,
-        autoscaler: Type[Autoscaler],
-        scheduler: Type[Scheduler],
-        time_series: TimeSeries,
-        nodes: FilterStore,
-        end_event: Event,
-        trace_file: str
+            self,
+            env: Environment,
+            data: SimulationData,
+            policy: SimulationPolicy,
+            autoscaler: Type[Autoscaler],
+            scheduler: Type[Scheduler],
+            time_series: TimeSeries,
+            nodes: FilterStore,
+            end_event: Event,
+            trace_file: str,
+            model_locations=None
     ):
         self.env = env
         self.mutex = Store(env, capacity=1)
@@ -70,7 +71,10 @@ class Orchestrator:
 
         self.gateway: Process
         self.monitor: Process
-        self.autoscaler = autoscaler(self.env, self.mutex, self.data, self.policy)
+        if model_locations is not None:
+            self.autoscaler = autoscaler(self.env, self.mutex, self.data, self.policy, model_locations)
+        else:
+            self.autoscaler = autoscaler(self.env, self.mutex, self.data, self.policy)
         self.scheduler = scheduler(
             self.env, self.mutex, self.data, self.policy, self.autoscaler, self.nodes
         )
@@ -119,7 +123,7 @@ class Orchestrator:
         # Average resource occupation time
         resources_occupation: Dict[int, float] = {}
         for platform_result in sorted(
-            platform_results, key=lambda result: result["platformId"]
+                platform_results, key=lambda result: result["platformId"]
         ):
             """
             logging.error(
@@ -129,7 +133,7 @@ class Orchestrator:
             )
             """
             resources_occupation[platform_result["platformId"]] = (
-                100 - platform_result["idleProportion"]
+                    100 - platform_result["idleProportion"]
             )
 
         average_occupation = sum(resources_occupation.values()) / len(
@@ -218,7 +222,7 @@ class Orchestrator:
         applications_count = 0
         distribution = 0
         for application_result in sorted(
-            application_results, key=lambda app_res: app_res["dispatchedTime"]
+                application_results, key=lambda app_res: app_res["dispatchedTime"]
         ):
             applications_count += 1
             if application_result["penalty"]:
@@ -264,7 +268,7 @@ class Orchestrator:
         }
 
     def create_application(
-        self, env: Environment, app_id: int, task_id: int, event: WorkloadEvent
+            self, env: Environment, app_id: int, task_id: int, event: WorkloadEvent
     ) -> Application:
         application_type = event["application"]
         qos_type = event["qos"]
@@ -384,7 +388,8 @@ class Orchestrator:
             workload_event: WorkloadEvent = self.time_series.events.pop(0)
 
             # Timeout until event timestamp
-            yield self.env.timeout(workload_event["timestamp"] - self.env.now)
+            time_until_next_event = workload_event["timestamp"] - self.env.now
+            yield self.env.timeout(time_until_next_event)
 
             # Create the application according to the event properties
             app = self.create_application(

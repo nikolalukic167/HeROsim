@@ -19,11 +19,13 @@ from __future__ import annotations
 import logging
 import math
 
-from typing import Set, Tuple, TYPE_CHECKING
+from typing import Set, Tuple, TYPE_CHECKING, Dict
 
+from simpy import Environment, Store
 
 from src.policy.knative.model import KnativeSchedulerState, KnativeSystemState
 from src.policy.proactiveknative.model import ProactiveKnativeSystemState
+from src.train import load_models
 
 if TYPE_CHECKING:
     from src.placement.infrastructure import Node, Platform
@@ -35,13 +37,27 @@ from src.placement.model import (
     SizeGigabyte,
     SpeedMBps,
     SystemState,
-    TaskType,
+    TaskType, SimulationData, SimulationPolicy,
 )
 
 from src.placement.autoscaler import Autoscaler
-
+logger = logging.getLogger(__name__)
 
 class ProactiveKnativeAutoscaler(Autoscaler):
+
+    def __init__(
+            self,
+            env: Environment,
+            mutex: Store,
+            data: SimulationData,
+            policy: SimulationPolicy,
+            model_locations :Dict[str, str]
+    ):
+        super().__init__(env, mutex, data, policy)
+        self.model_locations = model_locations
+        self.models = load_models(model_locations)
+        logger.info('Loaded models...')
+
     def scaling_level(self, system_state: ProactiveKnativeSystemState, task_type: TaskType):
         # Scheduling functions called in a Simpy Process must be Generators
         # No-op as per https://stackoverflow.com/a/68628599/9568489

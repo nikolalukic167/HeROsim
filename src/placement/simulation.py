@@ -128,7 +128,7 @@ def start_simulation(
         infrastructure: Infrastructure,
         time_series: TimeSeries,
         trace_file: str,
-        model_locations = None
+        models = None
 ) -> SimulationStats:
     # Logger
     simulation_time = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
@@ -194,7 +194,7 @@ def start_simulation(
         nodes=nodes,
         end_event=finished,
         trace_file=str(trace_file),
-        model_locations=model_locations
+        models=models
     )
 
     env.run(until=finished)

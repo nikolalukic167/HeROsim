@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 import numpy as np
 import numpy as np
 import xgboost as xgb
@@ -94,7 +96,6 @@ def preprocess_workload(workload_data):
     #     result[task_type] = requests_per_second
 
 
-    return result
 
 def create_inputs_outputs(workload_data, pods_data):
     """
@@ -115,16 +116,39 @@ def create_inputs_outputs(workload_data, pods_data):
             pods = pods_data[task_type]
 
 
-        # Find common timestamps
-        common_timestamps = sorted(set(workload.keys()) & set(pods.keys()))
+            # Find common timestamps
+            common_timestamps = sorted(set(workload.keys()) & set(pods.keys()))
 
 
-        # Create input/output pairs for common timestamps
-        for timestamp in common_timestamps:
-            inputs_outputs.append((task_type, timestamp, workload[timestamp], pods[timestamp]))
+            # Create input/output pairs for common timestamps
+            for timestamp in common_timestamps:
+                inputs_outputs.append((task_type, timestamp, workload[timestamp], pods[timestamp]))
 
 
     return inputs_outputs
+
+def create_inputs_outputs_seperated(result):
+    this fails key error
+    workload_data = preprocess_workload(result['taskResults'])
+    pods_data = preprocess_pods(result['scaleEvents'])
+    inputs = defaultdict(list)
+    outputs = defaultdict(list)
+    for task_type, workload in workload_data.items():
+        if task_type in pods_data:
+            pods = pods_data[task_type]
+
+
+            # Find common timestamps
+            common_timestamps = sorted(set(workload.keys()) & set(pods.keys()))
+
+
+            # Create input/output pairs for common timestamps
+            for timestamp in common_timestamps:
+                inputs[task_type].append(workload[timestamp])
+                outputs[task_type].append(pods[timestamp])
+
+
+    return np.array(inputs), np.array(outputs)
 
 def create_train_test_split_per_task(inputs_outputs, test_size=0.2, random_state=42):
     """

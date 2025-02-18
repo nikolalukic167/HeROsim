@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from src.execute import execute_simulation, setup_logging
+from src.executeinitial import execute_simulation, setup_logging
 
 
 def main():

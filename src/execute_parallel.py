@@ -11,7 +11,7 @@ import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import uuid
 
-from src.execute import load_simulation_inputs, setup_logging, prepare_simulation_config, prepare_workloads, \
+from src.executeinitial import load_simulation_inputs, setup_logging, prepare_simulation_config, prepare_workloads, \
     flatten_workloads
 
 

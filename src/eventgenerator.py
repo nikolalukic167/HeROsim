@@ -3,6 +3,14 @@ from collections import defaultdict
 import numpy as np
 from copy import deepcopy
 
+import json
+from collections import defaultdict
+import numpy as np
+from copy import deepcopy
+import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
+
+
 def increase_events(data, factor):
     # Group events by application and timestamp
     app_time_events = defaultdict(lambda: defaultdict(list))
@@ -50,6 +58,7 @@ def increase_events(data, factor):
 
     return new_data
 
+
 def analyze_applications(data):
     # Create dictionaries to store counts and timestamps per application
     app_time_counts = defaultdict(lambda: defaultdict(int))
@@ -80,50 +89,6 @@ def analyze_applications(data):
 
     return averages
 
-# Example usage
-if __name__ == "__main__":
-    file_path = "data/ids/traces/workload-83-10.json"  # Replace with your JSON file path
-    increase_factor = 2.5  # Desired increase factor
-
-    try:
-        # Read original data
-        with open(file_path, 'r') as file:
-            original_data = json.load(file)
-
-        # Analyze original data
-        print("\nOriginal statistics:")
-        original_stats = analyze_applications(original_data['events'])
-        for app, stats in original_stats.items():
-            print(f"\nApplication: {app}")
-            print(f"Average RPS: {stats['average']:.2f}")
-            print(f"Total count: {stats['total_count']}")
-
-        # Increase events
-        increased_data = increase_events(original_data['events'], increase_factor)
-
-        # Analyze increased data
-        print("\nIncreased statistics:")
-        increased_stats = analyze_applications(increased_data)
-        for app, stats in increased_stats.items():
-            print(f"\nApplication: {app}")
-            print(f"Average RPS: {stats['average']:.2f}")
-            print(f"Total count: {stats['total_count']}")
-
-        # Optionally save the new data
-        with open('increased_events.json', 'w') as f:
-            json.dump(increased_data, f, indent=2)
-
-    except FileNotFoundError:
-        print("Error: JSON file not found")
-    except json.JSONDecodeError:
-        print("Error: Invalid JSON format")
-
-import json
-from collections import defaultdict
-import numpy as np
-from copy import deepcopy
-import matplotlib.pyplot as plt
-from matplotlib.ticker import MaxNLocator
 
 def plot_comparison(original_data, increased_data):
     # Create dictionaries to store counts per timestamp
@@ -150,7 +115,7 @@ def plot_comparison(original_data, increased_data):
     n_rows = (n_apps + n_cols - 1) // n_cols
 
     # Create figure
-    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 5*n_rows))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(15, 5 * n_rows))
     if n_apps == 1:
         axes = np.array([axes])
     axes = axes.flatten()

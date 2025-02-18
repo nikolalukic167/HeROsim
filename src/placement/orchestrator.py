@@ -59,7 +59,7 @@ class Orchestrator:
             nodes: FilterStore,
             end_event: Event,
             trace_file: str,
-            model_locations=None
+            models=None
     ):
         self.env = env
         self.mutex = Store(env, capacity=1)
@@ -71,8 +71,8 @@ class Orchestrator:
 
         self.gateway: Process
         self.monitor: Process
-        if model_locations is not None:
-            self.autoscaler = autoscaler(self.env, self.mutex, self.data, self.policy, model_locations)
+        if models is not None:
+            self.autoscaler = autoscaler(self.env, self.mutex, self.data, self.policy, models)
         else:
             self.autoscaler = autoscaler(self.env, self.mutex, self.data, self.policy)
         self.scheduler = scheduler(

@@ -21,6 +21,7 @@ import math
 
 from typing import Set, Tuple, TYPE_CHECKING, Dict
 
+import xgboost
 from simpy import Environment, Store
 
 from src.policy.knative.model import KnativeSchedulerState, KnativeSystemState
@@ -41,7 +42,9 @@ from src.placement.model import (
 )
 
 from src.placement.autoscaler import Autoscaler
+
 logger = logging.getLogger(__name__)
+
 
 class ProactiveKnativeAutoscaler(Autoscaler):
 
@@ -51,11 +54,10 @@ class ProactiveKnativeAutoscaler(Autoscaler):
             mutex: Store,
             data: SimulationData,
             policy: SimulationPolicy,
-            model_locations :Dict[str, str]
+            models: Dict[str, xgboost.XGBRegressor]
     ):
         super().__init__(env, mutex, data, policy)
-        self.model_locations = model_locations
-        self.models = load_models(model_locations)
+        self.models = models
         logger.info('Loaded models...')
 
     def scaling_level(self, system_state: ProactiveKnativeSystemState, task_type: TaskType):
@@ -110,11 +112,11 @@ class ProactiveKnativeAutoscaler(Autoscaler):
         # Result == 0 means current scaling level is adequate
         concurrency_results: PlatformVector = {
             platform_type["shortName"]: (
-                math.ceil(
-                    in_system_concurrencies[platform_type["shortName"]]
-                    / target_concurrencies[platform_type["shortName"]]
-                )
-                - replica_count
+                    math.ceil(
+                        in_system_concurrencies[platform_type["shortName"]]
+                        / target_concurrencies[platform_type["shortName"]]
+                    )
+                    - replica_count
                 # if platform_type["hardware"] == "cpu"
                 # else 0
             )
@@ -138,10 +140,10 @@ class ProactiveKnativeAutoscaler(Autoscaler):
         for _, platforms in system_state.available_resources.items():
             for platform in platforms:
                 if (
-                    # platform.type["hardware"] == "cpu"
-                    # and platform.type["shortName"] in task_type["platforms"]
-                    platform.type["shortName"]
-                    in task_type["platforms"]
+                        # platform.type["hardware"] == "cpu"
+                        # and platform.type["shortName"] in task_type["platforms"]
+                        platform.type["shortName"]
+                        in task_type["platforms"]
                 ):
                     available_hardware.add(platform.type["shortName"])
 
@@ -164,7 +166,7 @@ class ProactiveKnativeAutoscaler(Autoscaler):
         return stop
 
     def create_replica(
-        self, couples_suitable: Set[Tuple[Node, Platform]], task_type: TaskType
+            self, couples_suitable: Set[Tuple[Node, Platform]], task_type: TaskType
     ):
         # Scaling functions that do not yield values must still be Generators
         # No-op as per https://stackoverflow.com/a/68628599/9568489
@@ -189,19 +191,19 @@ class ProactiveKnativeAutoscaler(Autoscaler):
         return available_couple
 
     def initialize_replica(
-        self,
-        new_replica: Tuple[Node, Platform],
-        function_replicas: Set[Tuple[Node, Platform]],
-        task_type: TaskType,
-        system_state: KnativeSystemState,
+            self,
+            new_replica: Tuple[Node, Platform],
+            function_replicas: Set[Tuple[Node, Platform]],
+            task_type: TaskType,
+            system_state: KnativeSystemState,
     ):
         node: Node = new_replica[0]
         platform: Platform = new_replica[1]
 
         # Check node RAM cache
         warm_function: bool = (
-            platform.previous_task is not None
-            and platform.previous_task.type["name"] == task_type["name"]
+                platform.previous_task is not None
+                and platform.previous_task.type["name"] == task_type["name"]
         )
 
         # Initialize image retrieval duration
@@ -228,8 +230,8 @@ class ProactiveKnativeAutoscaler(Autoscaler):
                 node_storage.type["throughput"]["write"], node.network["bandwidth"]
             )
             retrieval_duration += (
-                retrieval_size / (retrieval_speed / 1024)
-                + node_storage.type["latency"]["write"]
+                    retrieval_size / (retrieval_speed / 1024)
+                    + node_storage.type["latency"]["write"]
             )
 
             # print(f"retrieval size = {retrieval_size}")
@@ -287,10 +289,10 @@ class ProactiveKnativeAutoscaler(Autoscaler):
         node.cache_hits += 0
 
     def remove_replica(
-        self,
-        function_replicas: Set[Tuple[Node, Platform]],
-        task_type: TaskType,
-        system_state: KnativeSystemState,
+            self,
+            function_replicas: Set[Tuple[Node, Platform]],
+            task_type: TaskType,
+            system_state: KnativeSystemState,
     ):
         # Scaling functions that do not yield values must still be Generators
         # No-op as per https://stackoverflow.com/a/68628599/9568489&
@@ -309,8 +311,8 @@ class ProactiveKnativeAutoscaler(Autoscaler):
                 replica
                 for replica in sorted_replicas
                 if not replica[1].queue.items
-                and not replica[1].current_task
-                and (self.env.now - replica[1].idle_since) > self.policy.keep_alive
+                   and not replica[1].current_task
+                   and (self.env.now - replica[1].idle_since) > self.policy.keep_alive
             ),
             None,
         )

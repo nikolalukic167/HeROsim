@@ -30,6 +30,7 @@ def train_model(output_dir, samples):
     models = train_xgboost_per_task(all_train_data)
     return models, evaluate_xgboost_per_task(models, all_test_data)
 
+
 def load_models(model_locations: Dict[str, str]):
     models = {}
     for fn, model_location in model_locations.items():
@@ -38,13 +39,15 @@ def load_models(model_locations: Dict[str, str]):
         models[fn] = loaded_model
     return models
 
+
 def save_models(models, output_dir):
     model_paths = {}
     for fn, model in models.items():
         model_path = output_dir / f"{fn}.json"
         model.save_model(model_path)
-        model_paths[fn] = model_path
+        model_paths[fn] = str(model_path)
     return model_paths
+
 
 if __name__ == '__main__':
     base_dir = Path("simulation_data")

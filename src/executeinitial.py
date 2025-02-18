@@ -10,6 +10,8 @@ import logging
 from datetime import datetime
 from copy import deepcopy
 
+import xgboost
+
 # Assuming increase_events is imported from your previous script
 from src.eventgenerator import increase_events
 from src.placement.executor import execute_sim
@@ -118,7 +120,7 @@ def load_config(config_file: str) -> dict:
 
 def create_reverse_mapping(mapping: Dict[int, str]) -> Dict[str, int]:
     """Create reverse mapping from names to indices."""
-    return {name: idx for idx, name in mapping.items()}
+    return {name: int(idx) for idx, name in mapping.items()}
 
 
 def calculate_device_counts(cluster_size: int, proportions: Dict[str, float]) -> Dict[str, int]:
@@ -193,7 +195,12 @@ def execute_simulation(
         config: Dict[str, Any],
         sim_inputs: Dict[str, Any],
         scheduling_strategy: str,
-        model_locations: Dict[str, str] = None
+        model_locations: Dict[str, str] = None,
+        models: Dict[str, xgboost.XGBRegressor] = None,
+        cache_policy='fifo',
+        task_priority='fifo',
+        keep_alive=30,
+        queue_length=100
 ) -> Dict[str, Any]:
     """Execute simulation with full configuration and simulation inputs."""
 
@@ -204,18 +211,18 @@ def execute_simulation(
         application_types=sim_inputs['application_types'],
         task_types=sim_inputs['task_types'],
     )
-    cache_policy = 'fifo'
-    task_priority = 'fifo'
-    keep_alive = 30
-    queue_length = 100
-    stats = execute_sim(simulation_data, config['infrastructure'], cache_policy, keep_alive, task_priority, queue_length,
-                scheduling_strategy, config['workload'], 'workload-mine', model_locations)
+
+    stats = execute_sim(simulation_data, config['infrastructure'], cache_policy, keep_alive, task_priority,
+                        queue_length,
+                        scheduling_strategy, config['workload'], 'workload-mine',
+                        model_locations=model_locations, models=models)
     return {
         "status": "success",
         "config": config,
         "sim_inputs": sim_inputs,
         "stats": stats
     }
+
 
 def calculate_workload_stats(events: List[Dict]) -> Dict[str, float]:
     """Calculate statistics for the flattened workload."""
@@ -246,6 +253,7 @@ def calculate_workload_stats(events: List[Dict]) -> Dict[str, float]:
         "end_timestamp": max_timestamp
     }
 
+
 def flatten_workloads(workloads: Dict[str, Dict]) -> Dict[str, Any]:
     """Flatten multiple workload events into a single sorted list with statistics."""
     # Collect all events
@@ -266,21 +274,74 @@ def flatten_workloads(workloads: Dict[str, Dict]) -> Dict[str, Any]:
         "events": sorted_events
     }
 
+
+def find_bad_performing_inputs(proactive_results_files: List[str], n: int):
+    penalties = []
+    for result_file in proactive_results_files:
+        with open(result_file, 'r') as fd:
+            result = json.load(fd)
+            penalties.append((result['stats']['penaltyProportion'], result))
+    penalties.sort(key=lambda x: x[0])
+    return [x[1] for x in penalties[:n]]
+
+
+def optimize_for_input(bad_input, range: float = 0.25):
+    apps = bad_input['sample']['apps']
+    sample = bad_input['sample']['sample']
+    mapping = bad_input['sample']['mapping']
+    infra_config = bad_input['sample']['infra_config']
+    workload_base = bad_input['sample']['workload_base']
+    models_locations = bad_input['sample']['models_locations']
+    sim_inputs = bad_input['sample']['sim_inputs']
+    scheduling_strategy = bad_input['sample']['scheduling_strategy']
+    cache_policy = bad_input['sample']['cache_policy']
+    task_priority = bad_input['sample']['task_priority']
+    keep_alive = bad_input['sample']['keep_alive']
+    queue_length = bad_input['sample']['queue_length']
+
+    param_bounds = {}
+    for param, idx in mapping.items():
+        param_value = sample[idx]
+        # TODO decide whether we need to clamp/abort on specific values (i.e., out of "range")
+        param_up = param_value + (param_value * range)
+        param_down = param_value - (param_value * range)
+        param_bounds[param] = (param_down, param_up)
+
+        # Define evaluation function
+
+    def evaluate_parameters(**params):
+        # Ensure device proportions sum to 1
+        total_device_proportion = 0
+        for param, value in params.items():
+            if param.startswith('device_prop_'):
+                total_device_proportion += value
+        if not np.isclose(total_device_proportion, 1.0, atol=0.01):
+            return float('-inf')
+
+        # First run reactive policy
+
+        # Fine-tune model with new dataset
+
+        # Run simulation with
+        # Run simulation and return negative penalty (for maximization)
+        penalty = run_proactive_simulation(params)
+        return -penalty
+
+
 def main():
     # Configuration paths
     base_dir = Path("simulation_data")
     sim_input_path = Path("data/ids")  # Base path for simulation input files
     samples_file = base_dir / "lhs_samples.npy"
     mapping_file = base_dir / "lhs_samples_mapping.pkl"
-    config_file = base_dir / "infrastructure_config.json"
+    config_file = base_dir / "space.json"
     workload_base_file = "data/ids/traces/workload-83-100.json"
-    output_dir = base_dir / "results"
+    output_dir = base_dir / "initial_results"
     # Setup logging
     logger = setup_logging(output_dir)
     try:
         # Create output directory
         output_dir.mkdir(parents=True, exist_ok=True)
-
 
         logger.info("Starting simulation preparation")
 
@@ -308,8 +369,8 @@ def main():
         apps = [app for app in infra_config['wsc'].keys()]
 
         # Process each sample
-        execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base)
-
+        reactive_results = execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, samples,
+                                                    sim_inputs, workload_base)
 
         logger.info("Completed all simulations")
 
@@ -317,9 +378,17 @@ def main():
         models, eval_results = train_model(output_dir, samples)
         model_paths = save_models(models, output_dir)
 
-        logger.info("Trained models, now evaluating samples again...")
-        execute_proactive_samples(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base, model_paths)
+        logger.info('Finished model training')
+        logger.info(f'All files can be found under {output_dir}')
 
+        # logger.info("Trained models, now evaluating samples again...")
+        # proactive_results = execute_proactive_samples(apps, infra_config, logger, mapping, output_dir, samples,
+        #                                               sim_inputs, workload_base, model_paths)
+        #
+        # bad_performing_inputs = find_bad_performing_inputs(proactive_results, n=5)
+        #
+        # for bad_input in bad_performing_inputs:
+        #     optimize_for_input(bad_input)
 
 
     except Exception as e:
@@ -327,8 +396,8 @@ def main():
         raise e
 
 
-
 def execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base):
+    result_paths = []
     for i, sample in enumerate(samples[:1]):
         logger.info(f"Processing sample {i + 1}/{len(samples)}")
 
@@ -350,9 +419,19 @@ def execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, sa
         try:
             scheduling_strategy = 'kn_kn'
             result = execute_simulation(full_config, sim_inputs, scheduling_strategy)
+            result['sample'] = {
+                'apps': apps,
+                'sample': sample.tolist(),
+                'mapping': mapping,
+                'infra_config': infra_config,
+                'workload_base': workload_base,
+                'sim_inputs': sim_inputs,
+                'scheduling_strategy': scheduling_strategy
+            }
 
             # Save result
             result_file = output_dir / f"simulation_{i + 1}.json"
+            result_paths.append(result_file)
             with open(result_file, 'w') as f:
                 json.dump(result, f, indent=2, cls=DataclassJSONEncoder)
 
@@ -361,8 +440,12 @@ def execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, sa
         except Exception as e:
             logger.error(f"Error in simulation {i + 1}: {str(e)}")
             logger.exception(e)
+    return result_paths
 
-def execute_proactive_samples(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base, models_locations):
+
+def execute_proactive_samples(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base,
+                              models_locations):
+    result_paths = []
     for i, sample in enumerate(samples[:1]):
         logger.info(f"Processing sample {i + 1}/{len(samples)}")
 
@@ -382,11 +465,35 @@ def execute_proactive_samples(apps, infra_config, logger, mapping, output_dir, s
 
         # Execute simulation with additional inputs
         try:
+            cache_policy = 'fifo'
+            task_priority = 'fifo'
+            keep_alive = 30
+            queue_length = 100
             scheduling_strategy = 'prokn_prokn'
-            result = execute_simulation(full_config, sim_inputs, scheduling_strategy, models_locations)
+            result = execute_simulation(full_config, sim_inputs, scheduling_strategy, models_locations=models_locations,
+                                        cache_policy=cache_policy,
+                                        task_priority=task_priority,
+                                        keep_alive=keep_alive,
+                                        queue_length=queue_length)
+            result['sample'] = {
+                'apps': apps,
+                'sample': sample.tolist(),
+                'mapping': mapping,
+                'infra_config': infra_config,
+                'workload_base': workload_base,
+                'models_locations': models_locations,
+                'sim_inputs': sim_inputs,
+                'scheduling_strategy': scheduling_strategy,
+                'cache_policy': cache_policy,
+                'task_priority': task_priority,
+                'keep_alive': keep_alive,
+                'queue_length': queue_length
+            }
 
             # Save result
             result_file = output_dir / f"simulation_{i + 1}.json"
+            result_paths.append(result_file)
+
             with open(result_file, 'w') as f:
                 json.dump(result, f, indent=2, cls=DataclassJSONEncoder)
 
@@ -395,6 +502,8 @@ def execute_proactive_samples(apps, infra_config, logger, mapping, output_dir, s
         except Exception as e:
             logger.error(f"Error in simulation {i + 1}: {str(e)}")
             logger.exception(e)
+    return result_paths
+
 
 if __name__ == "__main__":
     main()

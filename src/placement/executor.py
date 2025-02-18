@@ -5,11 +5,12 @@ from src.placement.model import (
 )
 from src.placement.model import scheduling_strategies
 from src.placement.simulation import start_simulation
+from src.train import load_models
 
 
 def execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, policy, queue_length, strategy,
                 workload_trace,
-                workload_trace_name, model_locations=None) -> SimulationStats:
+                workload_trace_name, model_locations=None,models=None) -> SimulationStats:
     simulation_policy = SimulationPolicy(
         priority=PriorityPolicy(tasks=policy),
         scheduling=strategy,
@@ -18,9 +19,11 @@ def execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, polic
         queue_length=queue_length,
         short_name=scheduling_strategies[strategy],
     )
+    if models is None and model_locations is not None:
+        models = load_models(model_locations)
 
     # Read time series
     time_series: TimeSeries = TimeSeries.from_dict(workload_trace)
     # Run simulation
-    stats = start_simulation(simulation_data, simulation_policy, infrastructure, time_series, workload_trace_name, model_locations)
+    stats = start_simulation(simulation_data, simulation_policy, infrastructure, time_series, workload_trace_name, models)
     return stats

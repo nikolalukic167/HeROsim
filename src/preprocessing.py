@@ -128,9 +128,8 @@ def create_inputs_outputs(workload_data, pods_data):
     return inputs_outputs
 
 def create_inputs_outputs_seperated(result):
-    this fails key error
-    workload_data = preprocess_workload(result['taskResults'])
-    pods_data = preprocess_pods(result['scaleEvents'])
+    workload_data = preprocess_workload(result['stats']['taskResults'])
+    pods_data = preprocess_pods(result['stats']['scaleEvents'])
     inputs = defaultdict(list)
     outputs = defaultdict(list)
     for task_type, workload in workload_data.items():

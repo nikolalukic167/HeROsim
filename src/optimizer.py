@@ -29,17 +29,11 @@ def run_reactive_simulation(state, params):
     mapping = state['mapping']
     infra_config = state['infra_config']
     workload_base = state['workload_base']
-    models_locations = state['models_locations']
     sim_inputs = state['sim_inputs']
-    scheduling_strategy = state['scheduling_strategy']
-    # cache_policy = state['cache_policy']
-    # task_priority = state['task_priority']
-    # keep_alive = state['keep_alive']
-    # queue_length = state['queue_length']
-    cache_policy = 'fifo'
-    task_priority = 'fifo'
-    keep_alive = 30
-    queue_length = 100
+    cache_policy = state['cache_policy']
+    task_priority = state['task_priority']
+    keep_alive = state['keep_alive']
+    queue_length = state['queue_length']
 
     sample = [0] * len(params)
     for idx, param in mapping.items():
@@ -74,7 +68,11 @@ def run_reactive_simulation(state, params):
             'infra_config': infra_config,
             'workload_base': workload_base,
             'sim_inputs': sim_inputs,
-            'scheduling_strategy': scheduling_strategy
+            'scheduling_strategy': scheduling_strategy,
+            'cache_policy': cache_policy,
+            'task_priority': task_priority,
+            'keep_alive': keep_alive,
+            'queue_length': queue_length
         }
 
         return result
@@ -83,7 +81,7 @@ def run_reactive_simulation(state, params):
         logger.exception(e)
 
 
-def run_proactive_simulation(sample, state, models):
+def run_proactive_simulation(state, models, params):
     apps = state['apps']
     mapping = state['mapping']
     infra_config = state['infra_config']
@@ -94,7 +92,14 @@ def run_proactive_simulation(sample, state, models):
     keep_alive = state['keep_alive']
     queue_length = state['queue_length']
 
-    # Prepare infrastructure configuration
+    sample = [0] * len(params)
+    for idx, param in mapping.items():
+        sample[int(idx)] = params[param]
+
+    sample = np.array(sample)
+
+
+# Prepare infrastructure configuration
     sim_config = prepare_simulation_config(sample, mapping, infra_config)
 
     # Prepare workloads
@@ -121,7 +126,11 @@ def run_proactive_simulation(sample, state, models):
             'infra_config': infra_config,
             'workload_base': workload_base,
             'sim_inputs': sim_inputs,
-            'scheduling_strategy': scheduling_strategy
+            'scheduling_strategy': scheduling_strategy,
+            'cache_policy': cache_policy,
+            'task_priority': task_priority,
+            'keep_alive': keep_alive,
+            'queue_length': queue_length
         }
 
         return result
@@ -131,8 +140,7 @@ def run_proactive_simulation(sample, state, models):
 
 
 class ProactiveOptimizer:
-    def __init__(self, initial_models: Dict[str, xgb.XGBRegressor], target_penalty=0.1, param_bounds_range_factor=0.25):
-        self.models = initial_models
+    def __init__(self, initial_models: Dict[str, xgb.XGBRegressor], target_penalty=0.1, param_bounds_range_factor=0.25, n_iterations = 10):
         self.target_penalty = target_penalty
         # Track best penalties per task
         self.best_penalties = {task: float('inf') for task in initial_models.keys()}
@@ -140,7 +148,11 @@ class ProactiveOptimizer:
         self.improvement_history = {task: [] for task in initial_models.keys()}
         # Determines the bounds of the parameters
         self.param_bounds_range_factor = param_bounds_range_factor
-        self.best_proactive_penalty = 1
+        self.best_proactive_penalty = float('inf')
+        # Keep best models separately
+        self.best_models = {task: model.copy() for task, model in initial_models.items()}
+        self.improvement_history = {task: [] for task in initial_models.keys()}
+        self.n_iterations = n_iterations
 
     def optimize_sample(self, initial_sample, state):
         param_bounds = self.get_bounds(initial_sample,state)
@@ -149,7 +161,8 @@ class ProactiveOptimizer:
         result, iterations = optimize_parameters(
             evaluate_function=eval_func,
             param_bounds=param_bounds,
-            target_penalty=self.target_penalty
+            target_penalty=self.target_penalty,
+            n_iterations=self.n_iterations
         )
         return result, iterations
 
@@ -170,28 +183,40 @@ class ProactiveOptimizer:
         X_new, y_new = create_inputs_outputs_seperated(reactive_result)
 
         # Fine-tune models and track improvements
-        current_penalties = {}
-        for task, model in self.models.items():
-            # Fine-tune model
-            self.models[task] = self.fine_tune_model(
-                model,
-                X_new[task],
-                y_new[task]
-            )
+        # Create temporary models for fine-tuning
+        temp_models = {task: model.copy() for task, model in self.best_models.items()}
+
+        # Fine-tune temporary models
+        for task, model in temp_models.items():
+            model.fit(X_new[task], y_new[task], xgb_model=model)
+
+        # Run proactive simulation with fine-tuned models
+        proactive_result = run_proactive_simulation(state, temp_models, params)
+
+
+        # current_penalties = {}
+        # for task, model in self.models.items():
+        #     # Fine-tune model
+        #     self.models[task] = self.fine_tune_model(
+        #         model,
+        #         X_new[task],
+        #         y_new[task]
+        #     )
 
         # Run proactive simulation with updated models
-        proactive_result = run_proactive_simulation(params, state, self.models)
         proactive_penalty = proactive_result['stats']['penaltyProportion']
 
         # Check if this led to an improvement in proactive performance
         if proactive_penalty < self.best_proactive_penalty:
             self.best_proactive_penalty = proactive_penalty
+            # Update best models
+            self.best_models = temp_models
             # Store the improvement data for all tasks
-            for task in self.models.keys():
+            for task in self.best_models.keys():
                 self.improvement_history[task].append(
                     OptimizationStep(
                         params=params.copy(),
-                        X=X_new.copy(),
+                        X=X_new[task].copy(),
                         y={task: y_new[task]},
                         penalty=proactive_penalty,
                         improvement=True

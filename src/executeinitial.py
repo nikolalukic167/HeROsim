@@ -13,7 +13,7 @@ from copy import deepcopy
 import xgboost
 
 # Assuming increase_events is imported from your previous script
-from src.eventgenerator import increase_events
+from src.eventgenerator import increase_events, increase_events_of_app
 from src.placement.executor import execute_sim
 from src.placement.model import SimulationData, DataclassJSONEncoder
 from src.preprocessing import create_train_test_split_per_task, preprocess_workload, create_inputs_outputs, \
@@ -99,7 +99,7 @@ def prepare_workloads(
             # Create a deep copy of base workload
             workload_copy = deepcopy(base_workload)
             # Apply increase_events with the factor
-            prepared_workloads[app_name] = increase_events(workload_copy['events'], factor)
+            prepared_workloads[app_name] = increase_events_of_app(workload_copy['events'], factor, app_name)
 
     return prepared_workloads
 
@@ -417,6 +417,10 @@ def execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, sa
 
         # Execute simulation with additional inputs
         try:
+            cache_policy = 'fifo'
+            task_priority = 'fifo'
+            keep_alive = 30
+            queue_length = 100
             scheduling_strategy = 'kn_kn'
             result = execute_simulation(full_config, sim_inputs, scheduling_strategy)
             result['sample'] = {
@@ -426,7 +430,11 @@ def execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, sa
                 'infra_config': infra_config,
                 'workload_base': workload_base,
                 'sim_inputs': sim_inputs,
-                'scheduling_strategy': scheduling_strategy
+                'scheduling_strategy': scheduling_strategy,
+                'cache_policy': cache_policy,
+                'task_priority': task_priority,
+                'keep_alive': keep_alive,
+                'queue_length': queue_length
             }
 
             # Save result

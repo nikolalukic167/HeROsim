@@ -19,13 +19,12 @@ from __future__ import annotations
 import logging
 import math
 
-from typing import Set, Tuple, TYPE_CHECKING
-
+from typing import Set, Tuple, TYPE_CHECKING, List
 
 from src.policy.knative.model import KnativeSchedulerState, KnativeSystemState
 
 if TYPE_CHECKING:
-    from src.placement.infrastructure import Node, Platform
+    from src.placement.infrastructure import Node, Platform, Task
 
 from src.placement.model import (
     DurationSecond,
@@ -41,12 +40,58 @@ from src.placement.autoscaler import Autoscaler
 
 
 class KnativeAutoscaler(Autoscaler):
+
+
+
+    def count_tasks_in_windows(self, tasks: List[Task], task_type: str, lookback: int, window_size: int) -> List[int]:
+        """
+        Count tasks of given type in time windows up to lookback seconds.
+
+        Args:
+            tasks: List of Task objects
+            task_type: Type of task to count
+            lookback: How many seconds to look back from now
+            window_size: Size of each window in seconds
+
+        Returns:
+            List of task counts per window, from oldest to newest
+        """
+        current_time = self.env.now
+        start_time = current_time - lookback
+
+        # Calculate number of windows
+        n_windows = lookback // window_size
+        if lookback % window_size != 0:
+            n_windows += 1
+
+        # Initialize counts for each window
+        window_counts = [0] * n_windows
+
+        # Filter tasks by type, lookback period, and dispatched status
+        relevant_tasks = [
+            task for task in tasks
+            if hasattr(task, 'dispatched_time')  # Check if task has been dispatched
+               and task.dispatched_time >= start_time
+               and task.type['name'] == task_type
+        ]
+
+        # Count tasks per window
+        for task in relevant_tasks:
+            # Calculate which window this task belongs to
+            window_index = (task.dispatched_time - start_time) // window_size
+            if 0 <= window_index < n_windows:
+                window_counts[int(window_index)] += 1
+
+        return window_counts
+
+
+
     def scaling_level(self, system_state: KnativeSystemState, task_type: TaskType):
         # Scheduling functions called in a Simpy Process must be Generators
         # No-op as per https://stackoverflow.com/a/68628599/9568489
         if False:
             yield
-
+        self.count_tasks_in_windows(system_state.tasks, task_type['name'], 20, 1)
         # Knative default values (cf. https://knative.dev/docs/serving/autoscaling/concurrency/)
         # Lambda is 1 (cf. https://notes.crmarsh.com/isolates-microvms-and-webassembly)
         state: KnativeSchedulerState = system_state.scheduler_state

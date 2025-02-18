@@ -15,8 +15,9 @@ limitations under the License.
 """
 
 from dataclasses import dataclass
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 
+from src.placement.infrastructure import Task
 from src.placement.model import SchedulerState, SystemState
 
 
@@ -29,3 +30,4 @@ class KnativeSchedulerState(SchedulerState):
 @dataclass
 class KnativeSystemState(SystemState):
     scheduler_state: KnativeSchedulerState
+    tasks: List[Task]

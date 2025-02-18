@@ -58,6 +58,57 @@ def increase_events(data, factor):
 
     return new_data
 
+def increase_events_of_app(data, factor, app_name_increase: str):
+    # Group events by application and timestamp
+    app_time_events = defaultdict(lambda: defaultdict(list))
+    new_data = []
+
+    # First, organize existing events
+    for event in data:
+        timestamp = event['timestamp']
+        app_name = event['application']['name']
+        if app_name != app_name_increase:
+            continue
+        app_time_events[app_name][int(timestamp)].append(event)
+
+    # Process each application separately
+    for app_name, time_events in app_time_events.items():
+
+        timestamps = sorted(time_events.keys())
+        min_time = int(min(timestamps))
+        max_time = int(max(timestamps))
+
+        # For each second in the range
+        for timestamp in range(min_time, max_time + 1):
+            existing_count = len(time_events[timestamp])
+
+            # Calculate target count for this second
+            target_mean = existing_count * factor if existing_count > 0 else 0
+
+            if target_mean > existing_count:
+                # Generate additional events using Poisson distribution
+                additional_count = np.random.poisson(target_mean - existing_count)
+
+                # Add new events
+                for _ in range(additional_count):
+                    # Clone a template event if one exists for this timestamp
+                    if existing_count > 0:
+                        template_event = deepcopy(time_events[timestamp][0])
+                    else:
+                        # Create new event using template from another timestamp
+                        template_event = deepcopy(next(iter(time_events[timestamps[0]]))[0])
+                        template_event['timestamp'] = timestamp
+
+                    time_events[timestamp].append(template_event)
+
+    # Flatten the structure back to a list
+    for app_events in app_time_events.values():
+        for time_events in app_events.values():
+            new_data.extend(time_events)
+
+    return new_data
+
+
 
 def analyze_applications(data):
     # Create dictionaries to store counts and timestamps per application

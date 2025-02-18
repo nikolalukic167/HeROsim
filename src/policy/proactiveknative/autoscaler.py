@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import math
 
-from typing import Set, Tuple, TYPE_CHECKING, Dict
+from typing import Set, Tuple, TYPE_CHECKING, Dict, List
 
 import xgboost
 from simpy import Environment, Store
@@ -29,7 +29,7 @@ from src.policy.proactiveknative.model import ProactiveKnativeSystemState
 from src.train import load_models
 
 if TYPE_CHECKING:
-    from src.placement.infrastructure import Node, Platform
+    from src.placement.infrastructure import Node, Platform, Task
 
 from src.placement.model import (
     DurationSecond,
@@ -58,7 +58,48 @@ class ProactiveKnativeAutoscaler(Autoscaler):
     ):
         super().__init__(env, mutex, data, policy)
         self.models = models
-        logger.info('Loaded models...')
+
+    def count_tasks_in_windows(self, tasks: List[Task], task_type: str, lookback: int, window_size: int) -> List[int]:
+        """
+        Count tasks of given type in time windows up to lookback seconds.
+
+        Args:
+            tasks: List of Task objects
+            task_type: Type of task to count
+            lookback: How many seconds to look back from now
+            window_size: Size of each window in seconds
+
+        Returns:
+            List of task counts per window, from oldest to newest
+        """
+        current_time = self.env.now
+        start_time = current_time - lookback
+
+        # Calculate number of windows
+        n_windows = lookback // window_size
+        if lookback % window_size != 0:
+            n_windows += 1
+
+        # Initialize counts for each window
+        window_counts = [0] * n_windows
+
+        # Filter tasks by type, lookback period, and dispatched status
+        relevant_tasks = [
+            task for task in tasks
+            if hasattr(task, 'dispatched_time')  # Check if task has been dispatched
+               and task.dispatched_time >= start_time
+               and task.type['name'] == task_type
+        ]
+
+        # Count tasks per window
+        for task in relevant_tasks:
+            # Calculate which window this task belongs to
+            window_index = (task.dispatched_time - start_time) // window_size
+            if 0 <= window_index < n_windows:
+                window_counts[int(window_index)] += 1
+
+        return window_counts
+
 
     def scaling_level(self, system_state: ProactiveKnativeSystemState, task_type: TaskType):
         # Scheduling functions called in a Simpy Process must be Generators

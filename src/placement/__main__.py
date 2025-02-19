@@ -19,6 +19,7 @@ import glob
 import json
 import os
 import sys
+from datetime import datetime
 
 from src.parser.parser import parse_simulation_data
 from src.placement.executor import execute_sim
@@ -26,7 +27,7 @@ from src.placement.model import (
     Infrastructure,
     dir_path,
     restricted_float,
-    positive_int, SimulationData,
+    positive_int, SimulationData, DataclassJSONEncoder,
 )
 from src.placement.model import priority_policies, scheduling_strategies, cache_policies
 
@@ -132,10 +133,15 @@ def main() -> int:
 
     with workload_trace as infile:
         workload = json.load(infile)
+    simulation_time = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
-    return execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, policy, queue_length, strategy,
+    stats = execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, policy, queue_length, strategy,
                        workload, workload_trace_name)
 
+    with open(os.path.join("result", f"{simulation_time}.json"), "w") as outfile:
+        json.dump(stats, outfile, indent=2, cls=DataclassJSONEncoder)
+
+    return os.EX_OK
 
 
 

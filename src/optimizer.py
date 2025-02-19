@@ -1,16 +1,16 @@
+import json
 import logging
 from dataclasses import dataclass
 from functools import partial
-from typing import Dict, List, Tuple, Any
+from pathlib import Path
+from typing import Dict, Tuple, Any
+
 import numpy as np
 import xgboost as xgb
-from pathlib import Path
-import json
 
 from src.bayesian import optimize_parameters
 from src.executeinitial import prepare_simulation_config, prepare_workloads, flatten_workloads, execute_simulation
-from src.preprocessing import create_inputs_outputs, preprocess_workload, preprocess_pods, \
-    create_inputs_outputs_seperated
+from src.preprocessing import create_inputs_outputs_seperated_per_app_windowed
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +98,7 @@ def run_proactive_simulation(state, models, params):
 
     sample = np.array(sample)
 
-
-# Prepare infrastructure configuration
+    # Prepare infrastructure configuration
     sim_config = prepare_simulation_config(sample, mapping, infra_config)
 
     # Prepare workloads
@@ -140,7 +139,8 @@ def run_proactive_simulation(state, models, params):
 
 
 class ProactiveOptimizer:
-    def __init__(self, initial_models: Dict[str, xgb.XGBRegressor], target_penalty=0.1, param_bounds_range_factor=0.25, n_iterations = 10):
+    def __init__(self, initial_models: Dict[str, xgb.XGBRegressor], target_penalty=0.1, param_bounds_range_factor=0.25,
+                 n_iterations=10):
         self.target_penalty = target_penalty
         # Track best penalties per task
         self.best_penalties = {task: float('inf') for task in initial_models.keys()}
@@ -155,7 +155,7 @@ class ProactiveOptimizer:
         self.n_iterations = n_iterations
 
     def optimize_sample(self, initial_sample, state):
-        param_bounds = self.get_bounds(initial_sample,state)
+        param_bounds = self.get_bounds(initial_sample, state)
         # Create evaluation function with fixed state
         eval_func = partial(self.evaluate_parameters, state=state['sample'])
         result, iterations = optimize_parameters(
@@ -178,9 +178,11 @@ class ProactiveOptimizer:
     def evaluate_parameters(self, state, **params):
         # Run reactive simulation
         reactive_result = run_reactive_simulation(state, params)
-
+        app_definitions = {}
+        for task in reactive_result['stats']['taskResults']:
+            app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
         # Prepare data for all tasks
-        X_new, y_new = create_inputs_outputs_seperated(reactive_result)
+        X_new, y_new = create_inputs_outputs_seperated_per_app_windowed(reactive_result['stats'], 5, app_definitions)
 
         # Fine-tune models and track improvements
         # Create temporary models for fine-tuning
@@ -192,7 +194,6 @@ class ProactiveOptimizer:
 
         # Run proactive simulation with fine-tuned models
         proactive_result = run_proactive_simulation(state, temp_models, params)
-
 
         # current_penalties = {}
         # for task, model in self.models.items():

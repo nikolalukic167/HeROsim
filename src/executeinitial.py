@@ -1,23 +1,18 @@
 import json
+import logging
 import math
-from collections import defaultdict
-
-import numpy as np
 import pickle
+from copy import deepcopy
 from pathlib import Path
 from typing import Dict, List, Any
-import logging
-from datetime import datetime
-from copy import deepcopy
 
+import numpy as np
 import xgboost
 
 # Assuming increase_events is imported from your previous script
-from src.eventgenerator import increase_events, increase_events_of_app
+from src.eventgenerator import increase_events_of_app
 from src.placement.executor import execute_sim
 from src.placement.model import SimulationData, DataclassJSONEncoder
-from src.preprocessing import create_train_test_split_per_task, preprocess_workload, create_inputs_outputs, \
-    preprocess_pods, train_xgboost_per_task, evaluate_xgboost_per_task
 from src.train import train_model, save_models
 
 REQUIRED_SIM_FILES = [
@@ -275,59 +270,6 @@ def flatten_workloads(workloads: Dict[str, Dict]) -> Dict[str, Any]:
     }
 
 
-def find_bad_performing_inputs(proactive_results_files: List[str], n: int):
-    penalties = []
-    for result_file in proactive_results_files:
-        with open(result_file, 'r') as fd:
-            result = json.load(fd)
-            penalties.append((result['stats']['penaltyProportion'], result))
-    penalties.sort(key=lambda x: x[0])
-    return [x[1] for x in penalties[:n]]
-
-
-def optimize_for_input(bad_input, range: float = 0.25):
-    apps = bad_input['sample']['apps']
-    sample = bad_input['sample']['sample']
-    mapping = bad_input['sample']['mapping']
-    infra_config = bad_input['sample']['infra_config']
-    workload_base = bad_input['sample']['workload_base']
-    models_locations = bad_input['sample']['models_locations']
-    sim_inputs = bad_input['sample']['sim_inputs']
-    scheduling_strategy = bad_input['sample']['scheduling_strategy']
-    cache_policy = bad_input['sample']['cache_policy']
-    task_priority = bad_input['sample']['task_priority']
-    keep_alive = bad_input['sample']['keep_alive']
-    queue_length = bad_input['sample']['queue_length']
-
-    param_bounds = {}
-    for param, idx in mapping.items():
-        param_value = sample[idx]
-        # TODO decide whether we need to clamp/abort on specific values (i.e., out of "range")
-        param_up = param_value + (param_value * range)
-        param_down = param_value - (param_value * range)
-        param_bounds[param] = (param_down, param_up)
-
-        # Define evaluation function
-
-    def evaluate_parameters(**params):
-        # Ensure device proportions sum to 1
-        total_device_proportion = 0
-        for param, value in params.items():
-            if param.startswith('device_prop_'):
-                total_device_proportion += value
-        if not np.isclose(total_device_proportion, 1.0, atol=0.01):
-            return float('-inf')
-
-        # First run reactive policy
-
-        # Fine-tune model with new dataset
-
-        # Run simulation with
-        # Run simulation and return negative penalty (for maximization)
-        penalty = run_proactive_simulation(params)
-        return -penalty
-
-
 def main():
     # Configuration paths
     base_dir = Path("simulation_data")
@@ -369,7 +311,7 @@ def main():
         apps = [app for app in infra_config['wsc'].keys()]
 
         # Process each sample
-        reactive_results = execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, samples,
+        reactive_results_paths = execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, samples,
                                                     sim_inputs, workload_base)
 
         logger.info("Completed all simulations")

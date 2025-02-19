@@ -33,7 +33,7 @@ from src.placement.model import (
     SizeGigabyte,
     SpeedMBps,
     SystemState,
-    TaskType,
+    TaskType, TimeSeries,
 )
 
 from src.placement.autoscaler import Autoscaler
@@ -84,6 +84,45 @@ class KnativeAutoscaler(Autoscaler):
 
         return window_counts
 
+    def count_events_in_windows_ts(self, time_series: TimeSeries, task_type: str, lookforward: int, window_size: int) -> List[int]:
+        """
+        Count matching events in future time windows.
+
+        Args:
+            time_series: TimeSeries object containing future events
+            task_type: Type of task to match in event's dag
+            lookforward: How many seconds to look forward from now
+            window_size: Size of each window in seconds
+
+        Returns:
+            List of event counts per window, from now to lookforward
+        """
+        current_time = self.env.now
+        end_time = current_time + lookforward
+
+        # Calculate number of windows
+        n_windows = lookforward // window_size
+        if lookforward % window_size != 0:
+            n_windows += 1
+
+        # Initialize counts for each window
+        window_counts = [0] * n_windows
+
+        # Filter relevant events
+        relevant_events = [
+            event for event in time_series.events
+            if current_time <= event['timestamp'] <= end_time
+               and task_type in event['application']['dag']
+        ]
+
+        # Count events per window
+        for event in relevant_events:
+            window_index = (event['timestamp'] - current_time) // window_size
+            if 0 <= window_index < n_windows:
+                window_counts[int(window_index)] += 1
+
+        return window_counts
+
 
 
     def scaling_level(self, system_state: KnativeSystemState, task_type: TaskType):
@@ -91,7 +130,7 @@ class KnativeAutoscaler(Autoscaler):
         # No-op as per https://stackoverflow.com/a/68628599/9568489
         if False:
             yield
-        self.count_tasks_in_windows(system_state.tasks, task_type['name'], 20, 1)
+        self.count_events_in_windows_ts(system_state.time_series, task_type['name'], 60, 60)
         # Knative default values (cf. https://knative.dev/docs/serving/autoscaling/concurrency/)
         # Lambda is 1 (cf. https://notes.crmarsh.com/isolates-microvms-and-webassembly)
         state: KnativeSchedulerState = system_state.scheduler_state

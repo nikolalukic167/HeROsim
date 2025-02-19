@@ -133,8 +133,8 @@ def combination_to_array(combination, config):
     return np.array(values)
 
 if __name__ == "__main__":
-    config_file = "data/ids/space.json"
-
+    config_file = "simulation_data/space.json"
+    output_prefix = "simulation_data/combinations"
     try:
         # Load configuration
         with open(config_file, 'r') as f:
@@ -150,7 +150,7 @@ if __name__ == "__main__":
         mapping = generate_structure_mapping(config)
 
         # Save everything
-        save_combinations(arrays, mapping)
+        save_combinations(arrays, mapping, output_prefix)
 
         print(f"Generated {len(arrays)} valid combinations")
         print("\nArray structure:")

@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Dict, Tuple, List
 
 from src.placement.infrastructure import Task
-from src.placement.model import SchedulerState, SystemState
+from src.placement.model import SchedulerState, SystemState, WorkloadEvent
 
 
 @dataclass
@@ -31,3 +31,4 @@ class KnativeSchedulerState(SchedulerState):
 class ProactiveKnativeSystemState(SystemState):
     scheduler_state: KnativeSchedulerState
     tasks: List[Task]
+    workloads: Dict[str, List[WorkloadEvent]]

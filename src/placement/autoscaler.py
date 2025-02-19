@@ -15,16 +15,15 @@ limitations under the License.
 """
 
 from __future__ import annotations
-from abc import abstractmethod
 
 import logging
 import math
+from abc import abstractmethod
+from typing import Dict, Generator, List, Set, Tuple, TYPE_CHECKING
 
 from simpy.core import Environment, SimTime
 from simpy.events import Process
 from simpy.resources.store import Store
-
-from typing import Dict, Generator, List, Set, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.placement.infrastructure import Node, Platform
@@ -38,14 +37,16 @@ from src.placement.model import (
     TaskType,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class Autoscaler:
     def __init__(
-        self,
-        env: Environment,
-        mutex: Store,
-        data: SimulationData,
-        policy: SimulationPolicy,
+            self,
+            env: Environment,
+            mutex: Store,
+            data: SimulationData,
+            policy: SimulationPolicy,
     ):
         self.env = env
         self.mutex = mutex
@@ -70,7 +71,7 @@ class Autoscaler:
             # Per-function scaling decision
             system_state: SystemState = yield self.mutex.get()
             replicas: Dict[str, Set[Tuple[Node, Platform]]] = system_state.replicas
-
+            print(f'autoscaling, env.now: {self.env.now}')
             for function_name, function_replicas in replicas.items():
                 force_scale_up = True
 
@@ -95,7 +96,7 @@ class Autoscaler:
 
                     elif hardware_scaling > 0:
                         # Scale up
-                        count = abs(math.   ceil(hardware_scaling))
+                        count = abs(math.ceil(hardware_scaling))
                         # logging.error(f"[ {self.env.now} ] Scaling up {function_name} by {count} (currently {len(function_replicas)})")
                         stop = yield self.env.process(
                             self.scale_up(
@@ -113,8 +114,8 @@ class Autoscaler:
 
                 # Force scale up on any hardware type if necessary
                 if force_scale_up and (
-                    (self.env.now - last_force_scale_up[function_name])
-                    > self.policy.keep_alive
+                        (self.env.now - last_force_scale_up[function_name])
+                        > self.policy.keep_alive
                 ):
                     stop = yield self.env.process(
                         self.create_first_replica(
@@ -130,14 +131,14 @@ class Autoscaler:
             self.env.step()
 
             # Wake Autoscaler up once per second
-            # yield self.env.timeout(1)
+            yield self.env.timeout(1)
 
     def scale_up(
-        self,
-        count: int,
-        system_state: SystemState,
-        function_name: str,
-        hardware_target: str,
+            self,
+            count: int,
+            system_state: SystemState,
+            function_name: str,
+            hardware_target: str,
     ) -> Generator:
         # Get current function replicas
         function_replicas = system_state.replicas[function_name]
@@ -154,20 +155,20 @@ class Autoscaler:
             for node, platforms in available_resources.items():
                 for platform in platforms:
                     if (
-                        hardware_target != "any"
-                        and platform.type["shortName"] != hardware_target
+                            hardware_target != "any"
+                            and platform.type["shortName"] != hardware_target
                     ):
                         continue
                     if (
-                        platform.type["shortName"]
-                        not in self.data.task_types[function_name]["platforms"]
-                    ):
-                        continue
-                    if (
-                        node.memory
-                        < self.data.task_types[function_name]["memoryRequirements"][
                             platform.type["shortName"]
-                        ]
+                            not in self.data.task_types[function_name]["platforms"]
+                    ):
+                        continue
+                    if (
+                            node.memory
+                            < self.data.task_types[function_name]["memoryRequirements"][
+                        platform.type["shortName"]
+                    ]
                     ):
                         continue
                     couples_suitable.add((node, platform))
@@ -259,11 +260,11 @@ class Autoscaler:
                 pass
 
     def scale_down(
-        self,
-        count: int,
-        system_state: SystemState,
-        function_name: str,
-        hardware_target: str,
+            self,
+            count: int,
+            system_state: SystemState,
+            function_name: str,
+            hardware_target: str,
     ):
         # Get current function replicas
         function_replicas = system_state.replicas[function_name]
@@ -370,37 +371,37 @@ class Autoscaler:
 
     @abstractmethod
     def scaling_level(
-        self, system_state: SystemState, task_type: TaskType
+            self, system_state: SystemState, task_type: TaskType
     ) -> Generator:
         pass
 
     @abstractmethod
     def create_first_replica(
-        self, system_state: SystemState, task_type: TaskType
+            self, system_state: SystemState, task_type: TaskType
     ) -> Generator:
         pass
 
     @abstractmethod
     def create_replica(
-        self, couples_suitable: Set[Tuple[Node, Platform]], task_type: TaskType
+            self, couples_suitable: Set[Tuple[Node, Platform]], task_type: TaskType
     ) -> Generator:
         pass
 
     @abstractmethod
     def initialize_replica(
-        self,
-        new_replica: Tuple[Node, Platform],
-        function_replicas: Set[Tuple[Node, Platform]],
-        task_type: TaskType,
-        state: SystemState,
+            self,
+            new_replica: Tuple[Node, Platform],
+            function_replicas: Set[Tuple[Node, Platform]],
+            task_type: TaskType,
+            state: SystemState,
     ) -> Generator:
         pass
 
     @abstractmethod
     def remove_replica(
-        self,
-        couples_suitable: Set[Tuple[Node, Platform]],
-        task_type: TaskType,
-        state: SystemState,
+            self,
+            couples_suitable: Set[Tuple[Node, Platform]],
+            task_type: TaskType,
+            state: SystemState,
     ) -> Generator:
         pass

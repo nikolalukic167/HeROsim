@@ -8,6 +8,8 @@ simpy = "*"
 matplotlib = "*"
 dataclasses-json = "*"
 patool = "*"
+xgboost = "*"
+bayesian-optimization = "*"
 
 [dev-packages]
 black = "*"

@@ -46,19 +46,26 @@
       "min": 0.2,
       "max": 0.5,
       "step": 0.1,
-      "specs":     {
+      "specs": {
         "memory": 0.5,
         "platforms": [
           "pynqFpga"
         ],
         "storage": [
-          "flashCard", "someRemote"
+          "flashCard",
+          "someRemote"
         ]
       }
     }
   },
   "wsc": {
-    "es-cnn": {
+    "nofs-dnn1": {
+      "average": 6,
+      "min": 2,
+      "max": 9,
+      "step": 1
+    },
+    "nofs-cnn": {
       "average": 6,
       "min": 2,
       "max": 9,

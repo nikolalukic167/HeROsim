@@ -71,8 +71,8 @@ def print_sample_statistics(sample, mapping):
 
 def main():
     # Configuration
-    input_prefix = "combinations"
-    output_prefix = "lhs_samples"
+    input_prefix = "simulation_data/combinations"
+    output_prefix = "simulation_data/lhs_samples"
     n_samples = 100
     seed = 42
 

@@ -59,14 +59,16 @@ class ProactiveKnativeAutoscaler(Autoscaler):
         super().__init__(env, mutex, data, policy)
         self.models = models
 
-    def count_tasks_in_windows(self, tasks: List[Task], task_type: str, lookback: int, window_size: int) -> List[int]:
+    def count_tasks_in_windows(self, tasks: List[Task], task_type: str, lookback: int, lookforward: int, window_size: int) -> List[int]:
         """
-        Count tasks of given type in time windows up to lookback seconds.
+        Count tasks of given type in time windows, looking both back and forward in time.
+        Only counts tasks that have been dispatched (have dispatched_time attribute).
 
         Args:
             tasks: List of Task objects
             task_type: Type of task to count
             lookback: How many seconds to look back from now
+            lookforward: How many seconds to look forward from now
             window_size: Size of each window in seconds
 
         Returns:
@@ -74,26 +76,27 @@ class ProactiveKnativeAutoscaler(Autoscaler):
         """
         current_time = self.env.now
         start_time = current_time - lookback
+        end_time = current_time + lookforward
 
         # Calculate number of windows
-        n_windows = lookback // window_size
-        if lookback % window_size != 0:
+        total_time = lookback + lookforward
+        n_windows = total_time // window_size
+        if total_time % window_size != 0:
             n_windows += 1
 
         # Initialize counts for each window
         window_counts = [0] * n_windows
 
-        # Filter tasks by type, lookback period, and dispatched status
+        # Filter tasks by type and time range
         relevant_tasks = [
             task for task in tasks
-            if hasattr(task, 'dispatched_time')  # Check if task has been dispatched
-               and task.dispatched_time >= start_time
-               and task.type['name'] == task_type
+            if hasattr(task, 'dispatched_time')
+               and start_time <= task.dispatched_time <= end_time
+               and task.type == task_type
         ]
 
         # Count tasks per window
         for task in relevant_tasks:
-            # Calculate which window this task belongs to
             window_index = (task.dispatched_time - start_time) // window_size
             if 0 <= window_index < n_windows:
                 window_counts[int(window_index)] += 1

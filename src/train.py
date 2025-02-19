@@ -7,18 +7,23 @@ import numpy as np
 from xgboost import Booster
 
 # Assuming increase_events is imported from your previous script
-from src.preprocessing import create_train_test_split_per_task, preprocess_workload, create_inputs_outputs, \
-    preprocess_pods, train_xgboost_per_task, evaluate_xgboost_per_task
+from src.preprocessing import create_train_test_split_per_task, create_inputs_outputs, \
+    preprocess_pods, train_xgboost_per_task, evaluate_xgboost_per_task, preprocess_workload_app_results, \
+    create_inputs_outputs_seperated_per_app_windowed, create_train_test_split_per_windowed
 
 
-def train_model(output_dir, samples):
+def train_model(output_dir, samples, window_size=5):
     all_train_data = defaultdict(list)
     all_test_data = defaultdict(list)
+
     for i, sample in enumerate(samples[:1]):
         with open(output_dir / f"simulation_{i + 1}.json", 'r') as fd:
             obj = json.load(fd)['stats']
-            train_data_sample, test_data_sample = create_train_test_split_per_task(
-                create_inputs_outputs(preprocess_workload(obj['taskResults']), preprocess_pods(obj['scaleEvents'])))
+            app_definitions = {}
+            for task in obj['taskResults']:
+                app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
+            train_data_sample, test_data_sample = create_train_test_split_per_windowed(
+                create_inputs_outputs_seperated_per_app_windowed(obj, window_size, app_definitions))
             for fn, data in train_data_sample.items():
                 all_train_data[fn].append(data)
             for fn, data in test_data_sample.items():

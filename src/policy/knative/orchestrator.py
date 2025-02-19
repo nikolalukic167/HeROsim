@@ -54,7 +54,8 @@ class KnativeOrchestrator(Orchestrator):
             scheduler_state=scheduler_state,
             available_resources=available_resources,
             replicas=replicas,
-            tasks=self.task_archive
+            tasks=self.task_archive,
+            time_series=self.time_series
         )
 
         return system_state

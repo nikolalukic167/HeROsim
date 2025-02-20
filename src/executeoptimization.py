@@ -81,7 +81,9 @@ def main():
         # Initialize optimizer
         optimizer = ProactiveOptimizer(
             initial_models=initial_models,
-            target_penalty=0.1  # Set your target penalty
+            target_penalty=0.1, # Set your target penalty,
+            n_iterations=1,
+            init_points=1
         )
 
         # Optimize each high-penalty sample
@@ -94,7 +96,7 @@ def main():
                 result, iterations = optimizer.optimize_sample(sample, state)
 
                 optimization_results.append({
-                    'sample_index': high_penalty_indices[idx],
+                    'sample_index': int(high_penalty_indices[idx]),
                     'original_sample': sample.tolist(),
                     'optimized_params': result['params'],
                     'original_penalty': float(initial_penalties[high_penalty_indices[idx]]),
@@ -140,31 +142,6 @@ def main():
     except Exception as e:
         logger.error(f"Fatal error: {str(e)}")
         raise
-
-# def create_initial_models(samples, simulation_results, tasks):
-#     initial_models = {}
-#     for task in tasks:
-#         # Prepare data for the task
-#         X = []
-#         y = []
-#         for sample, result in zip(samples, simulation_results):
-#             X.append(sample)
-#             y.append(result['penalty'])
-#
-#         # Convert to numpy arrays
-#         X = np.array(X)
-#         y = np.array(y)
-#
-#         # Split data into training and test sets
-#         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-#
-#         # Train XGBoost model
-#         model = xgb.XGBRegressor()
-#         model.fit(X_train, y_train)
-#
-#         initial_models[task] = model
-#
-#     return initial_models
 
 
 if __name__ == "__main__":

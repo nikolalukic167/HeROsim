@@ -140,10 +140,10 @@ class Orchestrator:
             resources_occupation
         )
 
-        print("Scheduling times on each node:")
-        print(
-            *(node_result["schedulingTime"] for node_result in node_results), sep="\n"
-        )
+        # print("Scheduling times on each node:")
+        # print(
+        #     *(node_result["schedulingTime"] for node_result in node_results), sep="\n"
+        # )
 
         average_elapsed_time = sum(
             task_result["elapsedTime"] for task_result in task_results

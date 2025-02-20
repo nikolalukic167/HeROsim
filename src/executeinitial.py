@@ -323,15 +323,6 @@ def main():
         logger.info('Finished model training')
         logger.info(f'All files can be found under {output_dir}')
 
-        # logger.info("Trained models, now evaluating samples again...")
-        # proactive_results = execute_proactive_samples(apps, infra_config, logger, mapping, output_dir, samples,
-        #                                               sim_inputs, workload_base, model_paths)
-        #
-        # bad_performing_inputs = find_bad_performing_inputs(proactive_results, n=5)
-        #
-        # for bad_input in bad_performing_inputs:
-        #     optimize_for_input(bad_input)
-
 
     except Exception as e:
         logger.error(f"Fatal error: {str(e)}")

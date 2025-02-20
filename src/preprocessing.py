@@ -441,5 +441,6 @@ def main():
         for task in result['taskResults']:
             app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
         print(create_inputs_outputs_seperated_per_app_windowed(result, 5, app_definitions))
+
 if __name__ == '__main__':
     main()

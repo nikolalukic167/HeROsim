@@ -48,7 +48,7 @@ def load_models(model_locations: Dict[str, str]):
 def save_models(models, output_dir):
     model_paths = {}
     for fn, model in models.items():
-        model_path = output_dir / f"{fn}.json"
+        model_path = output_dir / f"{fn}_model.json"
         model.save_model(model_path)
         model_paths[fn] = str(model_path)
     return model_paths

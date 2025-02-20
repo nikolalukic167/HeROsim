@@ -661,9 +661,9 @@ class Platform:
                 )
             else:
                 # Remote storage
-                logging.warning(
-                    f"[ {self.env.now} ] {task} input fetched from remote storage"
-                )
+                # logging.warning(
+                #     f"[ {self.env.now} ] {task} input fetched from remote storage"
+                # )
                 input_storage = yield self.node.storage.get(
                     lambda storage: storage.type["remote"]
                 )

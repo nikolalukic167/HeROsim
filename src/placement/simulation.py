@@ -207,10 +207,10 @@ def start_simulation(
     # with open(os.path.join("result", f"{simulation_time}.json"), "w") as outfile:
     #     json.dump(stats, outfile, indent=2, cls=DataclassJSONEncoder)
 
-    logging.warning(f"Total time: {env.now / 3600} hours")
-    logging.warning(f"Average elapsed time: {stats['averageElapsedTime']}")
-    logging.warning(f"Average compute time: {stats['averageComputeTime']}")
-    logging.warning(f"Total energy: {stats['energy']}")
-    logging.warning(f"Penalty proportion: {stats['penaltyProportion']}")
-    logging.warning(f"Cold start proportion: {stats['coldStartProportion']}")
+    # logging.warning(f"Total time: {env.now / 3600} hours")
+    # logging.warning(f"Average elapsed time: {stats['averageElapsedTime']}")
+    # logging.warning(f"Average compute time: {stats['averageComputeTime']}")
+    # logging.warning(f"Total energy: {stats['energy']}")
+    # logging.warning(f"Penalty proportion: {stats['penaltyProportion']}")
+    # logging.warning(f"Cold start proportion: {stats['coldStartProportion']}")
     return stats

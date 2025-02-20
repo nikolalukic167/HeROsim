@@ -27,6 +27,7 @@ from simpy import Environment, Store
 from src.policy.knative.model import KnativeSchedulerState, KnativeSystemState
 from src.policy.proactiveknative.model import ProactiveKnativeSystemState
 from src.train import load_models
+from src.policy.knative.util import count_events_in_windows_ts
 
 if TYPE_CHECKING:
     from src.placement.infrastructure import Node, Platform, Task
@@ -59,124 +60,93 @@ class ProactiveKnativeAutoscaler(Autoscaler):
         super().__init__(env, mutex, data, policy)
         self.models = models
 
-    def count_tasks_in_windows(self, tasks: List[Task], task_type: str, lookback: int, lookforward: int, window_size: int) -> List[int]:
-        """
-        Count tasks of given type in time windows, looking both back and forward in time.
-        Only counts tasks that have been dispatched (have dispatched_time attribute).
-
-        Args:
-            tasks: List of Task objects
-            task_type: Type of task to count
-            lookback: How many seconds to look back from now
-            lookforward: How many seconds to look forward from now
-            window_size: Size of each window in seconds
-
-        Returns:
-            List of task counts per window, from oldest to newest
-        """
-        current_time = self.env.now
-        start_time = current_time - lookback
-        end_time = current_time + lookforward
-
-        # Calculate number of windows
-        total_time = lookback + lookforward
-        n_windows = total_time // window_size
-        if total_time % window_size != 0:
-            n_windows += 1
-
-        # Initialize counts for each window
-        window_counts = [0] * n_windows
-
-        # Filter tasks by type and time range
-        relevant_tasks = [
-            task for task in tasks
-            if hasattr(task, 'dispatched_time')
-               and start_time <= task.dispatched_time <= end_time
-               and task.type == task_type
-        ]
-
-        # Count tasks per window
-        for task in relevant_tasks:
-            window_index = (task.dispatched_time - start_time) // window_size
-            if 0 <= window_index < n_windows:
-                window_counts[int(window_index)] += 1
-
-        return window_counts
-
-
     def scaling_level(self, system_state: ProactiveKnativeSystemState, task_type: TaskType):
         # Scheduling functions called in a Simpy Process must be Generators
         # No-op as per https://stackoverflow.com/a/68628599/9568489
         if False:
             yield
+        if self.models.get(task_type['name']) is None:
+            return {}
+        look_forward_size = 5
+        events = \
+        count_events_in_windows_ts(self.env.now, system_state.time_series, task_type['name'], look_forward_size,
+                                   look_forward_size)[0] / look_forward_size
+        no_replicas = self.models[task_type['name']].predict([events])
 
-        # Knative default values (cf. https://knative.dev/docs/serving/autoscaling/concurrency/)
-        # Lambda is 1 (cf. https://notes.crmarsh.com/isolates-microvms-and-webassembly)
-        state: KnativeSchedulerState = system_state.scheduler_state
-        target_concurrencies: PlatformVector = state.target_concurrencies[
-            task_type["name"]
-        ]
-        function_concurrencies = state.average_contention[task_type["name"]].values()
-        function_replicas: Set[Tuple[Node, Platform]] = system_state.replicas[
-            task_type["name"]
-        ]
+        current_replicas = len(system_state.replicas[task_type['name']])
 
-        """
-        target_concurrencies: PlatformVector = {
-            platform: self.policy.queue_length if platform == baseline_platform else 0
-            for platform in self.data.platform_types
+        modify_replicas = no_replicas - current_replicas
+
+        return {
+            'any': int(modify_replicas)
         }
-        """
-
-        platform_count = len(
-            [
-                platform
-                for platform in self.data.platform_types.values()
-                # if platform["hardware"] == "cpu"
-            ]
-        )
-
-        # Per-function concurrency level
-        # Knative only allocates CPUs (baseline platform)
-        in_system_concurrencies: PlatformVector = {
-            platform_type["shortName"]: (
-                0.0
-                if not function_concurrencies
-                else sum(function_concurrencies) / platform_count
-                # if platform_type["hardware"] == "cpu"
-                # else 0.0
-            )
-            for platform_type in self.data.platform_types.values()
-        }
-
-        replica_count = len(function_replicas)
-
-        # Result > 0 means scaling up
-        # Result < 0 means scaling down
-        # Result == 0 means current scaling level is adequate
-        concurrency_results: PlatformVector = {
-            platform_type["shortName"]: (
-                    math.ceil(
-                        in_system_concurrencies[platform_type["shortName"]]
-                        / target_concurrencies[platform_type["shortName"]]
-                    )
-                    - replica_count
-                # if platform_type["hardware"] == "cpu"
-                # else 0
-            )
-            for platform_type in self.data.platform_types.values()
-        }
-
-        """
-        logging.error(f"[ {self.env.now} ] ===")
-        logging.error(f"[ {self.env.now} ] {task_type['name']} {in_system_concurrencies}")
-        logging.error(f"[ {self.env.now} ] {task_type['name']} {function_replicas}")
-        logging.error(f"[ {self.env.now} ] {task_type['name']} {target_concurrencies}")
-        logging.error(f"[ {self.env.now} ] {task_type['name']} {concurrency_results}")
-        logging.error(f"[ {self.env.now} ] ===")
-        """
-
-        return concurrency_results
+        # # Knative default values (cf. https://knative.dev/docs/serving/autoscaling/concurrency/)
+        # # Lambda is 1 (cf. https://notes.crmarsh.com/isolates-microvms-and-webassembly)
+        # state: KnativeSchedulerState = system_state.scheduler_state
+        # target_concurrencies: PlatformVector = state.target_concurrencies[
+        #     task_type["name"]
+        # ]
+        # function_concurrencies = state.average_contention[task_type["name"]].values()
+        # function_replicas: Set[Tuple[Node, Platform]] = system_state.replicas[
+        #     task_type["name"]
+        # ]
+        #
+        # """
+        # target_concurrencies: PlatformVector = {
+        #     platform: self.policy.queue_length if platform == baseline_platform else 0
+        #     for platform in self.data.platform_types
+        # }
+        # """
+        #
+        # platform_count = len(
+        #     [
+        #         platform
+        #         for platform in self.data.platform_types.values()
+        #         # if platform["hardware"] == "cpu"
+        #     ]
+        # )
+        #
+        # # Per-function concurrency level
+        # # Knative only allocates CPUs (baseline platform)
+        # in_system_concurrencies: PlatformVector = {
+        #     platform_type["shortName"]: (
+        #         0.0
+        #         if not function_concurrencies
+        #         else sum(function_concurrencies) / platform_count
+        #         # if platform_type["hardware"] == "cpu"
+        #         # else 0.0
+        #     )
+        #     for platform_type in self.data.platform_types.values()
+        # }
+        #
+        # replica_count = len(function_replicas)
+        #
+        # # Result > 0 means scaling up
+        # # Result < 0 means scaling down
+        # # Result == 0 means current scaling level is adequate
+        # concurrency_results: PlatformVector = {
+        #     platform_type["shortName"]: (
+        #             math.ceil(
+        #                 in_system_concurrencies[platform_type["shortName"]]
+        #                 / target_concurrencies[platform_type["shortName"]]
+        #             )
+        #             - replica_count
+        #         # if platform_type["hardware"] == "cpu"
+        #         # else 0
+        #     )
+        #     for platform_type in self.data.platform_types.values()
+        # }
+        #
+        # """
+        # logging.error(f"[ {self.env.now} ] ===")
+        # logging.error(f"[ {self.env.now} ] {task_type['name']} {in_system_concurrencies}")
+        # logging.error(f"[ {self.env.now} ] {task_type['name']} {function_replicas}")
+        # logging.error(f"[ {self.env.now} ] {task_type['name']} {target_concurrencies}")
+        # logging.error(f"[ {self.env.now} ] {task_type['name']} {concurrency_results}")
+        # logging.error(f"[ {self.env.now} ] ===")
+        # """
+        #
+        # return concurrency_results
 
     def create_first_replica(self, system_state: SystemState, task_type: TaskType):
         # Knative will allocate a new CPU replica

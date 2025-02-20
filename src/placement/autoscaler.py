@@ -71,7 +71,7 @@ class Autoscaler:
             # Per-function scaling decision
             system_state: SystemState = yield self.mutex.get()
             replicas: Dict[str, Set[Tuple[Node, Platform]]] = system_state.replicas
-            print(f'autoscaling, env.now: {self.env.now}')
+
             for function_name, function_replicas in replicas.items():
                 force_scale_up = True
 
@@ -272,7 +272,7 @@ class Autoscaler:
         # Filter replicas according to hardware target
         suitable_replicas = set(
             filter(
-                lambda replica: replica[1].type["shortName"] == hardware_target,
+                lambda replica: (replica[1].type["shortName"] == hardware_target or hardware_target == 'any'),
                 function_replicas,
             )
         )

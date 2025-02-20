@@ -1,11 +1,13 @@
 import json
 import logging
+from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from typing import Dict, Tuple, Any
 
 import numpy as np
+import sklearn
 import xgboost as xgb
 
 from src.bayesian import optimize_parameters
@@ -114,7 +116,7 @@ def run_proactive_simulation(state, models, params):
 
     try:
         scheduling_strategy = 'prokn_prokn'
-        result = execute_simulation(full_config, sim_inputs, scheduling_strategy, models, cache_policy=cache_policy,
+        result = execute_simulation(full_config, sim_inputs, scheduling_strategy, cache_policy=cache_policy,
                                     task_priority=task_priority,
                                     keep_alive=keep_alive,
                                     queue_length=queue_length, models=models)
@@ -140,7 +142,7 @@ def run_proactive_simulation(state, models, params):
 
 class ProactiveOptimizer:
     def __init__(self, initial_models: Dict[str, xgb.XGBRegressor], target_penalty=0.1, param_bounds_range_factor=0.25,
-                 n_iterations=10):
+                 n_iterations=10, init_points=5):
         self.target_penalty = target_penalty
         # Track best penalties per task
         self.best_penalties = {task: float('inf') for task in initial_models.keys()}
@@ -150,9 +152,10 @@ class ProactiveOptimizer:
         self.param_bounds_range_factor = param_bounds_range_factor
         self.best_proactive_penalty = float('inf')
         # Keep best models separately
-        self.best_models = {task: model.copy() for task, model in initial_models.items()}
+        self.best_models = {task: deepcopy(model) for task, model in initial_models.items()}
         self.improvement_history = {task: [] for task in initial_models.keys()}
         self.n_iterations = n_iterations
+        self.init_points = init_points
 
     def optimize_sample(self, initial_sample, state):
         param_bounds = self.get_bounds(initial_sample, state)
@@ -162,7 +165,8 @@ class ProactiveOptimizer:
             evaluate_function=eval_func,
             param_bounds=param_bounds,
             target_penalty=self.target_penalty,
-            n_iterations=self.n_iterations
+            n_iterations=self.n_iterations,
+            init_points=self.init_points
         )
         return result, iterations
 
@@ -176,33 +180,42 @@ class ProactiveOptimizer:
         return model
 
     def evaluate_parameters(self, state, **params):
-        # Run reactive simulation
-        reactive_result = run_reactive_simulation(state, params)
-        app_definitions = {}
-        for task in reactive_result['stats']['taskResults']:
-            app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
-        # Prepare data for all tasks
-        X_new, y_new = create_inputs_outputs_seperated_per_app_windowed(reactive_result['stats'], 5, app_definitions)
 
-        # Fine-tune models and track improvements
+        # We want to avoid parameters which sum is higher than 1
+        total_prop = 0
+        for k in params.keys():
+            if k.startswith('device_'):
+                total_prop += params[k]
+        if not np.isclose(total_prop, 1.0, atol=0.01):
+            return float('-inf')
+
+        # Cluster size parameter must be discrete
+        params['cluster_size'] = round(params['cluster_size'])
+
         # Create temporary models for fine-tuning
-        temp_models = {task: model.copy() for task, model in self.best_models.items()}
+        temp_models = {task: deepcopy(model) for task, model in self.best_models.items()}
+        # reactive_result = None
+        reactive_result = run_reactive_simulation(state, params)
+        if reactive_result is not None:
+            app_definitions = {}
+            for task in reactive_result['stats']['taskResults']:
+                app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
+            # Prepare data for all tasks
+            X_new, y_new = create_inputs_outputs_seperated_per_app_windowed(reactive_result['stats'], 5,
+                                                                            app_definitions)
 
-        # Fine-tune temporary models
-        for task, model in temp_models.items():
-            model.fit(X_new[task], y_new[task], xgb_model=model)
+            # Fine-tune models and track improvements
+
+            # Fine-tune temporary models
+            for task, model in temp_models.items():
+                X = [[x] for x in X_new[task]]
+                y = np.array(y_new[task])
+                if len(X) == 0:
+                    continue
+                model.fit(X, y, xgb_model=model)
 
         # Run proactive simulation with fine-tuned models
         proactive_result = run_proactive_simulation(state, temp_models, params)
-
-        # current_penalties = {}
-        # for task, model in self.models.items():
-        #     # Fine-tune model
-        #     self.models[task] = self.fine_tune_model(
-        #         model,
-        #         X_new[task],
-        #         y_new[task]
-        #     )
 
         # Run proactive simulation with updated models
         proactive_penalty = proactive_result['stats']['penaltyProportion']
@@ -245,7 +258,7 @@ class ProactiveOptimizer:
         """Save models and their improvement datasets."""
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        for task, model in self.models.items():
+        for task, model in self.best_models.items():
             task_dir = output_dir / task
             task_dir.mkdir(exist_ok=True)
 
@@ -298,3 +311,9 @@ def load_optimization_results(input_dir: Path) -> Dict[str, Any]:
                 results[task_name]["metadata"] = json.load(f)
 
     return results
+
+def main():
+    print(load_optimization_results(Path('simulation_data/optimization_results/20250220_204711/models')))
+
+if __name__ == '__main__':
+    main()

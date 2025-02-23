@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import math
-
+import numpy as np
 from typing import Set, Tuple, TYPE_CHECKING, Dict, List
 
 import xgboost
@@ -69,16 +69,20 @@ class ProactiveKnativeAutoscaler(Autoscaler):
             return {}
         look_forward_size = 5
         events = \
-        count_events_in_windows_ts(self.env.now, system_state.time_series, task_type['name'], look_forward_size,
-                                   look_forward_size)[0] / look_forward_size
-        no_replicas = self.models[task_type['name']].predict([events])
+            count_events_in_windows_ts(self.env.now, system_state.time_series, task_type['name'], look_forward_size,
+                                       look_forward_size)[0] / look_forward_size
+        no_replicas = self.models[task_type['name']].predict(np.array([events]))[0]
 
         current_replicas = len(system_state.replicas[task_type['name']])
 
         modify_replicas = no_replicas - current_replicas
-
+        # print(modify_replicas)
+        # return {
+        #     platform_type["shortName"]: int(modify_replicas)
+        #     for platform_type in self.data.platform_types.values()
+        # }
         return {
-            'any': int(modify_replicas)
+            "any": math.ceil(modify_replicas)
         }
         # # Knative default values (cf. https://knative.dev/docs/serving/autoscaling/concurrency/)
         # # Lambda is 1 (cf. https://notes.crmarsh.com/isolates-microvms-and-webassembly)

@@ -34,7 +34,7 @@ from src.placement.model import (
     SimulationData,
     SimulationPolicy,
     SystemState,
-    TaskType,
+    TaskType, SystemEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,9 +52,10 @@ class Autoscaler:
         self.mutex = mutex
         self.data = data
         self.policy = policy
+        self.reconcile_interval = policy.reconcile_interval
 
         self.scale_events: List[ScaleEvent] = []
-
+        self.system_status_events: List[SystemEvent] = []
         self.run: Process
 
     def autoscaler_process(self):
@@ -80,6 +81,8 @@ class Autoscaler:
                         system_state, self.data.task_types[function_name]
                     )
                 )
+
+                self.log_system_status(replicas)
 
                 for hardware_target, hardware_scaling in scaling_difference.items():
                     if hardware_scaling < 0:
@@ -131,7 +134,7 @@ class Autoscaler:
             self.env.step()
 
             # Wake Autoscaler up once per second
-            yield self.env.timeout(1)
+            yield self.env.timeout(self.reconcile_interval)
 
     def scale_up(
             self,
@@ -405,3 +408,23 @@ class Autoscaler:
             state: SystemState,
     ) -> Generator:
         pass
+
+    def log_system_status(self, replicas: Dict[str, Set[Tuple[Node, Platform]]]):
+        for function_name, function_replicas in replicas.items():
+            event: ScaleEvent = {
+                "name": function_name,
+                "timestamp": self.env.now,
+                "count": len(function_replicas),
+                "average_queue_length": (
+                    sum(
+                        [
+                            len(replica[1].queue.items)
+                            for replica in function_replicas
+                        ]
+                    )
+                    / len(function_replicas)
+                    if function_replicas
+                    else 0.0
+                ),
+            }
+            self.system_status_events.append(event)

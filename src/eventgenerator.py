@@ -212,8 +212,8 @@ def plot_comparison(original_data, increased_data):
 
 # Example usage
 if __name__ == "__main__":
-    file_path = "data/ids/traces/workload-83-10.json"  # Replace with your JSON file path
-    increase_factor = 2.5  # Desired increase factor
+    file_path = "data/nofs-ids/traces/workload-60-600.json"  # Replace with your JSON file path
+    increase_factor = 1  # Desired increase factor
 
     try:
         # Read original data

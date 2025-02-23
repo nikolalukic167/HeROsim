@@ -49,6 +49,14 @@ def generate_time_series(
     arrivals = poisson_process(rps, duration_time)
 
     events: List[WorkloadEvent] = []
+    qos_levels_per_app = {}
+    for application_type in data.application_types.keys():
+        qos_type_count: int = len(data.qos_types)
+        qos_type_index: int = random.randint(0, qos_type_count - 1)
+        qos_type_name: str = list(data.qos_types)[qos_type_index]
+        qos_type: QoSType = data.qos_types[qos_type_name]
+        qos_levels_per_app[str(application_type)] = qos_type
+
 
     for timestamp in arrivals:
         application_type_count: int = len(data.application_types)
@@ -60,15 +68,11 @@ def generate_time_series(
             application_type_name
         ]
 
-        qos_type_count: int = len(data.qos_types)
-        qos_type_index: int = random.randint(0, qos_type_count - 1)
-        qos_type_name: str = list(data.qos_types)[qos_type_index]
-        qos_type: QoSType = data.qos_types[qos_type_name]
 
         workload_event: WorkloadEvent = {
             "timestamp": timestamp,
             "application": application_type,
-            "qos": qos_type,
+            "qos": qos_levels_per_app[application_type_name],
         }
 
         events.append(workload_event)

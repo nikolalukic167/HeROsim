@@ -10,7 +10,7 @@ from src.train import load_models
 
 def execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, policy, queue_length, strategy,
                 workload_trace,
-                workload_trace_name, model_locations=None,models=None) -> SimulationStats:
+                workload_trace_name, model_locations=None,models=None, reconcile_interval=1) -> SimulationStats:
     simulation_policy = SimulationPolicy(
         priority=PriorityPolicy(tasks=policy),
         scheduling=strategy,
@@ -18,6 +18,7 @@ def execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, polic
         keep_alive=keep_alive,
         queue_length=queue_length,
         short_name=scheduling_strategies[strategy],
+        reconcile_interval=reconcile_interval
     )
     if models is None and model_locations is not None:
         models = load_models(model_locations)

@@ -4,15 +4,15 @@ from pathlib import Path
 from typing import Dict
 
 import numpy as np
-from xgboost import Booster
+import xgboost as xgb
 
 # Assuming increase_events is imported from your previous script
-from src.preprocessing import create_train_test_split_per_task, create_inputs_outputs, \
-    preprocess_pods, train_xgboost_per_task, evaluate_xgboost_per_task, preprocess_workload_app_results, \
-    create_inputs_outputs_seperated_per_app_windowed, create_train_test_split_per_windowed
+from src.preprocessing import train_xgboost_per_task, evaluate_xgboost_per_task, \
+    create_inputs_outputs_seperated_per_app_windowed, create_train_test_split_per_windowed, \
+    create_inputs_outputs_seperated_per_app_windowed_system_events
 
 
-def train_model(output_dir, samples, window_size=5):
+def train_model(output_dir, samples, include_queue_length: bool, window_size=5):
     all_train_data = defaultdict(list)
     all_test_data = defaultdict(list)
 
@@ -22,8 +22,12 @@ def train_model(output_dir, samples, window_size=5):
             app_definitions = {}
             for task in obj['taskResults']:
                 app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
-            train_data_sample, test_data_sample = create_train_test_split_per_windowed(
-                create_inputs_outputs_seperated_per_app_windowed(obj, window_size, app_definitions))
+            if not include_queue_length:
+                train_data_sample, test_data_sample = create_train_test_split_per_windowed(
+                    create_inputs_outputs_seperated_per_app_windowed(obj, window_size, app_definitions))
+            else:
+                train_data_sample, test_data_sample = create_train_test_split_per_windowed(
+                    create_inputs_outputs_seperated_per_app_windowed_system_events(obj, window_size, app_definitions))
             for fn, data in train_data_sample.items():
                 all_train_data[fn].append(data)
             for fn, data in test_data_sample.items():
@@ -36,10 +40,32 @@ def train_model(output_dir, samples, window_size=5):
     return models, evaluate_xgboost_per_task(models, all_test_data)
 
 
+def train_model_in_memory(output_dir, all_results, window_size=5):
+    all_train_data = defaultdict(list)
+    all_test_data = defaultdict(list)
+
+    for obj in all_results:
+        app_definitions = {}
+        for task in obj['taskResults']:
+            app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
+        train_data_sample, test_data_sample = create_train_test_split_per_windowed(
+            create_inputs_outputs_seperated_per_app_windowed(obj, window_size, app_definitions))
+        for fn, data in train_data_sample.items():
+            all_train_data[fn].append(data)
+        for fn, data in test_data_sample.items():
+            all_test_data[fn].append(data)
+    for fn, data in all_train_data.items():
+        all_train_data[fn] = np.array(data).reshape(-1, 2)
+    for fn, data in all_test_data.items():
+        all_test_data[fn] = np.array(data).reshape(-1, 2)
+    models = train_xgboost_per_task(all_train_data)
+    return models, evaluate_xgboost_per_task(models, all_test_data)
+
+
 def load_models(model_locations: Dict[str, str]):
     models = {}
     for fn, model_location in model_locations.items():
-        loaded_model = Booster()
+        loaded_model = xgb.XGBRegressor()
         loaded_model.load_model(model_location)
         models[fn] = loaded_model
     return models

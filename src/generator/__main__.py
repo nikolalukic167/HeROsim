@@ -37,7 +37,7 @@ from src.generator.traces import generate_time_series
 from src.generator.workloads import (
     fix_tasks_state_size,
     generate_application_types,
-    generate_task_types,
+    generate_task_types, generate_single_step_application_types,
 )
 
 
@@ -79,6 +79,15 @@ def main() -> int:
         type=int,
         required=False,
     )
+
+    parser.add_argument(
+        "-n",
+        "--no-app-types",
+        help="Number of application types to generate",
+        type=int,
+        required=True,
+    )
+
     args = parser.parse_args()
 
     if not args.generate_traces and not args.generate_workloads:
@@ -107,17 +116,20 @@ def main() -> int:
         # TODO: JSON configuration
         # Create task types
         task_types: Dict[str, TaskType] = generate_task_types(
-            30,
+            args.no_app_types,
             platform_types,
             storage_types,
         )
 
         # Create application types
         # max_sample_size = math.ceil(len(task_types) / 50)
-        max_sample_size = 3
-        application_types: Dict[str, ApplicationType] = generate_application_types(
-            15, task_types, max_sample_size
-        )
+        # max_sample_size = 1
+        # application_types: Dict[str, ApplicationType] = generate_application_types(
+        #     args.no_app_types, task_types, max_sample_size
+        # )
+
+        # Create single-step functions for all tasks
+        application_types = generate_single_step_application_types(task_types)
 
         # FIXME
         fix_tasks_state_size(task_types, application_types)

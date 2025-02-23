@@ -265,6 +265,7 @@ class Orchestrator:
             "nodeResults": node_results,
             "taskResults": task_results,
             "scaleEvents": self.autoscaler.scale_events,
+            "systemEvents": self.autoscaler.system_status_events
         }
 
     def create_application(

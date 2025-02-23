@@ -1,0 +1,170 @@
+{
+    "network": {
+        "bandwidth": 100.0
+    },
+    "nodes": [
+        {
+            "memory": 8,
+            "platforms": [
+                "rpiCpu",
+                "rpiCpu",
+                "rpiCpu",
+                "rpiCpu"
+            ],
+            "storage": [
+                "flashCard",
+                "someRemote"
+            ],
+            "type": "rpi"
+        },
+        {
+            "memory": 8,
+            "platforms": [
+                "rpiCpu",
+                "rpiCpu",
+                "rpiCpu",
+                "rpiCpu"
+            ],
+            "storage": [
+                "flashCard",
+                "someRemote"
+            ],
+            "type": "rpi"
+        },
+        {
+            "memory": 8,
+            "platforms": [
+                "rpiCpu",
+                "rpiCpu",
+                "rpiCpu",
+                "rpiCpu"
+            ],
+            "storage": [
+                "flashCard",
+                "someRemote"
+            ],
+            "type": "rpi"
+        },
+        {
+            "memory": 8,
+            "platforms": [
+                "rpiCpu",
+                "rpiCpu",
+                "rpiCpu",
+                "rpiCpu"
+            ],
+            "storage": [
+                "flashCard",
+                "someRemote"
+            ],
+            "type": "rpi"
+        },
+        {
+            "memory": 32,
+            "platforms": [
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierGpu",
+                "xavierDla"
+            ],
+            "storage": [
+                "eMMC",
+                "someRemote"
+            ],
+            "type": "xavier"
+        },
+        {
+            "memory": 32,
+            "platforms": [
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierGpu",
+                "xavierDla"
+            ],
+            "storage": [
+                "eMMC",
+                "someRemote"
+            ],
+            "type": "xavier"
+        },
+        {
+            "memory": 32,
+            "platforms": [
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierGpu",
+                "xavierDla"
+            ],
+            "storage": [
+                "eMMC",
+                "someRemote"
+            ],
+            "type": "xavier"
+        },
+        {
+            "memory": 32,
+            "platforms": [
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierCpu",
+                "xavierGpu",
+                "xavierDla"
+            ],
+            "storage": [
+                "eMMC",
+                "someRemote"
+            ],
+            "type": "xavier"
+        },
+        {
+            "memory": 0.5,
+            "platforms": [
+                "pynqFpga"
+            ],
+            "storage": [
+                "flashCard",
+                "someRemote"
+            ],
+            "type": "pyngFpga"
+        },
+        {
+            "memory": 0.5,
+            "platforms": [
+                "pynqFpga"
+            ],
+            "storage": [
+                "flashCard",
+                "someRemote"
+            ],
+            "type": "pyngFpga"
+        }
+    ],
+    "device_props": {
+        "device_prop_rpi": 0.4,
+        "device_prop_xavier": 0.4,
+        "device_prop_pyngFpga": 0.2
+    }
+}

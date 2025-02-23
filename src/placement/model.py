@@ -278,6 +278,7 @@ class SimulationPolicy(DataClassJsonMixin):
     keep_alive: DurationSecond
     queue_length: int
     short_name: str
+    reconcile_interval: int
 
     def __lt__(self, other: SimulationPolicy):
         return str(self) < str(other)
@@ -309,6 +310,12 @@ class ScaleEvent(TypedDict):
     count: int
     average_queue_length: float
 
+@final
+class SystemEvent(TypedDict):
+    name: str
+    timestamp: MomentSecond
+    count: int
+    average_queue_length: float
 
 @dataclass
 class SimulationData:
@@ -363,6 +370,7 @@ class SimulationStats(TypedDict):
     taskResults: List[TaskResult]
     scaleEvents: List[ScaleEvent]
     traceFile: str
+    systemEvents: List[SystemEvent]
 
 
 @final

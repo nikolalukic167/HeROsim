@@ -168,7 +168,7 @@ def prepare_simulation_config(
     device_counts = calculate_device_counts(cluster_size, device_proportions)
 
     # Prepare simulation configuration
-    simulation_config = {
+    infrastructure_config = {
         "network": {
             "bandwidth": float(network_bandwidth)
         },
@@ -181,9 +181,9 @@ def prepare_simulation_config(
         for _ in range(count):
             node_config = device_specs.copy()
             node_config['type'] = device_type  # Add device type to specs
-            simulation_config['nodes'].append(node_config)
+            infrastructure_config['nodes'].append(node_config)
 
-    return simulation_config
+    return infrastructure_config
 
 
 def execute_simulation(
@@ -210,7 +210,7 @@ def execute_simulation(
     stats = execute_sim(simulation_data, config['infrastructure'], cache_policy, keep_alive, task_priority,
                         queue_length,
                         scheduling_strategy, config['workload'], 'workload-mine',
-                        model_locations=model_locations, models=models)
+                        model_locations=model_locations, models=models, reconcile_interval=1)
     return {
         "status": "success",
         "config": config,

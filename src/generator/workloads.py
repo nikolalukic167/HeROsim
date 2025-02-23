@@ -29,7 +29,7 @@ from src.placement.model import (
 
 
 def make_random_dag(
-    task_types: List[TaskType], max_sample_size: int
+        task_types: List[TaskType], max_sample_size: int
 ) -> Dict[str, List[str]]:
     dag: Dict[str, List[str]] = {}
 
@@ -48,7 +48,7 @@ def make_random_dag(
 
 
 def generate_application_types(
-    count: int, task_types: Dict[str, TaskType], max_sample_size: int
+        count: int, task_types: Dict[str, TaskType], max_sample_size: int
 ) -> Dict[str, ApplicationType]:
     application_types: Dict[str, ApplicationType] = {}
 
@@ -67,10 +67,30 @@ def generate_application_types(
     return application_types
 
 
+def generate_single_step_application_types(task_types: Dict[str, TaskType]) -> Dict[str, ApplicationType]:
+    application_types: Dict[str, ApplicationType] = {}
+
+    for task_name, task_type in task_types.items():
+        name = f'nofs-{task_name}'
+
+        dag = {
+            task_name: []
+        }
+
+        application_type: ApplicationType = {
+            "name": name,
+            "dag": dag,
+        }
+
+        application_types[name] = application_type
+
+    return application_types
+
+
 def generate_task_types(
-    count: int,
-    platform_types: Dict[str, PlatformType],
-    storage_types: Dict[str, StorageType],
+        count: int,
+        platform_types: Dict[str, PlatformType],
+        storage_types: Dict[str, StorageType],
 ) -> Dict[str, TaskType]:
     # FIXME: how to select baseline platform?
     baseline_platform = min(
@@ -145,48 +165,49 @@ def generate_task_types(
         }
 
         memory_requirements: PlatformVector[float] = {
-            baseline_platform: baseline_requirements["memoryRequirements"],
-        } | {
-            platform: (
-                baseline_requirements["memoryRequirements"]
-                * ratios[platform]["memoryRequirements"]
-            )
-            for platform in considered_platforms
-        }
+                                                         baseline_platform: baseline_requirements["memoryRequirements"],
+                                                     } | {
+                                                         platform: (
+                                                                 baseline_requirements["memoryRequirements"]
+                                                                 * ratios[platform]["memoryRequirements"]
+                                                         )
+                                                         for platform in considered_platforms
+                                                     }
 
         cold_start_duration: PlatformVector[float] = {
-            baseline_platform: baseline_requirements["coldStartDuration"],
-        } | {
-            platform: (
-                baseline_requirements["coldStartDuration"]
-                * ratios[platform]["coldStartDuration"]
-            )
-            for platform in considered_platforms
-        }
+                                                         baseline_platform: baseline_requirements["coldStartDuration"],
+                                                     } | {
+                                                         platform: (
+                                                                 baseline_requirements["coldStartDuration"]
+                                                                 * ratios[platform]["coldStartDuration"]
+                                                         )
+                                                         for platform in considered_platforms
+                                                     }
 
         execution_time: PlatformVector[float] = {
-            baseline_platform: baseline_requirements["executionTime"],
-        } | {
-            platform: (
-                baseline_requirements["executionTime"]
-                * ratios[platform]["executionTime"]
-            )
-            for platform in considered_platforms
-        }
+                                                    baseline_platform: baseline_requirements["executionTime"],
+                                                } | {
+                                                    platform: (
+                                                            baseline_requirements["executionTime"]
+                                                            * ratios[platform]["executionTime"]
+                                                    )
+                                                    for platform in considered_platforms
+                                                }
 
         energy: PlatformVector[float] = {
-            baseline_platform: baseline_requirements["energy"],
-        } | {
-            platform: baseline_requirements["energy"] * ratios[platform]["energy"]
-            for platform in considered_platforms
-        }
+                                            baseline_platform: baseline_requirements["energy"],
+                                        } | {
+                                            platform: baseline_requirements["energy"] * ratios[platform]["energy"]
+                                            for platform in considered_platforms
+                                        }
 
         image_size: PlatformVector[float] = {
-            baseline_platform: baseline_requirements["imageSize"],
-        } | {
-            platform: baseline_requirements["imageSize"] * ratios[platform]["imageSize"]
-            for platform in considered_platforms
-        }
+                                                baseline_platform: baseline_requirements["imageSize"],
+                                            } | {
+                                                platform: baseline_requirements["imageSize"] * ratios[platform][
+                                                    "imageSize"]
+                                                for platform in considered_platforms
+                                            }
 
         """
         state_size: PlatformVector[IOVector] = {
@@ -223,13 +244,13 @@ def generate_task_types(
 
 
 def fix_tasks_state_size(
-    task_types: Dict[str, TaskType], application_types: Dict[str, ApplicationType]
+        task_types: Dict[str, TaskType], application_types: Dict[str, ApplicationType]
 ) -> None:
     for application_type_name, application_type in application_types.items():
         for application_task_name in application_type["dag"]:
             if (
-                application_type_name
-                not in task_types[application_task_name]["stateSize"]
+                    application_type_name
+                    not in task_types[application_task_name]["stateSize"]
             ):
                 task_types[application_task_name]["stateSize"][
                     application_type_name

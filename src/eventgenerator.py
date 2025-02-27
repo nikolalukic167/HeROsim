@@ -1,13 +1,9 @@
 import json
 from collections import defaultdict
-import numpy as np
 from copy import deepcopy
 
-import json
-from collections import defaultdict
-import numpy as np
-from copy import deepcopy
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.ticker import MaxNLocator
 
 

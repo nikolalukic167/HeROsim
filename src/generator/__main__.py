@@ -157,7 +157,7 @@ def main() -> int:
     if args.peak_config:
         with open(args.peak_config, 'r') as fd:
             peak_config = json.load(fd)
-            for app, config in peak_config.items():
+            for app, config in peak_config[0].items():
                 rps = config['rps']
                 if rps is None or args.seconds is None:
                     parser.error("--generate-traces requires --rps and --seconds")

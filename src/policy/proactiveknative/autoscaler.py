@@ -67,7 +67,7 @@ class ProactiveKnativeAutoscaler(Autoscaler):
             yield
         if self.models.get(task_type['name']) is None:
             return {}
-        look_forward_size = 5
+        look_forward_size = 60
         events = \
             count_events_in_windows_ts(self.env.now, system_state.time_series, task_type['name'], look_forward_size,
                                        look_forward_size)[0] / look_forward_size

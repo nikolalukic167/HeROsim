@@ -1,6 +1,7 @@
 import json
 import os.path
 import sys
+import time
 from pathlib import Path
 import multiprocessing as mp
 from datetime import datetime
@@ -22,60 +23,55 @@ def save_single_stats(results_dir, rps, stats, output_infra, results_postfix):
     return results_folder
 
 
-def execute_proactive(base_dir, infra, peak_config, sim_input_path, model_locations):
+def execute_proactive(base_dir, infra, workload_config, sim_input_path, model_locations):
     sim_inputs = load_simulation_inputs(sim_input_path)
     with open(base_dir / f'motivational-infrastructures/{infra}.json', 'r') as fd:
         infrastructure = json.load(fd)
-    workloads = {}
-    for app, config in peak_config.items():
-        with open(base_dir / f'traces/workload-{config["rps"]}-600-{app}-peak_pattern.json', 'r') as fd:
-            workload = json.load(fd)
-            workloads[app] = workload['events']
-
-    workload = flatten_workloads(workloads)
-    cache_policy = 'fifo'
-    task_priority = 'fifo'
-    keep_alive = KEEP_ALIVE
-    queue_length = QUEUE_LENGTH
-    scheduling_strategy = 'prokn_prokn'
-    simulation_data = SimulationData(
-        platform_types=sim_inputs['platform_types'],
-        storage_types=sim_inputs['storage_types'],
-        qos_types=sim_inputs['qos_types'],
-        application_types=sim_inputs['application_types'],
-        task_types=sim_inputs['task_types'],
-    )
-    print(f'Start simulation: peak_config - {infra}')
-    stats = execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, task_priority,
-                        queue_length,
-                        scheduling_strategy, workload, 'workload-mine', model_locations=model_locations,
-                        reconcile_interval=5)
-    print(f'End simulation: peak_config - {infra}')
-    return stats
+    with open(workload_config, 'r') as fd:
+        workload = json.load(fd)
+        cache_policy = 'fifo'
+        task_priority = 'fifo'
+        keep_alive = KEEP_ALIVE
+        queue_length = QUEUE_LENGTH
+        scheduling_strategy = 'prokn_prokn'
+        simulation_data = SimulationData(
+            platform_types=sim_inputs['platform_types'],
+            storage_types=sim_inputs['storage_types'],
+            qos_types=sim_inputs['qos_types'],
+            application_types=sim_inputs['application_types'],
+            task_types=sim_inputs['task_types'],
+        )
+        print(f'Start simulation: peak_config - {infra}')
+        stats = execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, task_priority,
+                            queue_length,
+                            scheduling_strategy, workload, 'workload-mine', model_locations=model_locations,
+                            reconcile_interval=15)
+        print(f'End simulation: peak_config - {infra}')
+        return stats
 
 
 def worker_function(args):
-    rep_idx, peak_config, base_dir, output_infra, sim_input_path, model_locations, results_dir, start_time, model_dir, model_infra= args
-    stats = execute_proactive(base_dir, output_infra, peak_config, sim_input_path, model_locations)
+    rep_idx, workload_config, base_dir, output_infra, sim_input_path, model_locations, results_dir, start_time, model_dir, model_infra= args
+    stats = execute_proactive(base_dir, output_infra, workload_config, sim_input_path, model_locations)
     results_postfix = f'proactive/origin-{model_infra}-target-{output_infra}-model-{model_dir}/{start_time}/{str(rep_idx)}'
-    save_single_stats(results_dir, peak_config, stats, output_infra, results_postfix)
+    save_single_stats(results_dir, workload_config, stats, output_infra, results_postfix)
 
 
 def main():
     if len(sys.argv) != 8:
-        print("Usage: script.py <results_dir> <model_infra> <output_infra> <model_dir> <peak_config_file> <repetitions> <num_cores>")
+        print("Usage: script.py <results_dir> <model_infra> <output_infra> <model_dir> <workload_config_file> <repetitions> <num_cores>")
         sys.exit(1)
 
     results_dir = sys.argv[1]
     model_infra = sys.argv[2]
     output_infra = sys.argv[3]
     model_dir = sys.argv[4]
-    peak_config_file = sys.argv[5]
+    workload_config_file = sys.argv[5]
     repetitions = int(sys.argv[6])
     num_cores = int(sys.argv[7])
 
-    with open(peak_config_file, 'r') as fd:
-        peak_configs = json.load(fd)
+    with open(workload_config_file, 'r') as fd:
+        workload_configs = json.load(fd)
 
     # Limit number of cores to available cores
     num_cores = min(num_cores, mp.cpu_count())
@@ -87,7 +83,7 @@ def main():
     print("Fetching model locations")
     model_locations = get_model_locations(results_dir, model_infra, model_dir)
     print(f"Model locations: {model_locations}")
-    print(f"Starting proactive simulation with infra-{output_infra} peak_config: {peak_config_file} using {num_cores} cores")
+    print(f"Starting proactive simulation with infra-{output_infra} workload_config: {workload_config_file} using {num_cores} cores")
 
     start_time = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
@@ -95,13 +91,16 @@ def main():
     work_items = [
         (rep_idx, config, base_dir, output_infra, sim_input_path, model_locations, results_dir, start_time, model_dir, model_infra)
         for rep_idx in range(repetitions)
-        for config in peak_configs
+        for config in workload_configs
     ]
 
+    start_ts = time.time()
     # Create a pool of workers and map the work items
+    print(f"Start time: {start_ts}")
     with mp.Pool(num_cores) as pool:
         pool.map(worker_function, work_items)
-
+    end_ts = time.time()
+    print(f'{end_ts - start_ts} seconds passed')
     print(f"Finished simulation")
     print(f"Results saved under {os.path.join(results_dir, f'infra-{output_infra}', 'results-proactive')}")
 

@@ -82,7 +82,6 @@ class Autoscaler:
                     )
                 )
 
-                self.log_system_status(replicas)
 
                 for hardware_target, hardware_scaling in scaling_difference.items():
                     if hardware_scaling < 0:
@@ -127,8 +126,11 @@ class Autoscaler:
                     )
                     last_force_scale_up[function_name] = self.env.now
 
+            self.log_system_status(replicas)
+
             # Release mutex
             yield self.mutex.put(system_state)
+            self.log_system_status(replicas)
 
             # Next event
             self.env.step()

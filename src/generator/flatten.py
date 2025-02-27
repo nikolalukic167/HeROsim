@@ -5,7 +5,7 @@ from src.executeinitial import flatten_workloads
 
 
 def main():
-    to_flatten = 'data/nofs-ids/peak_configs.json'
+    to_flatten = 'data/nofs-ids/peak_configs_2.json'
     to_flatten_path = pathlib.Path(to_flatten)
     base_dir = pathlib.Path('./data/nofs-ids/traces')
     with open(to_flatten) as f:
@@ -14,7 +14,7 @@ def main():
         for idx, config in enumerate(peak_config):
             workloads = {}
             for app, workload_config in config.items():
-                with open(base_dir / f'workload-{workload_config["rps"]}-600-{app}-peak_pattern.json', 'r') as fd:
+                with open(base_dir / f'workload-{workload_config["rps"]}-750-{app}-peak_pattern.json', 'r') as fd:
                     workload = json.load(fd)
                     workloads[app] = workload['events']
 

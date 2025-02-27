@@ -177,7 +177,7 @@ def main() -> int:
                 # Create time series
                 time_series: TimeSeries = generate_time_series(
                     simulation_data,
-                    rps, args.seconds, args.pattern, args.app, generated_trace_path.replace('.json', ''),
+                    rps, args.seconds, args.pattern, app, generated_trace_path.replace('.json', ''),
                     config['peaks']
                 )
                 with open(f"{generated_trace_path}", "w") as outfile:

@@ -105,14 +105,32 @@ def uniform_arrivals(min_rate: float, max_rate: float, duration: int) -> List[fl
 
 
 def generate_time_series(
-        data: SimulationData, rps: int, duration_time: int
+        data: SimulationData, rps: int, duration_time: int, pattern: str, app: str, pdf_path: str, peaks: List
 ) -> TimeSeries:
     # Generate Poisson process arrivals
-    arrivals = poisson_process(rps, duration_time)
+    if peaks is not None:
+        arrivals = generate_diurnal_pattern(requests_per_hour=60 * 60 * rps, peaks=peaks)
+        arrivals = compress_request_pattern_with_sampling(arrivals, 24 * 60, target_duration=round(duration_time / 60))
+        plot_pattern(arrivals, 60, pdf_path)
+        arrivals = convert_datetime_timestamps(arrivals)
+    elif pattern == 'daily_delayed':
+        arrivals = generate_diurnal_pattern_delayed(requests_per_hour=60 * 60 * rps)
+        plot_pattern(arrivals, 60, f'{pdf_path}-24h')
+
+        arrivals = compress_request_pattern_with_sampling(arrivals, 24 * 60, target_duration=round(duration_time / 60))
+        plot_pattern(arrivals, 60, pdf_path)
+        arrivals = convert_datetime_timestamps(arrivals)
+    else:
+        arrivals = poisson_process(rps, duration_time)
 
     events: List[WorkloadEvent] = []
     qos_levels_per_app = {}
-    for application_type in data.application_types.keys():
+    if app is not None:
+        app_types = [app]
+    else:
+        app_types = data.application_types.keys()
+
+    for application_type in app_types:
         qos_type_count: int = len(data.qos_types)
         qos_type_index: int = random.randint(0, qos_type_count - 1)
         qos_type_name: str = list(data.qos_types)[qos_type_index]
@@ -121,13 +139,20 @@ def generate_time_series(
 
     for timestamp in arrivals:
         application_type_count: int = len(data.application_types)
-        application_type_index: int = random.randint(0, application_type_count - 1)
-        application_type_name: str = list(data.application_types)[
-            application_type_index
-        ]
-        application_type: ApplicationType = data.application_types[
-            application_type_name
-        ]
+        if app is not None:
+
+            application_type_name: str = app
+            application_type: ApplicationType = data.application_types[
+                application_type_name
+            ]
+        else:
+            application_type_index: int = random.randint(0, application_type_count - 1)
+            application_type_name: str = list(data.application_types)[
+                application_type_index
+            ]
+            application_type: ApplicationType = data.application_types[
+                application_type_name
+            ]
 
         workload_event: WorkloadEvent = {
             "timestamp": timestamp,
@@ -142,13 +167,131 @@ def generate_time_series(
     return time_series
 
 
-def generate_diurnal_pattern(hours=24, requests_per_hour=100):
+def generate_diurnal_paattern(hours=24, requests_per_hour=100):
     all_arrivals = []
     base_time = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
     for hour in range(hours):
         # Model time-of-day variation (busier during work hours)
-        if 9 <= hour <= 17:  # Business hours
+        if 12 <= hour <= 17:  # Business hours
+            alpha = 1.0
+            beta = 3.0  # Higher rate during business hours (3x more requests)
+        elif 6 <= hour <= 11:
+            alpha = 1.0
+            beta = 1.5  # Higher rate during business hours (3x more requests)
+        elif 18 <= hour <= 22:
+            alpha = 1.0
+            beta = 2  # Higher rate during business hours (3x more requests)
+        else:
+            alpha = 1.0
+            beta = 1.0  # Lower rate outside business hours
+
+        # Calculate requests for this hour based on time of day
+        hour_requests = requests_per_hour * (beta/2)  # Scale by beta/2 to create the pattern
+
+        # Generate inter-arrival times for this hour
+        inter_arrivals = gamma_distribution(alpha, beta, int(hour_requests))
+
+        # Convert to absolute times within this hour
+        hour_start = hour * 3600  # seconds
+        for i, delta in enumerate(inter_arrivals):
+            # Use modulo to wrap events within the hour
+            position = hour_start + ((i * 3600 / hour_requests) + delta) % 3600
+            all_arrivals.append(position)
+
+    return [base_time + datetime.timedelta(seconds=t) for t in all_arrivals]
+
+def generate_diurnal_pattern(hours=24, requests_per_hour=100, peaks=None):
+    """
+    Generate a diurnal pattern with custom peaks and smooth transitions.
+
+    Parameters:
+    - hours: Total duration to generate in hours
+    - requests_per_hour: Average number of requests per hour
+    - peaks: List of tuples (hour, intensity, width) where:
+             - hour: Hour of the day for the peak (0-23)
+             - intensity: Relative intensity of the peak (1.0 = baseline)
+             - width: Width of the peak in hours (controls smoothness)
+
+    Returns:
+    - List of datetime objects representing arrival times
+    """
+    import numpy as np
+    import random
+    import datetime
+
+    # Default peaks if none provided (business hours peak)
+    if peaks is None:
+        peaks = [(13, 3.0, 8)]  # Peak at 1 PM, 3x intensity, 8 hours wide
+
+    base_time = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Define a smooth rate multiplier function based on custom peaks
+    def rate_multiplier(hour):
+        # Convert hour to continuous time (0-24)
+        continuous_hour = hour % 24
+
+        # Start with baseline intensity
+        intensity = 1.0
+
+        # Add contribution from each peak (using Gaussian-like function)
+        for peak_hour, peak_intensity, peak_width in peaks:
+            # Calculate distance from peak (accounting for day wrap-around)
+            dist = min(abs(continuous_hour - peak_hour),
+                       24 - abs(continuous_hour - peak_hour))
+
+            # Apply Gaussian-like falloff from peak
+            sigma = peak_width / 2.355  # Convert width to standard deviation
+            peak_contribution = peak_intensity * np.exp(-(dist**2) / (2 * sigma**2))
+
+            # Add peak contribution to total intensity
+            intensity = max(intensity, peak_contribution)
+
+        return intensity
+
+    # Calculate rate multipliers for all hours
+    multipliers = [rate_multiplier(h) for h in range(hours)]
+
+    # Normalize to ensure we get the requested average
+    total_multiplier = sum(multipliers)
+    normalized_multipliers = [m * hours / total_multiplier for m in multipliers]
+
+    # Generate arrivals for each hour
+    all_arrivals = []
+
+    for hour in range(hours):
+        # Calculate requests for this hour
+        hour_requests = int(requests_per_hour * normalized_multipliers[hour])
+
+        # Generate arrivals for this hour
+        for i in range(hour_requests):
+            # Allow some overlap with adjacent hours for smoother transitions
+            hour_offset = random.gauss(0, 0.25)  # Small random offset, mostly within ±0.5 hour
+            actual_hour = max(0, min(hours - 0.001, hour + hour_offset))
+
+            # Random position within the hour
+            position_in_hour = random.random()
+
+            # Calculate total seconds
+            seconds = actual_hour * 3600 + position_in_hour * 3600
+
+            # Add to arrivals list
+            all_arrivals.append(seconds)
+
+    # Sort arrivals and convert to datetime
+    all_arrivals.sort()
+    return [base_time + datetime.timedelta(seconds=t) for t in all_arrivals]
+
+
+
+
+def generate_diurnal_pattern_delayed(hours=24, requests_per_hour=100):
+    all_arrivals = []
+    base_time = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    for hour in range(hours):
+        # Model time-of-day variation (busier during work hours)
+        if  13 <= hour <= 21:  # Business hours
             alpha = 1.0
             beta = 3.0  # Higher rate during business hours
         else:
@@ -156,6 +299,7 @@ def generate_diurnal_pattern(hours=24, requests_per_hour=100):
             beta = 1.0  # Lower rate outside business hours
 
         # Generate inter-arrival times for this hour
+        print(f'{requests_per_hour}, {hour}')
         inter_arrivals = gamma_distribution(alpha, beta, requests_per_hour)
 
         # Convert to absolute times within this hour
@@ -165,6 +309,7 @@ def generate_diurnal_pattern(hours=24, requests_per_hour=100):
             all_arrivals.append(position)
 
     return [base_time + datetime.timedelta(seconds=t) for t in all_arrivals]
+
 
 def compress_request_pattern_with_sampling(arrival_times, original_duration=60, target_duration=1):
     """
@@ -214,6 +359,23 @@ def compress_request_pattern_with_sampling(arrival_times, original_duration=60, 
 
     return compressed_timestamps
 
+
+def convert_datetime_timestamps(arrivals):
+    # Assuming compressed_timestamps is your list of datetime objects
+    arrival_times_seconds = []
+
+    for dt in arrivals:
+        # Convert datetime to seconds since epoch
+        seconds_since_epoch = dt.timestamp()
+        arrival_times_seconds.append(seconds_since_epoch)
+
+    # Get seconds relative to the first event
+    first_event_time = arrival_times_seconds[0]
+    arrival_times_seconds = [t - first_event_time for t in arrival_times_seconds]
+
+    return arrival_times_seconds
+
+
 def main():
     average_rolling_window_duration = 60
     duration = 1200
@@ -228,36 +390,46 @@ def main():
     # Convert timestamps to datetime objects
     arrival_times_datetime = [datetime.datetime.fromtimestamp(ts) for ts in arrival_times]
 
-    arrival_times_datetime = generate_diurnal_pattern(requests_per_hour=10 * 60 * 60)
+    # Morning and evening rush hours
+    rush_hour_peaks = [
+        (8, 2.5, 7),    # Morning rush: 8 AM, 2.5x intensity, 3 hours wide
+        (17, 4.0, 3),   # Evening rush: 5 PM, 3x intensity, 4 hours wide
+    ]
 
+    arrival_times_datetime = generate_diurnal_pattern(requests_per_hour=40 * 60 * 60, peaks=rush_hour_peaks)
+    plot_pattern(arrival_times_datetime, average_rolling_window_duration, None)
+    plt.close()
+    events = compress_request_pattern_with_sampling(arrival_times_datetime, original_duration=60 * 24,
+                                                    target_duration=20)
+    plot_pattern(events, average_rolling_window_duration, None)
+
+
+def plot_pattern(arrival_times_datetime, average_rolling_window_duration, pdf_path):
     # Convert to pandas Series
     arrival_times_series = pd.Series(arrival_times_datetime)
-    events = compress_request_pattern_with_sampling(arrival_times_series, original_duration=60 * 24, target_duration=20)
 
     # Count events per second by grouping
-    events_per_second = pd.Series(events)
+    events_per_second = pd.Series(arrival_times_series)
     events_per_second = events_per_second.groupby(events_per_second.dt.floor('1S')).size()
-
     # Calculate rolling average
     rolling_avg = events_per_second.rolling(window=average_rolling_window_duration, center=False).mean()
-
     # Plot both the events per second and the rolling average
     plt.figure(figsize=(12, 6))
     sns.set(style="whitegrid")
-
     # Plot original data
     sns.lineplot(x=events_per_second.index, y=events_per_second.values, label='Events per Second')
-
     # Plot rolling average
     sns.lineplot(x=rolling_avg.index, y=rolling_avg.values, label='60-Second Rolling Average', color='red')
-
     plt.title('Events Per Second Over Time')
     plt.xlabel('Time')
     plt.ylabel('Number of Events')
     plt.xticks(rotation=45)
     plt.legend()
     plt.tight_layout()
-    plt.show()
+    if pdf_path is not None:
+        plt.savefig(f'{pdf_path}.pdf')
+    else:
+        plt.show()
 
 
 if __name__ == '__main__':

@@ -88,6 +88,20 @@ def main() -> int:
         required=True,
     )
 
+    parser.add_argument(
+        "--peak-config",
+        type=str,
+        required=False
+    )
+
+    parser.add_argument(
+        '--app', type=str, required=False
+    )
+
+    parser.add_argument(
+        '--pattern', help="Whether to generate  daily pattern", type=str, required=False,
+    )
+
     args = parser.parse_args()
 
     if not args.generate_traces and not args.generate_workloads:
@@ -106,7 +120,7 @@ def main() -> int:
         )
 
         if os.path.exists(generated_tasks_path) or os.path.exists(
-            generated_applications_path
+                generated_applications_path
         ):
             raise IOError(
                 "Task types and/or application types already exist"
@@ -140,42 +154,76 @@ def main() -> int:
         with open(generated_applications_path, "w") as outfile:
             json.dump(application_types, outfile, indent=2)
 
-    if args.generate_traces:
-        if args.rps is None or args.seconds is None:
-            parser.error("--generate-traces requires --rps and --seconds")
+    if args.peak_config:
+        with open(args.peak_config, 'r') as fd:
+            peak_config = json.load(fd)
+            for app, config in peak_config.items():
+                rps = config['rps']
+                if rps is None or args.seconds is None:
+                    parser.error("--generate-traces requires --rps and --seconds")
+                generated_traces_path = os.path.join(args.data_directory, "traces")
+                if not os.path.exists(generated_traces_path):
+                    os.makedirs(generated_traces_path)
+                generated_trace_path = os.path.join(
+                    generated_traces_path, f"workload-{rps}-{args.seconds}-{app}-peak_pattern.json"
+                )
+                if os.path.exists(generated_trace_path):
+                    raise IOError(
+                        f"workload-{rps}-{args.seconds}.json already exists"
+                        f" in {generated_traces_path}."
+                    )
+                # Parse simulation data
+                simulation_data: SimulationData = parse_simulation_data(args.data_directory)
+                # Create time series
+                time_series: TimeSeries = generate_time_series(
+                    simulation_data,
+                    rps, args.seconds, args.pattern, args.app, generated_trace_path.replace('.json', ''),
+                    config['peaks']
+                )
+                with open(f"{generated_trace_path}", "w") as outfile:
+                    json.dump(time_series, outfile, indent=2, cls=DataclassJSONEncoder)
+                # Generate stats related to workloads and time series
+                get_workload_stats(
+                    simulation_data.application_types, simulation_data.task_types, time_series
+                )
 
-        generated_traces_path = os.path.join(args.data_directory, "traces")
+    elif args.generate_traces:
+        generate_traces(args, parser)
 
-        if not os.path.exists(generated_traces_path):
-            os.makedirs(generated_traces_path)
+    return os.EX_OK
 
+
+def generate_traces(args, parser):
+    if args.rps is None or args.seconds is None:
+        parser.error("--generate-traces requires --rps and --seconds")
+    generated_traces_path = os.path.join(args.data_directory, "traces")
+    if not os.path.exists(generated_traces_path):
+        os.makedirs(generated_traces_path)
+    if args.app is not None:
+        generated_trace_path = os.path.join(
+            generated_traces_path, f"workload-{args.rps}-{args.seconds}-{args.app}-{args.pattern}.json"
+        )
+    else:
         generated_trace_path = os.path.join(
             generated_traces_path, f"workload-{args.rps}-{args.seconds}.json"
         )
-
-        if os.path.exists(generated_trace_path):
-            raise IOError(
-                f"workload-{args.rps}-{args.seconds}.json already exists"
-                f" in {generated_traces_path}."
-            )
-
-        # Parse simulation data
-        simulation_data: SimulationData = parse_simulation_data(args.data_directory)
-
-        # Create time series
-        time_series: TimeSeries = generate_time_series(
-            simulation_data, args.rps, args.seconds
+    if os.path.exists(generated_trace_path):
+        raise IOError(
+            f"workload-{args.rps}-{args.seconds}.json already exists"
+            f" in {generated_traces_path}."
         )
-
-        with open(f"{generated_trace_path}", "w") as outfile:
-            json.dump(time_series, outfile, indent=2, cls=DataclassJSONEncoder)
-
-        # Generate stats related to workloads and time series
-        get_workload_stats(
-            simulation_data.application_types, simulation_data.task_types, time_series
-        )
-
-    return os.EX_OK
+    # Parse simulation data
+    simulation_data: SimulationData = parse_simulation_data(args.data_directory)
+    # Create time series
+    time_series: TimeSeries = generate_time_series(
+        simulation_data, args.rps, args.seconds, args.pattern, args.app, generated_trace_path.replace('.json', '')
+    )
+    with open(f"{generated_trace_path}", "w") as outfile:
+        json.dump(time_series, outfile, indent=2, cls=DataclassJSONEncoder)
+    # Generate stats related to workloads and time series
+    get_workload_stats(
+        simulation_data.application_types, simulation_data.task_types, time_series
+    )
 
 
 if __name__ == "__main__":

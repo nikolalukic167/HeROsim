@@ -15,11 +15,10 @@ limitations under the License.
 """
 import datetime
 import random
-
 from typing import List
 
-import numpy as np
 import pandas as pd
+import seaborn as sns
 from matplotlib import pyplot as plt
 
 from src.placement.model import (
@@ -29,7 +28,6 @@ from src.placement.model import (
     TimeSeries,
     WorkloadEvent,
 )
-import seaborn as sns
 
 
 def poisson_process(lambd: int, duration_time: int) -> List[float]:
@@ -187,7 +185,7 @@ def generate_diurnal_paattern(hours=24, requests_per_hour=100):
             beta = 1.0  # Lower rate outside business hours
 
         # Calculate requests for this hour based on time of day
-        hour_requests = requests_per_hour * (beta/2)  # Scale by beta/2 to create the pattern
+        hour_requests = requests_per_hour * (beta / 2)  # Scale by beta/2 to create the pattern
 
         # Generate inter-arrival times for this hour
         inter_arrivals = gamma_distribution(alpha, beta, int(hour_requests))
@@ -200,6 +198,7 @@ def generate_diurnal_paattern(hours=24, requests_per_hour=100):
             all_arrivals.append(position)
 
     return [base_time + datetime.timedelta(seconds=t) for t in all_arrivals]
+
 
 def generate_diurnal_pattern(hours=24, requests_per_hour=100, peaks=None):
     """
@@ -242,7 +241,7 @@ def generate_diurnal_pattern(hours=24, requests_per_hour=100, peaks=None):
 
             # Apply Gaussian-like falloff from peak
             sigma = peak_width / 2.355  # Convert width to standard deviation
-            peak_contribution = peak_intensity * np.exp(-(dist**2) / (2 * sigma**2))
+            peak_contribution = peak_intensity * np.exp(-(dist ** 2) / (2 * sigma ** 2))
 
             # Add peak contribution to total intensity
             intensity = max(intensity, peak_contribution)
@@ -283,7 +282,85 @@ def generate_diurnal_pattern(hours=24, requests_per_hour=100, peaks=None):
     return [base_time + datetime.timedelta(seconds=t) for t in all_arrivals]
 
 
+def generate_diurnal_pattern_minutes(minutes=1440, requests_per_minute=100/60, peaks=None):
+    """
+    Generate a diurnal pattern with custom peaks and smooth transitions.
 
+    Parameters:
+    - minutes: Total duration to generate in minutes
+    - requests_per_minute: Average number of requests per minute
+    - peaks: List of tuples (minute, intensity, width) where:
+             - minute: Minute of the day for the peak (0-1439)
+             - intensity: Relative intensity of the peak (1.0 = baseline)
+             - width: Width of the peak in minutes (controls smoothness)
+
+    Returns:
+    - List of datetime objects representing arrival times
+    """
+    import numpy as np
+    import random
+    import datetime
+
+    # Default peaks if none provided (business hours peak)
+    if peaks is None:
+        peaks = [(780, 3.0, 480)]  # Peak at 1 PM (780 minutes), 3x intensity, 480 minutes (8 hours) wide
+
+    base_time = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Define a smooth rate multiplier function based on custom peaks
+    def rate_multiplier(minute):
+        # Convert minute to continuous time (0-1439)
+        continuous_minute = minute % minutes
+
+        # Start with baseline intensity
+        intensity = 1.0
+
+        # Calculate peak contributions
+        for peak_minute, peak_intensity, peak_width in peaks:
+            dist = min(abs(continuous_minute - peak_minute),
+                       minutes - abs(continuous_minute - peak_minute))
+
+            # Apply Gaussian-like falloff from peak
+            sigma = peak_width / 2.355  # Convert width to standard deviation
+            peak_contribution = peak_intensity * np.exp(-(dist**2) / (2 * sigma**2))
+
+            # Add peak contribution to total intensity
+            intensity = max(intensity, peak_contribution)
+
+        return intensity
+
+    # Calculate rate multipliers for all minutes
+    multipliers = [rate_multiplier(m) for m in range(minutes)]
+
+    # Normalize to ensure we get the requested average
+    total_multiplier = sum(multipliers)
+    normalized_multipliers = [m * minutes / total_multiplier for m in multipliers]
+
+    # Generate arrivals for each minute
+    all_arrivals = []
+
+    for minute in range(minutes):
+        # Calculate requests for this minute
+        minute_requests = int(requests_per_minute * normalized_multipliers[minute])
+
+        # Generate arrivals for this minute
+        for i in range(minute_requests):
+            # Allow some overlap with adjacent minutes for smoother transitions
+            minute_offset = random.gauss(0, 0.25)  # Small random offset, mostly within ±0.5 minute
+            actual_minute = max(0, min(minutes - 0.001, minute + minute_offset))
+
+            # Random position within the minute
+            position_in_minute = random.random()
+
+            # Calculate total seconds
+            seconds = actual_minute * 60 + position_in_minute * 60
+
+            # Add to arrivals list
+            all_arrivals.append(seconds)
+
+    # Sort arrivals and convert to datetime
+    all_arrivals.sort()
+    return [base_time + datetime.timedelta(seconds=t) for t in all_arrivals]
 
 def generate_diurnal_pattern_delayed(hours=24, requests_per_hour=100):
     all_arrivals = []
@@ -291,7 +368,7 @@ def generate_diurnal_pattern_delayed(hours=24, requests_per_hour=100):
 
     for hour in range(hours):
         # Model time-of-day variation (busier during work hours)
-        if  13 <= hour <= 21:  # Business hours
+        if 13 <= hour <= 21:  # Business hours
             alpha = 1.0
             beta = 3.0  # Higher rate during business hours
         else:
@@ -392,8 +469,8 @@ def main():
 
     # Morning and evening rush hours
     rush_hour_peaks = [
-        (8, 2.5, 7),    # Morning rush: 8 AM, 2.5x intensity, 3 hours wide
-        (17, 4.0, 3),   # Evening rush: 5 PM, 3x intensity, 4 hours wide
+        (8, 2.5, 7),  # Morning rush: 8 AM, 2.5x intensity, 3 hours wide
+        (17, 4.0, 3),  # Evening rush: 5 PM, 3x intensity, 4 hours wide
     ]
 
     arrival_times_datetime = generate_diurnal_pattern(requests_per_hour=40 * 60 * 60, peaks=rush_hour_peaks)

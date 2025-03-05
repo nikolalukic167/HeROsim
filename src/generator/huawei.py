@@ -1,9 +1,14 @@
+import datetime
+import json
 import os
+import random
 from pathlib import Path
-import seaborn as sns
+
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
+
+from src.generator.traces import compress_request_pattern_with_sampling, convert_datetime_timestamps
 
 
 def get_days_of_month_from_minutes(minutes_passed_tuple):
@@ -93,6 +98,33 @@ def normalize_fn_patterns(df, fn):
     return copy_df
 
 
+def create_minute_arrivals(series):
+    # Generate arrivals for each minute
+    all_arrivals = []
+    minutes = len(series)
+    base_time = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    for minute, minute_requests in enumerate(series):
+
+        # Generate arrivals for this minute
+        for i in range(int(minute_requests)):
+            # Allow some overlap with adjacent minutes for smoother transitions
+            minute_offset = random.gauss(0, 0.25)  # Small random offset, mostly within ±0.5 minute
+            actual_minute = max(0, min(minutes - 0.001, minute + minute_offset))
+
+            # Random position within the minute
+            position_in_minute = random.random()
+
+            # Calculate total seconds
+            seconds = actual_minute * 60 + position_in_minute * 60
+
+            # Add to arrivals list
+            all_arrivals.append(seconds)
+    all_arrivals.sort()
+
+    return [base_time + datetime.timedelta(seconds=t) for t in all_arrivals]
+
+
 def read_huawei_dfs(days, time_window, fn, region):
     start = pd.to_datetime(time_window[0], unit='m')
     end = pd.to_datetime(time_window[1], unit='m')
@@ -109,20 +141,95 @@ def fetch_huawei_arrival_times(fn, region, time_window, simulation_duration, new
     days = get_days_of_month_from_minutes(time_window)
     df = read_huawei_dfs(days, time_window, fn, region)
     df[fn] = (df[fn] * new_std_rps) + new_average_rps
-    sns.scatterplot(x=df.index, y=fn, data=df)
-    plt.show()
+    minute_arrivals = create_minute_arrivals(df[fn])
+    # plot_pattern(minute_arrivals, '60S', None)
+    events = compress_request_pattern_with_sampling(minute_arrivals, original_duration=time_window[1] - time_window[0],
+                                                    target_duration=simulation_duration)
+    # plot_pattern(events, '60S', None)
+    return events
+
+
+def freq():
+    # Example: Replace this with your actual pandas Series (requests per minute)
+    # Assume the data spans 4 weeks (10080 samples per week, total 40320 samples)
+    date_range = pd.date_range(start="2025-02-03", periods=40320, freq="T")
+    requests_per_minute = np.random.randint(50, 200, size=len(date_range))
+    time_series = pd.Series(data=requests_per_minute, index=date_range)
+    # time_series = df[fn]
+
+    # Sampling rate: 1 sample per minute
+    sampling_rate = 1 / 60  # Frequency in Hz (samples per second)
+
+    def calculate_frequency_amplitude(time_series, sampling_rate):
+        # Perform FFT
+        fft_result = np.fft.fft(time_series.values)
+
+        # Calculate amplitude (magnitude of FFT result)
+        amplitude = np.abs(fft_result) / len(time_series)
+
+        # Calculate frequencies
+        frequencies = np.fft.fftfreq(len(time_series), d=1 / sampling_rate)
+
+        # Only keep positive frequencies
+        positive_frequencies = frequencies[:len(frequencies) // 2]
+        positive_amplitudes = amplitude[:len(amplitude) // 2]
+
+        return positive_frequencies, positive_amplitudes
+
+    # Split the data into weekly segments
+    weekly_data = [time_series[i:i + 10080] for i in range(0, len(time_series), 10080)]
+
+    # Analyze each week and plot frequency vs amplitude
+    for i, week_series in enumerate(weekly_data):
+        freqs, amps = calculate_frequency_amplitude(week_series, sampling_rate)
+
+        plt.figure(figsize=(12, 6))
+        plt.plot(freqs, amps)
+        plt.title(f"Frequency vs Amplitude for Week {i + 1}")
+        plt.xlabel("Frequency (Hz)")
+        plt.ylabel("Amplitude")
+        plt.grid()
+        plt.show()
+
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    # Calculate amplitudes for all weeks
+    amplitudes_all_weeks = [calculate_frequency_amplitude(week_series, sampling_rate)[1] for week_series in weekly_data]
+
+    # Compute cosine similarity between weeks
+    cosine_similarities = cosine_similarity(amplitudes_all_weeks[:4])
+
+    print("Cosine Similarity Matrix:")
+    print(cosine_similarities)
+
+    from scipy.spatial.distance import euclidean
+
+    # Compute pairwise Euclidean distances between weeks
+    distances = []
+    for i in range(4):
+        for j in range(i + 1, 4):
+            dist = euclidean(amplitudes_all_weeks[i], amplitudes_all_weeks[j])
+            distances.append((f"Week {i + 1} vs Week {j + 1}", dist))
+
+    print("Euclidean Distances Between Weeks:")
+    for pair in distances:
+        print(pair)
 
 
 def main():
     fn = '49'
     region = 'R1'
     # first week
-    time_window = (0, 10080)
-    simulation_duration = 20 * 60
-    new_average_rps = 30
-    new_std_rps = 15
-    arrival_times = fetch_huawei_arrival_times(fn, region, time_window, simulation_duration, new_average_rps,
-                                               new_std_rps)
+    time_window = (10080 * 3, 10080 * 4)
+    simulation_duration = 20
+    new_average_rps = 300
+    new_std_rps = 150
+    arrivals = fetch_huawei_arrival_times(fn, region, time_window, simulation_duration, new_average_rps, new_std_rps)
+    arrivals_timestamps = convert_datetime_timestamps(arrivals)
+    with open(
+            f'data/nofs-ids/arrivals/{region}-{fn}-{time_window[0]}-{time_window[1]}-{new_average_rps}-{new_std_rps}-{simulation_duration}.json',
+            'w') as fd:
+        json.dump(arrivals_timestamps, fd)
 
 
 if __name__ == '__main__':

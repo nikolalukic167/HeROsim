@@ -220,16 +220,17 @@ def main():
     fn = '49'
     region = 'R1'
     # first week
-    time_window = (10080 * 3, 10080 * 4)
-    simulation_duration = 20
-    new_average_rps = 300
-    new_std_rps = 150
-    arrivals = fetch_huawei_arrival_times(fn, region, time_window, simulation_duration, new_average_rps, new_std_rps)
-    arrivals_timestamps = convert_datetime_timestamps(arrivals)
-    with open(
-            f'data/nofs-ids/arrivals/{region}-{fn}-{time_window[0]}-{time_window[1]}-{new_average_rps}-{new_std_rps}-{simulation_duration}.json',
-            'w') as fd:
-        json.dump(arrivals_timestamps, fd)
+    for i in range(4):
+        time_window = (10080 * i, 10080 * (i+1))
+        simulation_duration = 20
+        new_average_rps = 500
+        new_std_rps = 150
+        arrivals = fetch_huawei_arrival_times(fn, region, time_window, simulation_duration, new_average_rps, new_std_rps)
+        arrivals_timestamps = convert_datetime_timestamps(arrivals)
+        with open(
+                f'data/nofs-ids/arrivals/{region}-{fn}-{time_window[0]}-{time_window[1]}-{new_average_rps}-{new_std_rps}-{simulation_duration}.json',
+                'w') as fd:
+            json.dump(arrivals_timestamps, fd)
 
 
 if __name__ == '__main__':

@@ -14,7 +14,6 @@ from src.placement.executor import execute_sim
 from src.placement.model import SimulationData, DataclassJSONEncoder
 
 
-
 def save_single_stats(results_dir, rps, stats, output_infra, results_postfix):
     results_folder = os.path.join(results_dir, f"infra-{output_infra}", f"results-{results_postfix}")
     os.makedirs(results_folder, exist_ok=True)
@@ -51,15 +50,16 @@ def execute_proactive(base_dir, infra, workload_config, sim_input_path, model_lo
 
 
 def worker_function(args):
-    rep_idx, workload_config, base_dir, output_infra, sim_input_path, model_locations, results_dir, start_time, model_dir, model_infra= args
+    rep_idx, workload_config, config_idx, base_dir, output_infra, sim_input_path, model_locations, results_dir, start_time, model_dir, model_infra = args
     stats = execute_proactive(base_dir, output_infra, workload_config, sim_input_path, model_locations)
-    results_postfix = f'proactive/origin-{model_infra}-target-{output_infra}-model-{model_dir}/{start_time}/{str(rep_idx)}'
+    results_postfix = f'proactive/origin-{model_infra}-target-{output_infra}-model-{model_dir}/{start_time}/{str(rep_idx)}/{config_idx}'
     save_single_stats(results_dir, workload_config, stats, output_infra, results_postfix)
 
 
 def main():
     if len(sys.argv) != 8:
-        print("Usage: script.py <results_dir> <model_infra> <output_infra> <model_dir> <workload_config_file> <repetitions> <num_cores>")
+        print(
+            "Usage: script.py <results_dir> <model_infra> <output_infra> <model_dir> <workload_config_file> <repetitions> <num_cores>")
         sys.exit(1)
 
     results_dir = sys.argv[1]
@@ -83,15 +83,17 @@ def main():
     print("Fetching model locations")
     model_locations = get_model_locations(results_dir, model_infra, model_dir)
     print(f"Model locations: {model_locations}")
-    print(f"Starting proactive simulation with infra-{output_infra} workload_config: {workload_config_file} using {num_cores} cores")
+    print(
+        f"Starting proactive simulation with infra-{output_infra} workload_config: {workload_config_file} using {num_cores} cores")
 
     start_time = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
     # Create work items for each combination of repetition and RPS
     work_items = [
-        (rep_idx, config, base_dir, output_infra, sim_input_path, model_locations, results_dir, start_time, model_dir, model_infra)
+        (rep_idx, config, config_idx, base_dir, output_infra, sim_input_path, model_locations, results_dir, start_time,
+         model_dir, model_infra)
         for rep_idx in range(repetitions)
-        for config in workload_configs
+        for config_idx, config in enumerate(workload_configs)
     ]
 
     start_ts = time.time()

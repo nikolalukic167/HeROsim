@@ -48,9 +48,9 @@ def execute_reactive(base_dir, infra, workload_config, sim_input_path):
 
 
 def worker_function(args):
-    rep_idx, workload_config, base_dir, infra, sim_input_path, output_dir, start_time = args
+    rep_idx, workload_config, config_idx, base_dir, infra, sim_input_path, output_dir, start_time = args
     stats = execute_reactive(base_dir, infra, workload_config, sim_input_path)
-    save_stats(output_dir, workload_config, stats, infra, f'reactive/{start_time}/{str(rep_idx)}')
+    save_stats(output_dir, workload_config, stats, infra, f'reactive/{start_time}/{str(rep_idx)}/{str(config_idx)}')
 
 
 def main():
@@ -79,9 +79,9 @@ def main():
 
     # Create all combinations of repetitions and RPS values
     work_items = [
-        (rep_idx, config, base_dir, infra, sim_input_path, output_dir, start_time)
+        (rep_idx, config, config_idx, base_dir, infra, sim_input_path, output_dir, start_time)
         for rep_idx in range(repetitions)
-        for config in workload_configs
+        for config_idx, config in enumerate(workload_configs)
     ]
 
     # Create a pool of workers and map the work items

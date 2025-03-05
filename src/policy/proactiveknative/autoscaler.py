@@ -71,6 +71,10 @@ class ProactiveKnativeAutoscaler(Autoscaler):
         events = \
             count_events_in_windows_ts(self.env.now, system_state.time_series, task_type['name'], look_forward_size,
                                        look_forward_size)[0] / look_forward_size
+        if events is None:
+            print(f'FN {task_type["name"]} has no events')
+            return {}
+        print(task_type['name'])
         no_replicas = self.models[task_type['name']].predict(np.array([events]))[0]
 
         current_replicas = len(system_state.replicas[task_type['name']])

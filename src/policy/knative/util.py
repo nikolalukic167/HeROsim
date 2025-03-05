@@ -75,6 +75,8 @@ def count_events_in_windows_ts(current_time: int, time_series: TimeSeries, task_
         if current_time <= event['timestamp'] <= end_time
            and task_type in event['application']['dag']
     ]
+    if len(relevant_events) == 0:
+        return None
 
     # Count events per window
     for event in relevant_events:

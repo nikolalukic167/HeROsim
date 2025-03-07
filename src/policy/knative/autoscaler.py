@@ -89,8 +89,12 @@ class KnativeAutoscaler(Autoscaler):
             )
             for platform_type in self.data.platform_types.values()
         }
-
+        #
         replica_count = len(function_replicas)
+        # if task_type['name'] == 'rf' and replica_count < 1:
+        #     return {"any": 50}
+        # elif task_type['name'] == 'rf' and replica_count > 1:
+        #     return {"any": 0}
 
         # Result > 0 means scaling up
         # Result < 0 means scaling down

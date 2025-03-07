@@ -485,6 +485,7 @@ def create_inputs_outputs_seperated_per_app_windowed(result, window_size, app_de
         inputs[task_type] = np.array(inputs[task_type])
         outputs[task_type] = np.array(outputs[task_type])
 
+    print(outputs)
     return inputs, outputs
 
 
@@ -570,7 +571,8 @@ def create_train_test_split_per_windowed(inputs_outputs, test_size=0.2, random_s
 
         workload_counts = data
         pod_counts = inputs_outputs[1][task_type]
-
+        print(len(pod_counts))
+        print(len(workload_counts))
 
         X_train, X_test, y_train, y_test = train_test_split(
             workload_counts, pod_counts, test_size=test_size, random_state=random_state

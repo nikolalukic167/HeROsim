@@ -2,13 +2,14 @@ import datetime
 import json
 import os
 import random
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 
-from src.generator.traces import compress_request_pattern_with_sampling, convert_datetime_timestamps
+from src.generator.traces import compress_request_pattern_with_sampling, convert_datetime_timestamps, plot_pattern
 
 
 def get_days_of_month_from_minutes(minutes_passed_tuple):
@@ -98,31 +99,114 @@ def normalize_fn_patterns(df, fn):
     return copy_df
 
 
-def create_minute_arrivals(series):
-    # Generate arrivals for each minute
+# def create_minute_arrivals(series):
+#     # Generate arrivals for each minute
+#     all_arrivals = []
+#     minutes = len(series)
+#     base_time = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+#
+#     for minute, minute_requests in enumerate(series):
+#
+#         # Generate arrivals for this minute
+#         for i in range(int(minute_requests)):
+#             # Allow some overlap with adjacent minutes for smoother transitions
+#             minute_offset = random.gauss(0, 0.25)  # Small random offset, mostly within ±0.5 minute
+#             actual_minute = max(0, min(minutes - 0.001, minute + minute_offset))
+#
+#             # Random position within the minute
+#             position_in_minute = random.random()
+#
+#             # Calculate total seconds
+#             seconds = actual_minute * 60 + position_in_minute * 60
+#
+#             # Add to arrivals list
+#             all_arrivals.append(seconds)
+#     all_arrivals.sort()
+#
+#     return [base_time + datetime.timedelta(seconds=t) for t in all_arrivals]
+
+# For even better performance with very large series, consider parallel processing:
+def process_chunk(chunk_data):
+    minute_offset, chunk = chunk_data
+    minutes = len(chunk)
     all_arrivals = []
-    minutes = len(series)
+
+    for minute, minute_requests in enumerate(chunk):
+        requests = int(minute_requests)
+        if requests == 0:
+            continue
+
+        for _ in range(requests):
+            offset = random.gauss(0, 0.25)
+            actual_minute = max(0, min(minutes - 0.001, minute + offset))
+            position = random.random()
+            seconds = (minute_offset + actual_minute) * 60 + position * 60
+            all_arrivals.append(seconds)
+
+    return all_arrivals
+
+
+def create_minute_arrivals_parallel(series, chunk_size=1000):
+    # For extremely large series, process in parallel
     base_time = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
-    for minute, minute_requests in enumerate(series):
+    # Split series into chunks
+    chunks = []
+    for i in range(0, len(series), chunk_size):
+        chunks.append((i, series[i:i + chunk_size]))
 
-        # Generate arrivals for this minute
-        for i in range(int(minute_requests)):
-            # Allow some overlap with adjacent minutes for smoother transitions
-            minute_offset = random.gauss(0, 0.25)  # Small random offset, mostly within ±0.5 minute
-            actual_minute = max(0, min(minutes - 0.001, minute + minute_offset))
+    # Process chunks in parallel
+    all_arrivals = []
+    with ProcessPoolExecutor(max_workers=4) as executor:
+        results = executor.map(process_chunk, chunks)
+        for result in results:
+            all_arrivals.extend(result)
 
-            # Random position within the minute
-            position_in_minute = random.random()
-
-            # Calculate total seconds
-            seconds = actual_minute * 60 + position_in_minute * 60
-
-            # Add to arrivals list
-            all_arrivals.append(seconds)
     all_arrivals.sort()
+    return all_arrivals
 
-    return [base_time + datetime.timedelta(seconds=t) for t in all_arrivals]
+
+import numpy as np
+import datetime
+
+
+def create_minute_arrivals_optimized(series):
+    """
+    Further optimized function to generate arrivals using fully vectorized operations.
+
+    Parameters:
+        series (np.array): Array of request counts per minute.
+
+    Returns:
+        list: List of datetime objects representing arrival times.
+    """
+    # Base time for the day
+    base_time = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # Convert series to numpy array if it's not already
+    series = np.asarray(series)
+
+    # Get indices of non-zero elements to avoid unnecessary calculations
+    non_zero_indices = np.nonzero(series)[0]
+    non_zero_counts = series[non_zero_indices]
+
+    # Generate minute indices for all requests at once
+    minute_indices = np.repeat(non_zero_indices, non_zero_counts.astype(int))
+
+    # Generate all random values in one batch
+    minute_offsets = np.random.normal(0, 0.25, size=len(minute_indices))
+    positions_in_minute = np.random.random(size=len(minute_indices))
+
+    # Calculate actual minutes with bounds checking
+    actual_minutes = np.clip(minute_indices + minute_offsets, 0, len(series) - 0.001)
+
+    # Calculate seconds for all arrivals at once
+    seconds = actual_minutes * 60 + positions_in_minute * 60
+
+    # Sort the seconds
+    seconds.sort()
+
+    return seconds
 
 
 def read_huawei_dfs(days, time_window, fn, region):
@@ -132,21 +216,26 @@ def read_huawei_dfs(days, time_window, fn, region):
     directory = str(home / f'resources/datasets/huawei_public_cloud/{region}/requests')
     data = read_and_preprocess_files(directory, days, fn)
     combined_df = pd.concat(data.values()).fillna(0)
+    mean = combined_df[fn].mean()
+    std = combined_df[fn].std()
     combined_df = normalize_fn_patterns(combined_df, fn)
     combined_df = combined_df.loc[start:end]
-    return combined_df
+    return combined_df, mean, std
 
 
-def fetch_huawei_arrival_times(fn, region, time_window, simulation_duration, new_average_rps, new_std_rps):
+def fetch_huawei_arrival_times(fn, region, time_window, simulation_duration, new_average_rps):
     days = get_days_of_month_from_minutes(time_window)
-    df = read_huawei_dfs(days, time_window, fn, region)
+    df, mean, std = read_huawei_dfs(days, time_window, fn, region)
+    new_std_rps = std * (new_average_rps / mean)
     df[fn] = (df[fn] * new_std_rps) + new_average_rps
-    minute_arrivals = create_minute_arrivals(df[fn])
+    print("Starting create_minute_arrivals_parallel")
+    minute_arrivals = create_minute_arrivals_optimized(df[fn])
     # plot_pattern(minute_arrivals, '60S', None)
+    print("Compressing events")
     events = compress_request_pattern_with_sampling(minute_arrivals, original_duration=time_window[1] - time_window[0],
                                                     target_duration=simulation_duration)
     # plot_pattern(events, '60S', None)
-    return events
+    return events, new_std_rps
 
 
 def freq():
@@ -221,14 +310,16 @@ def main():
     region = 'R1'
     # first week
     for i in range(4):
-        time_window = (10080 * i, 10080 * (i+1))
+        time_window = (10080 * i, 10080 * (i + 1))
         simulation_duration = 20
-        new_average_rps = 500
-        new_std_rps = 150
-        arrivals = fetch_huawei_arrival_times(fn, region, time_window, simulation_duration, new_average_rps, new_std_rps)
+        new_average_rps = 7500
+        arrivals, new_std_rps = fetch_huawei_arrival_times(fn, region, time_window, simulation_duration, new_average_rps)
+        arrival_file = f'{region}-{fn}-{time_window[0]}-{time_window[1]}-{new_average_rps}-{int(new_std_rps)}-{simulation_duration}'
+        plot_pattern(arrivals, 60, f'data/nofs-ids/arrivals/{arrival_file}')
+
         arrivals_timestamps = convert_datetime_timestamps(arrivals)
         with open(
-                f'data/nofs-ids/arrivals/{region}-{fn}-{time_window[0]}-{time_window[1]}-{new_average_rps}-{new_std_rps}-{simulation_duration}.json',
+                f'data/nofs-ids/arrivals/{arrival_file}.json',
                 'w') as fd:
             json.dump(arrivals_timestamps, fd)
 

@@ -1,20 +1,51 @@
 import json
+import multiprocessing as mp
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
-import multiprocessing as mp
-from functools import partial
 
-from src.executeinitial import load_simulation_inputs, setup_logging, flatten_workloads
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+
+from src.executeinitial import load_simulation_inputs, setup_logging
 from src.motivational.constants import KEEP_ALIVE, QUEUE_LENGTH
 from src.placement.executor import execute_sim
 from src.placement.model import SimulationData, DataclassJSONEncoder
 
 
+def save_results(results_folder, stats):
+    scenario_statistics = {
+        "averageQueueTime": stats["averageQueueTime"],
+        "penaltyProportion": stats["penaltyProportion"],
+        "averageExecutionTime": stats["averageExecutionTime"],
+        "averageComputerTime": stats["averageComputeTime"],
+        "averageWaitTime": stats["averageWaitTime"],
+        "endTime": stats["endTime"]
+    }
+
+    with open(os.path.join(results_folder, "results.json"), "w") as results_file:
+        json.dump(scenario_statistics, results_file)
+
+    list1, list2 = zip(*stats['penaltyDistributionOverTime'])
+    penalty_over_time = pd.DataFrame({'time': list1, 'penalty': list2})
+    system_events_df = pd.DataFrame(stats['systemEvents'])
+    system_events_df.to_csv(os.path.join(results_folder, "system_events.csv"))
+    penalty_over_time.to_csv(os.path.join(results_folder, "penalty_over_time.csv"))
+
+    sns.scatterplot(x='time', y='penalty', data=penalty_over_time)
+    plt.savefig(os.path.join(results_folder, "penalties.pdf"))
+    plt.close()
+    sns.scatterplot(x='timestamp', y='count', hue='name', data=system_events_df)
+    plt.savefig(os.path.join(results_folder, "system_events.pdf"))
+    plt.close()
+
+
 def save_stats(output_dir, rps, stats, infra, results_postfix):
     results_folder = os.path.join(output_dir, f"infra-{infra}", f"results-{results_postfix}")
     os.makedirs(results_folder, exist_ok=True)
+    save_results(results_folder, stats)
     with open(os.path.join(results_folder, f"peak-config.json"), "w") as outfile:
         json.dump(stats, outfile, indent=2, cls=DataclassJSONEncoder)
     return results_folder
@@ -42,7 +73,7 @@ def execute_reactive(base_dir, infra, workload_config, sim_input_path):
         print(f'Start simulation: peak-config - {infra}')
         stats = execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, task_priority,
                             queue_length,
-                            scheduling_strategy, workload, 'workload-mine',reconcile_interval=1)
+                            scheduling_strategy, workload, 'workload-mine', reconcile_interval=1)
         print(f'End simulation: peak-config - {infra}')
         return stats
 

@@ -24,9 +24,10 @@ def read_all_stats(dir, infra, rpss, logger, include_queue_length: bool):
         for exp_dir in base_directory.iterdir():
                 for rep_exp_dir in exp_dir.iterdir():
                     file = rep_exp_dir / f"{rps}.json"
-                    print(file)
                     if not file.exists():
                         continue
+                    print(file)
+
                     with open(file, "r") as infile:
                         stats = json.load(infile)
                         app_definitions = {}

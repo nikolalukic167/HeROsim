@@ -422,7 +422,7 @@ def compress_request_pattern_with_sampling(arrival_times, original_duration=60, 
     # Randomly sample events to maintain original RPS
     import random
     num_samples = max(1, int(len(timestamps) * sampling_ratio))
-    sampled_timestamps = sorted(random.sample(timestamps, num_samples))
+    sampled_timestamps = sorted(random.sample(list(timestamps), num_samples))
 
     # Scale each timestamp
     compressed_timestamps = []

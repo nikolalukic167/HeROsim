@@ -130,7 +130,6 @@ class Autoscaler:
 
             # Release mutex
             yield self.mutex.put(system_state)
-            self.log_system_status(replicas)
 
             # Next event
             self.env.step()

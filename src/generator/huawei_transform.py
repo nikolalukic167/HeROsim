@@ -2,6 +2,7 @@ import json
 import random
 from typing import List
 
+from src.generator.traces import plot_pattern
 from src.parser.parser import parse_simulation_data
 from src.placement.model import TimeSeries, WorkloadEvent, ApplicationType, SimulationData, QoSType, \
     DataclassJSONEncoder
@@ -12,11 +13,12 @@ def main():
     region = 'R1'
     # first week
     for i in range(4):
+        print(f"Prepare {i}")
         time_window = (10080 * i, 10080 * (i + 1))
         simulation_duration = 20
-        new_average_rps = 500
-        new_std_rps = 150
-        app = 'nofs-rf'
+        new_average_rps = 7500
+        new_std_rps = "5456"
+        app = 'nofs-dnn1'
         data_directory = 'data/nofs-ids'
         data: SimulationData = parse_simulation_data(data_directory)
         arrival_file = f'{region}-{fn}-{time_window[0]}-{time_window[1]}-{new_average_rps}-{new_std_rps}-{simulation_duration}'
@@ -63,9 +65,9 @@ def main():
                 }
 
                 events.append(workload_event)
-
+            save_as = f'{arrival_file}-{app}'
             time_series = TimeSeries(rps=new_average_rps, duration=simulation_duration * 60, events=events)
-            with open(f'{data_directory}/traces/{arrival_file}.json', 'w') as fd:
+            with open(f'{data_directory}/traces/{save_as}.json', 'w') as fd:
                 json.dump(time_series, fd, indent=2, cls=DataclassJSONEncoder)
 
 

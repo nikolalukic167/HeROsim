@@ -10,6 +10,7 @@ from src.executeinitial import load_simulation_inputs, setup_logging, flatten_wo
 from src.motivational.constants import QUEUE_LENGTH, KEEP_ALIVE
 from src.motivational.proactive import get_model_locations
 from src.motivational.reactive import save_stats
+from src.motivational.reactiveparalleldiffworkloads import save_results
 from src.placement.executor import execute_sim
 from src.placement.model import SimulationData, DataclassJSONEncoder
 
@@ -17,6 +18,7 @@ from src.placement.model import SimulationData, DataclassJSONEncoder
 def save_single_stats(results_dir, rps, stats, output_infra, results_postfix):
     results_folder = os.path.join(results_dir, f"infra-{output_infra}", f"results-{results_postfix}")
     os.makedirs(results_folder, exist_ok=True)
+    save_results(results_folder, stats)
     with open(os.path.join(results_folder, f"peak-config.json"), "w") as outfile:
         json.dump(stats, outfile, indent=2, cls=DataclassJSONEncoder)
     return results_folder

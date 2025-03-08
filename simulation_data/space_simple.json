@@ -1,0 +1,81 @@
+{
+  "pci": {
+    "rpi": {
+      "min": 0.4,
+      "max": 0.4,
+      "step": 0.1,
+      "specs": {
+        "memory": 8,
+        "platforms": [
+          "rpiCpu",
+          "rpiCpu",
+          "rpiCpu",
+          "rpiCpu"
+        ],
+        "storage": [
+          "flashCard",
+          "someRemote"
+        ]
+      }
+    },
+    "xavier": {
+      "min": 0.4,
+      "max": 0.4,
+      "step": 0.1,
+      "specs": {
+        "memory": 32,
+        "platforms": [
+          "xavierCpu",
+          "xavierCpu",
+          "xavierCpu",
+          "xavierCpu",
+          "xavierCpu",
+          "xavierCpu",
+          "xavierCpu",
+          "xavierCpu",
+          "xavierGpu",
+          "xavierDla"
+        ],
+        "storage": [
+          "eMMC",
+          "someRemote"
+        ]
+      }
+    },
+    "pyngFpga": {
+      "min": 0.2,
+      "max": 0.2,
+      "step": 0.1,
+      "specs": {
+        "memory": 0.5,
+        "platforms": [
+          "pynqFpga"
+        ],
+        "storage": [
+          "flashCard",
+          "someRemote"
+        ]
+      }
+    }
+  },
+  "wsc": {
+    "nofs-dnn1": {
+      "average": 125,
+      "min": 0.2,
+      "max": 5,
+      "step": 0.3
+    }
+  },
+  "csc": {
+    "average": 15,
+    "min": 15,
+    "max": 15,
+    "step": 5
+  },
+  "nwc": {
+    "average": 100,
+    "min": 100,
+    "max": 100,
+    "step": 50
+  }
+}

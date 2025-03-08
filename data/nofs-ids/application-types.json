@@ -1,26 +1,8 @@
 {
-  "nofs-rf": {
-    "name": "nofs-rf",
-    "dag": {
-      "rf": []
-    }
-  },
   "nofs-dnn1": {
     "name": "nofs-dnn1",
     "dag": {
       "dnn1": []
-    }
-  },
-  "nofs-dnn2": {
-    "name": "nofs-dnn2",
-    "dag": {
-      "dnn2": []
-    }
-  },
-  "nofs-cnn": {
-    "name": "nofs-cnn",
-    "dag": {
-      "cnn": []
     }
   }
 }

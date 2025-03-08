@@ -85,7 +85,7 @@ def main() -> int:
         "--no-app-types",
         help="Number of application types to generate",
         type=int,
-        required=True,
+        required=False,
     )
 
     parser.add_argument(
@@ -216,7 +216,7 @@ def generate_traces(args, parser):
     simulation_data: SimulationData = parse_simulation_data(args.data_directory)
     # Create time series
     time_series: TimeSeries = generate_time_series(
-        simulation_data, args.rps, args.seconds, args.pattern, args.app, generated_trace_path.replace('.json', '')
+        simulation_data, args.rps, args.seconds, args.pattern, args.app, generated_trace_path.replace('.json', ''), peaks=None
     )
     with open(f"{generated_trace_path}", "w") as outfile:
         json.dump(time_series, outfile, indent=2, cls=DataclassJSONEncoder)

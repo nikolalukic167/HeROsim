@@ -133,8 +133,8 @@ def combination_to_array(combination, config):
     return np.array(values)
 
 if __name__ == "__main__":
-    config_file = "simulation_data/space.json"
-    output_prefix = "simulation_data/combinations"
+    config_file = "simulation_data/space_simple.json"
+    output_prefix = "simulation_data/combinations_simple"
     try:
         # Load configuration
         with open(config_file, 'r') as f:

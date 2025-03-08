@@ -16,7 +16,7 @@ def train_model(output_dir, samples, include_queue_length: bool, window_size=5):
     all_train_data = defaultdict(list)
     all_test_data = defaultdict(list)
 
-    for i, sample in enumerate(samples[:1]):
+    for i, sample in enumerate(samples):
         with open(output_dir / f"simulation_{i + 1}.json", 'r') as fd:
             obj = json.load(fd)['stats']
             app_definitions = {}
@@ -29,13 +29,13 @@ def train_model(output_dir, samples, include_queue_length: bool, window_size=5):
                 train_data_sample, test_data_sample = create_train_test_split_per_windowed(
                     create_inputs_outputs_seperated_per_app_windowed_system_events(obj, window_size, app_definitions))
             for fn, data in train_data_sample.items():
-                all_train_data[fn].append(data)
+                all_train_data[fn].extend(data)
             for fn, data in test_data_sample.items():
-                all_test_data[fn].append(data)
-    for fn, data in all_train_data.items():
-        all_train_data[fn] = np.array(data).reshape(-1, 2)
-    for fn, data in all_test_data.items():
-        all_test_data[fn] = np.array(data).reshape(-1, 2)
+                all_test_data[fn].extend(data)
+    # for fn, data in all_train_data.items():
+    #     all_train_data[fn] = np.array(data).reshape(-1, 2)
+    # for fn, data in all_test_data.items():
+    #     all_test_data[fn] = np.array(data).reshape(-1, 2)
     models = train_xgboost_per_task(all_train_data)
     return models, evaluate_xgboost_per_task(models, all_test_data)
 

@@ -1,14 +1,6 @@
 {
-  "high": {
-    "name": "high",
-    "maxDurationDeviation": 10
-  },
   "medium": {
     "name": "medium",
     "maxDurationDeviation": 15
-  },
-  "low": {
-    "name": "low",
-    "maxDurationDeviation": 20
   }
 }

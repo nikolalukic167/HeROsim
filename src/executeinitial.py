@@ -1,6 +1,7 @@
 import json
 import logging
 import math
+import os
 import pickle
 from copy import deepcopy
 from pathlib import Path
@@ -11,6 +12,7 @@ import xgboost
 
 # Assuming increase_events is imported from your previous script
 from src.eventgenerator import increase_events_of_app
+from src.motivational.constants import KEEP_ALIVE, QUEUE_LENGTH
 from src.placement.executor import execute_sim
 from src.placement.model import SimulationData, DataclassJSONEncoder
 from src.train import train_model, save_models
@@ -89,8 +91,8 @@ def prepare_workloads(
         workload_key = f'workload_{app_name}'
         if workload_key in reverse_mapping:
             logging.warning('read factor from sample, currently set to 1 for debugging purposes')
-            # factor = sample[reverse_mapping[workload_key]]
-            factor = 1
+            factor = sample[reverse_mapping[workload_key]]
+            # factor = 1
             # Create a deep copy of base workload
             workload_copy = deepcopy(base_workload)
             # Apply increase_events with the factor
@@ -273,12 +275,13 @@ def flatten_workloads(workloads: Dict[str, Dict]) -> Dict[str, Any]:
 def main():
     # Configuration paths
     base_dir = Path("simulation_data")
-    sim_input_path = Path("data/ids")  # Base path for simulation input files
-    samples_file = base_dir / "lhs_samples.npy"
-    mapping_file = base_dir / "lhs_samples_mapping.pkl"
-    config_file = base_dir / "space.json"
-    workload_base_file = "data/ids/traces/workload-83-100.json"
-    output_dir = base_dir / "initial_results"
+    sim_input_path = Path("data/nofs-ids")  # Base path for simulation input files
+    samples_file = base_dir / "lhs_samples_simple.npy"
+    mapping_file = base_dir / "lhs_samples_simple_mapping.pkl"
+    config_file = base_dir / "space_simple.json"
+    workload_base_file = "data/nofs-ids/traces/workload-125-600.json"
+    output_dir = base_dir / "initial_results_simple"
+    os.makedirs(output_dir, exist_ok=True)
     # Setup logging
     logger = setup_logging(output_dir)
     try:
@@ -311,13 +314,16 @@ def main():
         apps = [app for app in infra_config['wsc'].keys()]
 
         # Process each sample
-        reactive_results_paths = execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, samples,
-                                                    sim_inputs, workload_base)
+        # reactive_results_paths = execute_reactive_samples_parallel(apps, infra_config, logger, mapping, output_dir, samples,
+        #                                                   sim_inputs, workload_base)
 
+        reactive_results_paths = ['simulation_data/initial_results_simple/simulation_{x}.json'  for x in [1,2,3,4,5]]
+        reactive_results_paths = ['simulation_data/initial_results_simple/simulation_{x}.json'  for x in [1]]
+        print(reactive_results_paths)
         logger.info("Completed all simulations")
 
         logger.info("Training model now...")
-        models, eval_results = train_model(output_dir, samples)
+        models, eval_results = train_model(output_dir, samples, include_queue_length=False)
         model_paths = save_models(models, output_dir)
 
         logger.info('Finished model training')
@@ -331,7 +337,7 @@ def main():
 
 def execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base):
     result_paths = []
-    for i, sample in enumerate(samples[:1]):
+    for i, sample in enumerate(samples):
         logger.info(f"Processing sample {i + 1}/{len(samples)}")
 
         # Prepare infrastructure configuration
@@ -352,8 +358,8 @@ def execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, sa
         try:
             cache_policy = 'fifo'
             task_priority = 'fifo'
-            keep_alive = 30
-            queue_length = 100
+            keep_alive = KEEP_ALIVE
+            queue_length = QUEUE_LENGTH
             scheduling_strategy = 'kn_kn'
             result = execute_simulation(full_config, sim_inputs, scheduling_strategy)
             result['sample'] = {
@@ -384,6 +390,86 @@ def execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, sa
     return result_paths
 
 
+import concurrent.futures
+import json
+from pathlib import Path
+
+
+def execute_reactive_samples_parallel(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base):
+    result_paths = []
+
+    def process_sample(sample_tuple):
+        i, sample = sample_tuple
+        logger.info(f"Processing sample {i + 1}/{len(samples)}")
+
+        try:
+            # Prepare infrastructure configuration
+            sim_config = prepare_simulation_config(sample, mapping, infra_config)
+
+            # Prepare workloads
+            workloads = prepare_workloads(sample, mapping, workload_base, apps)
+            # Flatten workloads into single sorted list
+            flattened_workloads = flatten_workloads(workloads)
+
+            # Combine infrastructure and workload configurations
+            full_config = {
+                "infrastructure": sim_config,
+                "workload": flattened_workloads
+            }
+
+            # Execute simulation with additional inputs
+            cache_policy = 'fifo'
+            task_priority = 'fifo'
+            keep_alive = KEEP_ALIVE
+            queue_length = QUEUE_LENGTH
+            scheduling_strategy = 'kn_kn'
+            result = execute_simulation(full_config, sim_inputs, scheduling_strategy)
+            result['sample'] = {
+                'apps': apps,
+                'sample': sample.tolist(),
+                'mapping': mapping,
+                'infra_config': infra_config,
+                'workload_base': workload_base,
+                'sim_inputs': sim_inputs,
+                'scheduling_strategy': scheduling_strategy,
+                'cache_policy': cache_policy,
+                'task_priority': task_priority,
+                'keep_alive': keep_alive,
+                'queue_length': queue_length
+            }
+
+            # Save result
+            result_file = output_dir / f"simulation_{i + 1}.json"
+            with open(result_file, 'w') as f:
+                json.dump(result, f, indent=2, cls=DataclassJSONEncoder)
+
+            logger.info(f"Completed simulation {i + 1}")
+            return result_file
+
+        except Exception as e:
+            logger.error(f"Error in simulation {i + 1}: {str(e)}")
+            logger.exception(e)
+            return None
+
+    # Use ProcessPoolExecutor for CPU-bound tasks, ThreadPoolExecutor for I/O-bound tasks
+    # Adjust max_workers as needed based on your system's capabilities
+    with concurrent.futures.ProcessPoolExecutor(max_workers=5) as executor:
+        # Create a list of (index, sample) tuples to process
+        sample_tuples = [(i, sample) for i, sample in enumerate(samples)]
+
+        # Submit all tasks and process results as they complete
+        future_to_sample = {executor.submit(process_sample, sample_tuple): sample_tuple for sample_tuple in
+                            sample_tuples}
+
+        for future in concurrent.futures.as_completed(future_to_sample):
+            result_file = future.result()
+            if result_file is not None:
+                result_paths.append(result_file)
+
+    return result_paths
+
+
+
 def execute_proactive_samples(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base,
                               models_locations):
     result_paths = []
@@ -408,10 +494,10 @@ def execute_proactive_samples(apps, infra_config, logger, mapping, output_dir, s
         try:
             cache_policy = 'fifo'
             task_priority = 'fifo'
-            keep_alive = 30
-            queue_length = 100
+            keep_alive = KEEP_ALIVE
+            queue_length = QUEUE_LENGTH
             scheduling_strategy = 'prokn_prokn'
-            result = execute_simulation(full_config, sim_inputs, scheduling_strategy, models_locations=models_locations,
+            result = execute_simulation(full_config, sim_inputs, scheduling_strategy, model_locations=models_locations,
                                         cache_policy=cache_policy,
                                         task_priority=task_priority,
                                         keep_alive=keep_alive,

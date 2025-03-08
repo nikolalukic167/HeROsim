@@ -71,3 +71,12 @@ The first script generates the initial dataset based on the sampled parameters, 
   * `under-performing-percentile`: Specifies which percentile (upwards) should be optimized based on result's penalty
   * `target-penalty`: Which penalty proportion the fine-tuned model should have to stop optimization for a sample.
 * After executing this script, the `optimization_results/%Y%m%d_%H%M%S` folder will contain all results, including interim results.
+
+Short Version
+=============
+
+1. Create space.json
+2. Generate all samples
+3. Sample
+4. Execute Initial
+5. Execute Optimization

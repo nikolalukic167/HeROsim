@@ -2,6 +2,7 @@ import json
 import multiprocessing as mp
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -116,9 +117,11 @@ def main():
     ]
 
     # Create a pool of workers and map the work items
+    start_ts = time.time()
     with mp.Pool(num_cores) as pool:
         pool.map(worker_function, work_items)
-
+    end_ts = time.time()
+    print(f'Duration: {end_ts - start_ts} seconds')
 
 if __name__ == '__main__':
     main()

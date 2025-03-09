@@ -157,8 +157,8 @@ class ProactiveOptimizer:
         self.n_iterations = n_iterations
         self.init_points = init_points
 
-    def optimize_sample(self, initial_sample, state):
-        param_bounds = self.get_bounds(initial_sample, state)
+    def optimize_sample(self, initial_sample, state, space):
+        param_bounds = self.get_bounds(initial_sample, state, space)
         # Create evaluation function with fixed state
         eval_func = partial(self.evaluate_parameters, state=state['sample'])
         result, iterations = optimize_parameters(
@@ -167,6 +167,7 @@ class ProactiveOptimizer:
             target_penalty=self.target_penalty,
             n_iterations=self.n_iterations,
             init_points=self.init_points
+            # constraints = [{'name': 'sum_constraint', 'constraint': 'x[:,0] + x[:,1] + x[:,2] - 1'}]
         )
         return result, iterations
 
@@ -187,7 +188,7 @@ class ProactiveOptimizer:
             if k.startswith('device_'):
                 total_prop += params[k]
         if not np.isclose(total_prop, 1.0, atol=0.01):
-            return float('-inf')
+            return -1e6
 
         # Cluster size parameter must be discrete
         params['cluster_size'] = round(params['cluster_size'])
@@ -239,7 +240,7 @@ class ProactiveOptimizer:
 
         return -proactive_penalty
 
-    def get_bounds(self, initial_sample, state):
+    def get_bounds(self, initial_sample, state, space):
         mapping = state['sample']['mapping']
 
         param_bounds = {}
@@ -251,6 +252,33 @@ class ProactiveOptimizer:
             if param == 'cluster_size':
                 param_down = int(param_down)
                 param_up = int(param_up)
+                if param_up > space['csc']['max']:
+                    param_up = space['csc']['max']
+                if param_down < space['csc']['min']:
+                    param_down = space['csc']['min']
+            if 'device' in param:
+                device = param.split('_')[-1]
+                device_max_proportion = space['pci'][device]['max']
+                device_min_proportion = space['pci'][device]['min']
+                if param_up > device_max_proportion:
+                    param_up = device_max_proportion
+                if param_down < device_min_proportion:
+                    param_down = device_min_proportion
+            if param == 'network_bandwidth':
+                network_max_bandwidth = space['nwc']['max']
+                network_min_bandwidth = space['nwc']['min']
+                if param_up > network_max_bandwidth:
+                    param_up = network_max_bandwidth
+                if param_down < network_min_bandwidth:
+                    param_down = network_min_bandwidth
+            if 'workload' in param:
+                app = param.split('_')[-1]
+                workload_min = space['wsc'][app]['min']
+                workload_max = space['wsc'][app]['max']
+                if param_up > workload_max:
+                    param_up = workload_max
+                if param_down < workload_min:
+                    param_down = workload_min
             param_bounds[param] = (param_down, param_up)
         return param_bounds
 
@@ -269,7 +297,8 @@ class ProactiveOptimizer:
             improvement_data = self.improvement_history[task]
             if improvement_data:
                 # Combine all improvement steps
-                X_combined = np.vstack([step.X for step in improvement_data])
+                # X_combined = np.vstack([step.X for step in improvement_data])
+                X_combined = np.vstack([np.array(step.X).reshape(-1, 1) for step in improvement_data])
                 y_combined = np.array([step.y[task] for step in improvement_data])
 
                 # Save datasets
@@ -312,8 +341,10 @@ def load_optimization_results(input_dir: Path) -> Dict[str, Any]:
 
     return results
 
+
 def main():
     print(load_optimization_results(Path('simulation_data/optimization_results/20250220_204711/models')))
+
 
 if __name__ == '__main__':
     main()

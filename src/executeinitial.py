@@ -3,6 +3,7 @@ import logging
 import math
 import os
 import pickle
+import time
 from copy import deepcopy
 from pathlib import Path
 from typing import Dict, List, Any
@@ -90,8 +91,8 @@ def prepare_workloads(
         # Get the workload factor from sample
         workload_key = f'workload_{app_name}'
         if workload_key in reverse_mapping:
-            logging.warning('read factor from sample, currently set to 1 for debugging purposes')
-            factor = sample[reverse_mapping[workload_key]]
+            # logging.warning('read factor from sample, currently set to 1 for debugging purposes')
+            factor = sample[int(reverse_mapping[workload_key])]
             # factor = 1
             # Create a deep copy of base workload
             workload_copy = deepcopy(base_workload)
@@ -279,7 +280,7 @@ def main():
     samples_file = base_dir / "lhs_samples_simple.npy"
     mapping_file = base_dir / "lhs_samples_simple_mapping.pkl"
     config_file = base_dir / "space_simple.json"
-    workload_base_file = "data/nofs-ids/traces/workload-125-600.json"
+    workload_base_file = "data/nofs-ids/traces/workload-125-250.json"
     output_dir = base_dir / "initial_results_simple"
     os.makedirs(output_dir, exist_ok=True)
     # Setup logging
@@ -314,11 +315,12 @@ def main():
         apps = [app for app in infra_config['wsc'].keys()]
 
         # Process each sample
-        # reactive_results_paths = execute_reactive_samples_parallel(apps, infra_config, logger, mapping, output_dir, samples,
+        # reactive_results_paths = execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, samples,
         #                                                   sim_inputs, workload_base)
-
-        reactive_results_paths = ['simulation_data/initial_results_simple/simulation_{x}.json'  for x in [1,2,3,4,5]]
-        reactive_results_paths = ['simulation_data/initial_results_simple/simulation_{x}.json'  for x in [1]]
+        reactive_results_paths = execute_reactive_samples_parallel(apps, config_file, mapping_file, output_dir, samples,
+                                                                   sim_input_path, workload_base_file)
+        # reactive_results_paths = ['simulation_data/initial_results_simple/simulation_{x}.json'  for x in [1,2,3,4,5]]
+        # reactive_results_paths = ['simulation_data/initial_results_simple/simulation_{x}.json'  for x in [1]]
         print(reactive_results_paths)
         logger.info("Completed all simulations")
 
@@ -333,6 +335,102 @@ def main():
     except Exception as e:
         logger.error(f"Fatal error: {str(e)}")
         raise e
+
+
+import concurrent.futures
+import json
+from pathlib import Path
+
+
+def process_sample(args):
+    i, sample, output_dir, sim_input_path, mapping_file, config_file, workload_base_file, apps = args
+    logger = setup_logging(output_dir)
+    logger.info(f"Processing sample {i + 1}")
+
+    try:
+        sim_inputs = load_simulation_inputs(sim_input_path)
+
+        with open(mapping_file, 'rb') as f:
+            mapping = pickle.load(f)
+
+        # Load infrastructure config
+        with open(config_file, 'r') as f:
+            infra_config = json.load(f)
+
+        with open(workload_base_file, 'r') as f:
+            workload_base = json.load(f)
+
+        # Prepare infrastructure configuration
+        sim_config = prepare_simulation_config(sample, mapping, infra_config)
+
+        # Prepare workloads
+        workloads = prepare_workloads(sample, mapping, workload_base, apps)
+        # Flatten workloads into single sorted list
+        flattened_workloads = flatten_workloads(workloads)
+
+        # Combine infrastructure and workload configurations
+        full_config = {
+            "infrastructure": sim_config,
+            "workload": flattened_workloads
+        }
+
+        # Execute simulation with additional inputs
+        cache_policy = 'fifo'
+        task_priority = 'fifo'
+        keep_alive = KEEP_ALIVE
+        queue_length = QUEUE_LENGTH
+        scheduling_strategy = 'kn_kn'
+        result = execute_simulation(full_config, sim_inputs, scheduling_strategy)
+        result['sample'] = {
+            'apps': apps,
+            'sample': sample.tolist(),
+            'mapping': mapping,
+            'infra_config': infra_config,
+            'workload_base': workload_base,
+            'sim_inputs': sim_inputs,
+            'scheduling_strategy': scheduling_strategy,
+            'cache_policy': cache_policy,
+            'task_priority': task_priority,
+            'keep_alive': keep_alive,
+            'queue_length': queue_length
+        }
+
+        # Save result
+        result_file = output_dir / f"simulation_{i + 1}.json"
+        with open(result_file, 'w') as f:
+            json.dump(result, f, indent=2, cls=DataclassJSONEncoder)
+
+        logger.info(f"Completed simulation {i + 1}")
+        return result_file
+
+    except Exception as e:
+        logger.error(f"Error in simulation {i + 1}: {str(e)}")
+        logger.exception(e)
+        return None
+
+
+def execute_reactive_samples_parallel(apps, config_file, mapping_file, output_dir, samples, sim_input_path,
+                                      workload_base_file):
+    result_paths = []
+
+    # Use ProcessPoolExecutor for CPU-bound tasks, ThreadPoolExecutor for I/O-bound tasks
+    # Adjust max_workers as needed based on your system's capabilities
+    with concurrent.futures.ProcessPoolExecutor(max_workers=5) as executor:
+        # Create a list of (index, sample) tuples to process
+        sample_tuples = [(i, sample, output_dir, sim_input_path, mapping_file, config_file, workload_base_file, apps)
+                         for i, sample in enumerate(samples)]
+        start_ts = time.time()
+        # Submit all tasks and process results as they complete
+        future_to_sample = {executor.submit(process_sample, sample_tuple): sample_tuple for sample_tuple in
+                            sample_tuples}
+
+        for future in concurrent.futures.as_completed(future_to_sample):
+            result_file = future.result()
+            if result_file is not None:
+                result_paths.append(result_file)
+        end_ts = time.time()
+        print(f'Duration: {end_ts - start_ts}')
+    return result_paths
 
 
 def execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base):
@@ -390,90 +488,10 @@ def execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, sa
     return result_paths
 
 
-import concurrent.futures
-import json
-from pathlib import Path
-
-
-def execute_reactive_samples_parallel(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base):
-    result_paths = []
-
-    def process_sample(sample_tuple):
-        i, sample = sample_tuple
-        logger.info(f"Processing sample {i + 1}/{len(samples)}")
-
-        try:
-            # Prepare infrastructure configuration
-            sim_config = prepare_simulation_config(sample, mapping, infra_config)
-
-            # Prepare workloads
-            workloads = prepare_workloads(sample, mapping, workload_base, apps)
-            # Flatten workloads into single sorted list
-            flattened_workloads = flatten_workloads(workloads)
-
-            # Combine infrastructure and workload configurations
-            full_config = {
-                "infrastructure": sim_config,
-                "workload": flattened_workloads
-            }
-
-            # Execute simulation with additional inputs
-            cache_policy = 'fifo'
-            task_priority = 'fifo'
-            keep_alive = KEEP_ALIVE
-            queue_length = QUEUE_LENGTH
-            scheduling_strategy = 'kn_kn'
-            result = execute_simulation(full_config, sim_inputs, scheduling_strategy)
-            result['sample'] = {
-                'apps': apps,
-                'sample': sample.tolist(),
-                'mapping': mapping,
-                'infra_config': infra_config,
-                'workload_base': workload_base,
-                'sim_inputs': sim_inputs,
-                'scheduling_strategy': scheduling_strategy,
-                'cache_policy': cache_policy,
-                'task_priority': task_priority,
-                'keep_alive': keep_alive,
-                'queue_length': queue_length
-            }
-
-            # Save result
-            result_file = output_dir / f"simulation_{i + 1}.json"
-            with open(result_file, 'w') as f:
-                json.dump(result, f, indent=2, cls=DataclassJSONEncoder)
-
-            logger.info(f"Completed simulation {i + 1}")
-            return result_file
-
-        except Exception as e:
-            logger.error(f"Error in simulation {i + 1}: {str(e)}")
-            logger.exception(e)
-            return None
-
-    # Use ProcessPoolExecutor for CPU-bound tasks, ThreadPoolExecutor for I/O-bound tasks
-    # Adjust max_workers as needed based on your system's capabilities
-    with concurrent.futures.ProcessPoolExecutor(max_workers=5) as executor:
-        # Create a list of (index, sample) tuples to process
-        sample_tuples = [(i, sample) for i, sample in enumerate(samples)]
-
-        # Submit all tasks and process results as they complete
-        future_to_sample = {executor.submit(process_sample, sample_tuple): sample_tuple for sample_tuple in
-                            sample_tuples}
-
-        for future in concurrent.futures.as_completed(future_to_sample):
-            result_file = future.result()
-            if result_file is not None:
-                result_paths.append(result_file)
-
-    return result_paths
-
-
-
 def execute_proactive_samples(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base,
                               models_locations):
     result_paths = []
-    for i, sample in enumerate(samples[:1]):
+    for i, sample in enumerate(samples):
         logger.info(f"Processing sample {i + 1}/{len(samples)}")
 
         # Prepare infrastructure configuration

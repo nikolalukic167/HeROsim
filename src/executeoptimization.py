@@ -29,10 +29,11 @@ def setup_logging(output_dir: Path) -> logging.Logger:
 
     return logger
 
+
 def main():
     # Configuration
     base_dir = Path("simulation_data")
-    output_dir = base_dir / "optimization_results" / datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = base_dir / "optimization_simple_results" / datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Setup logging
@@ -42,14 +43,18 @@ def main():
     try:
         # Load LHS samples and their results
         logger.info("Loading initial samples and results")
-        samples = np.load(base_dir / "lhs_samples.npy")
-        # with open(base_dir / "lhs_samples_mapping.pkl", 'rb') as f:
-        #     samples_mapping = pickle.load(f)
+        samples = np.load(base_dir / "lhs_samples_simple.npy")
+
+        # Load space
+        logger.info("Loading space")
+        space_file = base_dir / 'space_simple.json'
+        with open(space_file, 'r') as fd:
+            space = json.load(fd)
 
         # Load initial simulation results
         logger.info("Loading initial simulation results")
         simulation_results = []
-        results_dir = base_dir / "initial_results"
+        results_dir = base_dir / "initial_results_simple"
         for result_file in sorted(results_dir.glob("simulation_*.json")):
             with open(result_file, 'r') as f:
                 simulation_results.append(json.load(f))
@@ -57,7 +62,7 @@ def main():
         # Load initial models
         logger.info("Loading initial models")
         initial_models = {}
-        models_dir = base_dir / "initial_results"
+        models_dir = base_dir / "initial_results_simple"
         for model_file in models_dir.glob("*_model.json"):
             task_name = model_file.stem.replace("_model", "")
             model = xgb.XGBRegressor()
@@ -69,31 +74,31 @@ def main():
         initial_penalties = np.array([result['stats']['penaltyProportion'] for result in simulation_results])
 
         # Identify high-penalty samples
-        penalty_threshold = np.percentile(initial_penalties, 0)  # Top 10% worst cases
+        penalty_threshold = np.percentile(initial_penalties, 90)  # Top 10% worst cases
         high_penalty_mask = initial_penalties > penalty_threshold
-        high_penalty_mask = [True]
-        high_penalty_samples = samples[:1]
-        high_penalty_results = simulation_results[:1]
-        high_penalty_indices = np.where(high_penalty_mask)[0]
+        # high_penalty_mask = [True]
+        high_penalty_results = simulation_results
+        high_penalty_indices = np.where(high_penalty_mask)
+        high_penalty_samples = samples[high_penalty_indices]
 
         logger.info(f"Found {len(high_penalty_samples)} high-penalty samples to optimize")
 
         # Initialize optimizer
         optimizer = ProactiveOptimizer(
             initial_models=initial_models,
-            target_penalty=0.1, # Set your target penalty,
-            n_iterations=1,
-            init_points=1
+            target_penalty=9,  # Set your target penalty,
+            n_iterations=8,
+            init_points=5
         )
 
         # Optimize each high-penalty sample
         optimization_results = []
         for idx, (sample, state) in enumerate(zip(high_penalty_samples, high_penalty_results)):
-            logger.info(f"Optimizing sample {idx+1}/{len(high_penalty_samples)}")
+            logger.info(f"Optimizing sample {idx + 1}/{len(high_penalty_samples)}")
             logger.info(f"Original penalty: {initial_penalties[high_penalty_indices[idx]]}")
 
             try:
-                result, iterations = optimizer.optimize_sample(sample, state)
+                result, iterations = optimizer.optimize_sample(sample, state, space)
 
                 optimization_results.append({
                     'sample_index': int(high_penalty_indices[idx]),
@@ -135,8 +140,8 @@ def main():
         ]
 
         logger.info("Optimization completed")
-        logger.info(f"Average improvement: {np.mean(improvements)*100:.2f}%")
-        logger.info(f"Maximum improvement: {np.max(improvements)*100:.2f}%")
+        logger.info(f"Average improvement: {np.mean(improvements) * 100:.2f}%")
+        logger.info(f"Maximum improvement: {np.max(improvements) * 100:.2f}%")
         logger.info(f"Results saved to {output_dir}")
 
     except Exception as e:

@@ -223,14 +223,46 @@ class ProactiveParallelOptimizer:
                 points = opt.ask(n_points=self.n_parallel)
 
                 # Evaluate points in parallel
-                results = Parallel(n_jobs=self.n_parallel)(
+                eval_results = Parallel(n_jobs=self.n_parallel)(
                     delayed(self.evaluate_parameters_wrapper)(x, state['sample'], param_names)
                     for x in points
                 )
 
-                # Tell optimizer the results
-                opt.tell(points, results)
+                # Extract penalties for optimizer
+                penalties = [result['penalty'] for result in eval_results]
 
+                # Tell optimizer the results
+                opt.tell(points, penalties)
+
+                # Find the best result from this batch
+                best_batch_result = None
+                best_batch_penalty = float('inf')
+                for result in eval_results:
+                    if 'proactive_penalty' in result and result['proactive_penalty'] < best_batch_penalty:
+                        best_batch_penalty = result['proactive_penalty']
+                        best_batch_result = result
+
+                # Only update if the batch's best result is better than our overall best
+                if best_batch_result is not None and best_batch_penalty < self.best_proactive_penalty:
+                    self.best_proactive_penalty = best_batch_penalty
+
+                    # Update best models if available
+                    if 'temp_models' in best_batch_result:
+                        self.best_models = best_batch_result['temp_models']
+
+                    # Store improvement data
+                    if all(key in best_batch_result for key in ['X_new', 'y_new', 'params']):
+                        for task in self.best_models.keys():
+                            if best_batch_result['X_new'] is not None and task in best_batch_result['X_new']:
+                                self.improvement_history[task].append(
+                                    OptimizationStep(
+                                        params=best_batch_result['params'].copy(),
+                                        X=best_batch_result['X_new'][task].copy(),
+                                        y={task: best_batch_result['y_new'][task]},
+                                        penalty=best_batch_penalty,
+                                        improvement=True
+                                    )
+                                )
                 # Track iteration
                 best_idx = np.argmin(opt.yi)
                 best_value = opt.yi[best_idx]
@@ -364,25 +396,15 @@ class ProactiveParallelOptimizer:
 
         # Run proactive simulation with updated models
         proactive_penalty = proactive_result['stats']['penaltyProportion']
-
-        # Check if this led to an improvement in proactive performance
-        if proactive_penalty < self.best_proactive_penalty:
-            self.best_proactive_penalty = proactive_penalty
-            # Update best models
-            self.best_models = temp_models
-            # Store the improvement data for all tasks
-            for task in self.best_models.keys():
-                self.improvement_history[task].append(
-                    OptimizationStep(
-                        params=params.copy(),
-                        X=X_new[task].copy(),
-                        y={task: y_new[task]},
-                        penalty=proactive_penalty,
-                        improvement=True
-                    )
-                )
-
-        return -proactive_penalty
+        # Return all the data needed to track improvements
+        return {
+            'penalty': -proactive_penalty,
+            'proactive_penalty': proactive_penalty,
+            'params': params,
+            'temp_models': temp_models,
+            'X_new': X_new if 'X_new' in locals() else None,
+            'y_new': y_new if 'y_new' in locals() else None
+        }
 
     def fine_tune_model(self, model: xgb.XGBRegressor, new_data: Tuple, task: str):
         """Fine-tune specific task model with new data."""
@@ -409,7 +431,7 @@ class ProactiveParallelOptimizer:
             if improvement_data:
                 # Combine all improvement steps
                 X_combined = np.vstack([np.array(step.X).reshape(-1, 1) for step in improvement_data])
-                y_combined = np.array([step.y[task] for step in improvement_data])
+                y_combined = np.array([step.y[task].reshape(-1, 1) for step in improvement_data])
 
                 # Save datasets
                 np.save(task_dir / "X_improvements.npy", X_combined)

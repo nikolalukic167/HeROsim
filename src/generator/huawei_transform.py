@@ -27,48 +27,50 @@ def main():
                 'r') as fd:
             arrivals = json.load(fd)
 
-            events: List[WorkloadEvent] = []
-            qos_levels_per_app = {}
-            if app is not None:
-                app_types = [app]
-            else:
-                app_types = data.application_types.keys()
+            map_to_events(app, arrival_file, arrivals, data, data_directory, new_average_rps, simulation_duration)
 
-            for application_type in app_types:
-                qos_type_count: int = len(data.qos_types)
-                qos_type_index: int = random.randint(0, qos_type_count - 1)
-                qos_type_name: str = list(data.qos_types)[qos_type_index]
-                qos_type: QoSType = data.qos_types[qos_type_name]
-                qos_levels_per_app[str(application_type)] = qos_type
 
-            for timestamp in arrivals:
-                application_type_count: int = len(data.application_types)
-                if app is not None:
+def map_to_events(app, arrival_file, arrivals, data, data_directory, new_average_rps, simulation_duration):
+    events: List[WorkloadEvent] = []
+    qos_levels_per_app = {}
+    if app is not None:
+        app_types = [app]
+    else:
+        app_types = data.application_types.keys()
+    for application_type in app_types:
+        qos_type_count: int = len(data.qos_types)
+        qos_type_index: int = random.randint(0, qos_type_count - 1)
+        qos_type_name: str = list(data.qos_types)[qos_type_index]
+        qos_type: QoSType = data.qos_types[qos_type_name]
+        qos_levels_per_app[str(application_type)] = qos_type
+    for timestamp in arrivals:
+        application_type_count: int = len(data.application_types)
+        if app is not None:
 
-                    application_type_name: str = app
-                    application_type: ApplicationType = data.application_types[
-                        application_type_name
-                    ]
-                else:
-                    application_type_index: int = random.randint(0, application_type_count - 1)
-                    application_type_name: str = list(data.application_types)[
-                        application_type_index
-                    ]
-                    application_type: ApplicationType = data.application_types[
-                        application_type_name
-                    ]
+            application_type_name: str = app
+            application_type: ApplicationType = data.application_types[
+                application_type_name
+            ]
+        else:
+            application_type_index: int = random.randint(0, application_type_count - 1)
+            application_type_name: str = list(data.application_types)[
+                application_type_index
+            ]
+            application_type: ApplicationType = data.application_types[
+                application_type_name
+            ]
 
-                workload_event: WorkloadEvent = {
-                    "timestamp": timestamp,
-                    "application": application_type,
-                    "qos": qos_levels_per_app[application_type_name],
-                }
+        workload_event: WorkloadEvent = {
+            "timestamp": timestamp,
+            "application": application_type,
+            "qos": qos_levels_per_app[application_type_name],
+        }
 
-                events.append(workload_event)
-            save_as = f'{arrival_file}-{app}'
-            time_series = TimeSeries(rps=new_average_rps, duration=simulation_duration * 60, events=events)
-            with open(f'{data_directory}/traces/{save_as}.json', 'w') as fd:
-                json.dump(time_series, fd, indent=2, cls=DataclassJSONEncoder)
+        events.append(workload_event)
+    save_as = f'{arrival_file}-{app}'
+    time_series = TimeSeries(rps=new_average_rps, duration=simulation_duration * 60, events=events)
+    with open(f'{data_directory}/traces/{save_as}.json', 'w') as fd:
+        json.dump(time_series, fd, indent=2, cls=DataclassJSONEncoder)
 
 
 if __name__ == '__main__':

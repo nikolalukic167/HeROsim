@@ -11,7 +11,10 @@ import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
 
+from src.generator.huawei_transform import map_to_events
 from src.generator.traces import compress_request_pattern_with_sampling, convert_datetime_timestamps, plot_pattern
+from src.parser.parser import parse_simulation_data
+from src.placement.model import SimulationData
 
 
 def get_days_of_month_from_minutes(minutes_passed_tuple):
@@ -349,6 +352,12 @@ def extract_huawei_arrivals(fn, region):
                 f'data/nofs-ids/arrivals/{arrival_file}.json',
                 'w') as fd:
             json.dump(arrivals_timestamps, fd)
+
+        data_directory = 'data/nofs-ids'
+        data: SimulationData = parse_simulation_data(data_directory)
+        app = 'nofs-dnn1'
+        simulation_duration = 20
+        map_to_events(app, arrival_file, arrivals_timestamps, data, data_directory, new_average_rps, simulation_duration)
     return results
 
 def process_function(fn_region_tuple):

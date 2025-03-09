@@ -3,6 +3,7 @@ import logging
 import math
 import os
 import pickle
+import sys
 import time
 from copy import deepcopy
 from pathlib import Path
@@ -283,6 +284,7 @@ def main():
     workload_base_file = "data/nofs-ids/traces/workload-125-250.json"
     output_dir = base_dir / "initial_results_simple"
     os.makedirs(output_dir, exist_ok=True)
+    max_workers = int(sys.argv[2])
     # Setup logging
     logger = setup_logging(output_dir)
     try:
@@ -318,7 +320,7 @@ def main():
         # reactive_results_paths = execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, samples,
         #                                                   sim_inputs, workload_base)
         reactive_results_paths = execute_reactive_samples_parallel(apps, config_file, mapping_file, output_dir, samples,
-                                                                   sim_input_path, workload_base_file)
+                                                                   sim_input_path, workload_base_file, max_workers)
         # reactive_results_paths = ['simulation_data/initial_results_simple/simulation_{x}.json'  for x in [1,2,3,4,5]]
         # reactive_results_paths = ['simulation_data/initial_results_simple/simulation_{x}.json'  for x in [1]]
         print(reactive_results_paths)
@@ -410,12 +412,12 @@ def process_sample(args):
 
 
 def execute_reactive_samples_parallel(apps, config_file, mapping_file, output_dir, samples, sim_input_path,
-                                      workload_base_file):
+                                      workload_base_file, max_workers):
     result_paths = []
 
     # Use ProcessPoolExecutor for CPU-bound tasks, ThreadPoolExecutor for I/O-bound tasks
     # Adjust max_workers as needed based on your system's capabilities
-    with concurrent.futures.ProcessPoolExecutor(max_workers=5) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         # Create a list of (index, sample) tuples to process
         sample_tuples = [(i, sample, output_dir, sim_input_path, mapping_file, config_file, workload_base_file, apps)
                          for i, sample in enumerate(samples)]

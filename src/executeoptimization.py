@@ -36,11 +36,30 @@ def setup_logging(output_dir: Path) -> logging.Logger:
 logger = setup_logging(Path('/tmp'))
 
 # Optimize each high-penalty sample
-def process_sample(idx, sample, state, space, optimizer, initial_penalties, high_penalty_indices):
+def process_sample(idx, sample, state, space, initial_penalties, high_penalty_indices, base_dir, output_dir):
     logger.info(f"Optimizing sample {idx + 1}")
     logger.info(f"Original penalty: {initial_penalties[high_penalty_indices[idx]]}")
 
     try:
+        # Load initial models
+        logger.info("Loading initial models")
+        initial_models = {}
+        models_dir = base_dir / "initial_results_simple"
+        for model_file in models_dir.glob("*_model.json"):
+            task_name = model_file.stem.replace("_model", "")
+            model = xgb.XGBRegressor()
+            model.load_model(str(model_file))
+            initial_models[task_name] = model
+
+        # Initialize optimizer
+        optimizer = ProactiveParallelOptimizer(
+            initial_models=initial_models,
+            target_penalty=float(sys.argv[1]),  # Set your target penalty,
+            n_iterations=int(sys.argv[2]),
+            n_parallel=int(sys.argv[3])
+        )
+
+
         best_params, iterations = optimizer.optimize_sample(sample, state, space)
 
         # The structure of best_params has changed in the new implementation
@@ -55,6 +74,9 @@ def process_sample(idx, sample, state, space, optimizer, initial_penalties, high
 
         logger.info(f"Optimization completed in {len(iterations)} iterations")
         logger.info(f"Final penalty: {optimizer.best_proactive_penalty}")
+
+        # Save models and improvement datasets
+        optimizer.save_optimization_results(output_dir / str(idx) / "models")
 
         return optimization_result
 
@@ -106,15 +128,6 @@ def main():
             with open(result_file, 'r') as f:
                 simulation_results.append(json.load(f))
 
-        # Load initial models
-        logger.info("Loading initial models")
-        initial_models = {}
-        models_dir = base_dir / "initial_results_simple"
-        for model_file in models_dir.glob("*_model.json"):
-            task_name = model_file.stem.replace("_model", "")
-            model = xgb.XGBRegressor()
-            model.load_model(str(model_file))
-            initial_models[task_name] = model
 
         # Calculate penalties for initial samples
         logger.info("Calculating initial penalties")
@@ -130,14 +143,6 @@ def main():
 
         logger.info(f"Found {len(high_penalty_samples)} high-penalty samples to optimize")
 
-        # Initialize optimizer
-        optimizer = ProactiveParallelOptimizer(
-            initial_models=initial_models,
-            target_penalty=float(sys.argv[1]),  # Set your target penalty,
-            n_iterations=int(sys.argv[2]),
-            n_parallel=int(sys.argv[3])
-        )
-
 
         # Determine number of cores to use
         num_cores = multiprocessing.cpu_count()
@@ -147,7 +152,7 @@ def main():
         # Run the optimization in parallel
         optimization_results = Parallel(n_jobs=n_jobs, verbose=10)(
             delayed(process_sample)(
-                idx, sample, state, space, optimizer, initial_penalties, high_penalty_indices
+                idx, sample, state, space, initial_penalties, high_penalty_indices, base_dir, output_dir
             ) for idx, (sample, state) in enumerate(zip(high_penalty_samples, high_penalty_results))
         )
         # Save optimization results
@@ -164,8 +169,6 @@ def main():
         with open(output_dir / "optimization_summary.json", 'w') as f:
             json.dump(summary, f, indent=2, cls=NumpyEncoder)
 
-        # Save models and improvement datasets
-        optimizer.save_optimization_results(output_dir / "models")
 
         # Calculate improvement statistics
         improvements = [

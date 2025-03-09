@@ -125,7 +125,8 @@ def run_proactive_simulation(state, models, params):
         result = execute_simulation(full_config, sim_inputs, scheduling_strategy, cache_policy=cache_policy,
                                     task_priority=task_priority,
                                     keep_alive=keep_alive,
-                                    queue_length=queue_length, models=models, reconcile_interval=PROACTIVE_RECONCILE_INTERVAL)
+                                    queue_length=queue_length, models=models,
+                                    reconcile_interval=PROACTIVE_RECONCILE_INTERVAL)
         result['sample'] = {
             'apps': apps,
             'sample': sample.tolist(),
@@ -144,6 +145,7 @@ def run_proactive_simulation(state, models, params):
     except Exception as e:
         logger.error(f"Error in simulation")
         logger.exception(e)
+
 
 class TabularPrintCallback:
     def __init__(self, param_names):
@@ -203,7 +205,7 @@ class ProactiveParallelOptimizer:
         opt = Optimizer(
             dimensions=dimensions,
             base_estimator="GP",  # Gaussian Process
-            acq_func="EI",        # Expected Improvement
+            acq_func="EI",  # Expected Improvement
             acq_optimizer="sampling",
             random_state=42
         )
@@ -217,70 +219,71 @@ class ProactiveParallelOptimizer:
         print(header)
         print("-" * len(header))
 
-
         for i in range(self.n_iterations):
-                # Ask for points to evaluate in parallel
-                points = opt.ask(n_points=self.n_parallel)
+            # Ask for points to evaluate in parallel
+            points = opt.ask(n_points=self.n_parallel)
 
-                # Evaluate points in parallel
-                eval_results = Parallel(n_jobs=self.n_parallel)(
-                    delayed(self.evaluate_parameters_wrapper)(x, state['sample'], param_names)
-                    for x in points
-                )
+            # Evaluate points in parallel
+            eval_results = Parallel(n_jobs=self.n_parallel)(
+                delayed(self.evaluate_parameters_wrapper)(x, state['sample'], param_names)
+                for x in points
+            )
 
-                # Extract penalties for optimizer
-                penalties = [result['penalty'] for result in eval_results]
+            # Extract penalties for optimizer
+            penalties = [result['penalty'] for result in eval_results]
 
-                # Tell optimizer the results
-                opt.tell(points, penalties)
+            # Tell optimizer the results
+            opt.tell(points, penalties)
 
-                # Find the best result from this batch
-                best_batch_result = None
-                best_batch_penalty = float('inf')
-                for result in eval_results:
-                    if 'proactive_penalty' in result and result['proactive_penalty'] < best_batch_penalty:
-                        best_batch_penalty = result['proactive_penalty']
-                        best_batch_result = result
+            # Find the best result from this batch
+            best_batch_result = None
+            best_batch_penalty = float('inf')
+            for result in eval_results:
+                if 'proactive_penalty' in result and result['proactive_penalty'] < best_batch_penalty:
+                    logger.info("Found best result in batch")
+                    best_batch_penalty = result['proactive_penalty']
+                    best_batch_result = result
 
-                # Only update if the batch's best result is better than our overall best
-                if best_batch_result is not None and best_batch_penalty < self.best_proactive_penalty:
-                    self.best_proactive_penalty = best_batch_penalty
+            # Only update if the batch's best result is better than our overall best
+            if best_batch_result is not None and best_batch_penalty < self.best_proactive_penalty:
+                print("Best in batch is global best for now")
+                self.best_proactive_penalty = best_batch_penalty
 
-                    # Update best models if available
-                    if 'temp_models' in best_batch_result:
-                        self.best_models = best_batch_result['temp_models']
+                # Update best models if available
+                if 'temp_models' in best_batch_result:
+                    self.best_models = best_batch_result['temp_models']
 
-                    # Store improvement data
-                    if all(key in best_batch_result for key in ['X_new', 'y_new', 'params']):
-                        for task in self.best_models.keys():
-                            if best_batch_result['X_new'] is not None and task in best_batch_result['X_new']:
-                                self.improvement_history[task].append(
-                                    OptimizationStep(
-                                        params=best_batch_result['params'].copy(),
-                                        X=best_batch_result['X_new'][task].copy(),
-                                        y={task: best_batch_result['y_new'][task]},
-                                        penalty=best_batch_penalty,
-                                        improvement=True
-                                    )
+                # Store improvement data
+                if all(key in best_batch_result for key in ['X_new', 'y_new', 'params']):
+                    for task in self.best_models.keys():
+                        if best_batch_result['X_new'] is not None and task in best_batch_result['X_new']:
+                            self.improvement_history[task].append(
+                                OptimizationStep(
+                                    params=best_batch_result['params'].copy(),
+                                    X=best_batch_result['X_new'][task].copy(),
+                                    y={task: best_batch_result['y_new'][task]},
+                                    penalty=best_batch_penalty,
+                                    improvement=True
                                 )
-                # Track iteration
-                best_idx = np.argmin(opt.yi)
-                best_value = opt.yi[best_idx]
-                best_params = {param_names[j]: opt.Xi[best_idx][j] for j in range(len(param_names))}
-                best_x = opt.Xi[best_idx]
+                            )
+            # Track iteration
+            best_idx = np.argmin(opt.yi)
+            best_value = opt.yi[best_idx]
+            best_params = {param_names[j]: opt.Xi[best_idx][j] for j in range(len(param_names))}
+            best_x = opt.Xi[best_idx]
 
-                iterations.append({
-                    'iteration': i,
-                    'best_penalty': -best_value,
-                    'best_params': best_params
-                })
+            iterations.append({
+                'iteration': i,
+                'best_penalty': -best_value,
+                'best_params': best_params
+            })
 
-                row = f"| {i:<9} | {-best_value:<9.2f} | " + " | ".join(f"{val:<9.3f}" for val in best_x) + " |"
-                print(row)
+            row = f"| {i:<9} | {-best_value:<9.2f} | " + " | ".join(f"{val:<9.3f}" for val in best_x) + " |"
+            print(row)
 
-                # Early stopping if we reach target penalty
-                if -best_value <= self.target_penalty:
-                    break
+            # Early stopping if we reach target penalty
+            if -best_value <= self.target_penalty:
+                break
 
         # Return best parameters found
         best_idx = np.argmin(opt.yi)
@@ -373,23 +376,23 @@ class ProactiveParallelOptimizer:
         temp_models = {task: deepcopy(model) for task, model in self.best_models.items()}
         # reactive_result = None
         reactive_result = run_reactive_simulation(state, params)
-        if reactive_result is not None:
-            app_definitions = {}
-            for task in reactive_result['stats']['taskResults']:
-                app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
-            # Prepare data for all tasks
-            X_new, y_new = create_inputs_outputs_seperated_per_app_windowed(reactive_result['stats'], PREPARE_PREDICTION_WINDOW_SIZE,
-                                                                            app_definitions)
+        app_definitions = {}
+        for task in reactive_result['stats']['taskResults']:
+            app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
+        # Prepare data for all tasks
+        X_new, y_new = create_inputs_outputs_seperated_per_app_windowed(reactive_result['stats'],
+                                                                        PREPARE_PREDICTION_WINDOW_SIZE,
+                                                                        app_definitions)
 
-            # Fine-tune models and track improvements
+        # Fine-tune models and track improvements
 
-            # Fine-tune temporary models
-            for task, model in temp_models.items():
-                X = [[x] for x in X_new[task]]
-                y = np.array(y_new[task])
-                if len(X) == 0:
-                    continue
-                model.fit(X, y, xgb_model=model)
+        # Fine-tune temporary models
+        for task, model in temp_models.items():
+            X = [[x] for x in X_new[task]]
+            y = np.array(y_new[task])
+            if len(X) == 0:
+                continue
+            model.fit(X, y, xgb_model=model)
 
         # Run proactive simulation with fine-tuned models
         proactive_result = run_proactive_simulation(state, temp_models, params)
@@ -402,8 +405,8 @@ class ProactiveParallelOptimizer:
             'proactive_penalty': proactive_penalty,
             'params': params,
             'temp_models': temp_models,
-            'X_new': X_new if 'X_new' in locals() else None,
-            'y_new': y_new if 'y_new' in locals() else None
+            'X_new': X_new,
+            'y_new': y_new
         }
 
     def fine_tune_model(self, model: xgb.XGBRegressor, new_data: Tuple, task: str):

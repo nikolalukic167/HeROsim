@@ -338,10 +338,11 @@ def main():
 
 def extract_huawei_arrivals(fn, region):
     results = []
+    simulation_duration = 20
+    new_average_rps = 7500
     for i in range(4):
         time_window = (10080 * i, 10080 * (i + 1))
-        simulation_duration = 20
-        new_average_rps = 7500
+
         arrivals, new_std_rps = fetch_huawei_arrival_times(fn, region, time_window, simulation_duration,
                                                            new_average_rps)
         arrival_file = f'{region}-{fn}-{time_window[0]}-{time_window[1]}-{new_average_rps}-{int(new_std_rps)}-{simulation_duration}'
@@ -357,7 +358,9 @@ def extract_huawei_arrivals(fn, region):
         data: SimulationData = parse_simulation_data(data_directory)
         app = 'nofs-dnn1'
         simulation_duration = 20
-        map_to_events(app, arrival_file, arrivals_timestamps, data, data_directory, new_average_rps, simulation_duration)
+        results.append(map_to_events(app, arrival_file, arrivals_timestamps, data, data_directory, new_average_rps, simulation_duration))
+    with open(f'data/nofs-ids/workload-configs/{region}-{fn}-{str(new_average_rps)}-{str(simulation_duration)}.json', 'w') as fd:
+        json.dump(results, fd)
     return results
 
 def process_function(fn_region_tuple):

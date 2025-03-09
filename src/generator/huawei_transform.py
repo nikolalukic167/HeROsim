@@ -69,9 +69,10 @@ def map_to_events(app, arrival_file, arrivals, data, data_directory, new_average
         events.append(workload_event)
     save_as = f'{arrival_file}-{app}'
     time_series = TimeSeries(rps=new_average_rps, duration=simulation_duration * 60, events=events)
-    with open(f'{data_directory}/traces/{save_as}.json', 'w') as fd:
+    out_file = f'{data_directory}/traces/{save_as}.json'
+    with open(out_file, 'w') as fd:
         json.dump(time_series, fd, indent=2, cls=DataclassJSONEncoder)
-
+    return out_file
 
 if __name__ == '__main__':
     main()

@@ -284,7 +284,7 @@ def main():
     workload_base_file = "data/nofs-ids/traces/workload-125-250.json"
     output_dir = base_dir / "initial_results_simple"
     os.makedirs(output_dir, exist_ok=True)
-    max_workers = int(sys.argv[2])
+    max_workers = int(sys.argv[1])
     # Setup logging
     logger = setup_logging(output_dir)
     try:

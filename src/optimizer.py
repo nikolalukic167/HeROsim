@@ -1,5 +1,8 @@
 import json
 import logging
+import os
+import pathlib
+from collections import defaultdict
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import partial
@@ -19,6 +22,7 @@ from src.executeinitial import prepare_simulation_config, prepare_workloads, fla
 from src.motivational.constants import PROACTIVE_RECONCILE_INTERVAL, REACTIVE_RECONCILE_INTERVAL, \
     PREPARE_PREDICTION_WINDOW_SIZE
 from src.preprocessing import create_inputs_outputs_seperated_per_app_windowed
+from src.train import save_models
 
 logger = logging.getLogger(__name__)
 
@@ -476,9 +480,48 @@ def load_optimization_results(input_dir: Path) -> Dict[str, Any]:
 
     return results
 
+def read_and_finetune_opt_results(opt_path: pathlib.Path):
+    with open(opt_path / 'optimization_summary.json', 'r') as fd:
+        optimization_summary = json.load(fd)
+        n_samples = len(optimization_summary['optimization_results'])
+        X_improvements_by_task = defaultdict(list)
+        y_improvements_by_task = defaultdict(list)
+        for i in range(n_samples):
+            input_dir = opt_path / str(i) / "models"
+            for task_dir in  input_dir.iterdir():
+                if task_dir.is_dir():
+                    task_name = task_dir.name
+                    X_improvements_by_task[task_name].extend(np.load(task_dir / "X_improvements.npy"))
+                    y_improvements_by_task[task_name].extend(np.load(task_dir / "y_improvements.npy").reshape(-1, 1))
+    return X_improvements_by_task, y_improvements_by_task
+
+def finetune_initial_models(models_path: pathlib.Path, opt_path: pathlib.Path):
+    X_improvements_by_task, y_improvements_by_task = read_and_finetune_opt_results(opt_path)
+    fine_tuned_models = {}
+
+    for model_file in models_path.glob("*_model.json"):
+        task_name = model_file.stem.replace("_model", "")
+        model = xgb.XGBRegressor()
+        model.load_model(str(model_file))
+        X_new = X_improvements_by_task[task_name]
+        y_new = y_improvements_by_task[task_name]
+        model.fit(
+                X_new, y_new,
+                xgb_model=model
+            )
+        fine_tuned_models[task_name] = model
+    return fine_tuned_models
+
+
 
 def main():
-    print(load_optimization_results(Path('simulation_data/optimization_results/20250220_204711/models')))
+    models_path = Path("simulation_data/initial_results_simple")
+    opt_path = Path("simulation_data/optimization_simple_results/20250309_203222")
+    fine_tuned_models = finetune_initial_models(models_path=models_path, opt_path=opt_path)
+    path_fine_tuned_models = opt_path / "fine_tuned_models"
+    os.makedirs(path_fine_tuned_models, exist_ok=True)
+    save_models(fine_tuned_models, path_fine_tuned_models)
+
 
 
 if __name__ == '__main__':

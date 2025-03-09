@@ -1,7 +1,9 @@
+import concurrent
 import datetime
 import json
 import os
 import random
+import sys
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -304,16 +306,41 @@ def freq():
     for pair in distances:
         print(pair)
 
+def highest_dtw_distance_between_weeks():
+    return ['49', '1465', '1358', '1835', '1206']
+
+def lowest_dtw_distance_between_weeks():
+    return ['1233', '1437', '351', '1507', '1200']
+
+def mediumt_dtw_distance_between_weeks():
+    return ['817', '2119', '1412', '1332', '482']
 
 def main():
     fn = '49'
     region = 'R1'
     # first week
+    functions = highest_dtw_distance_between_weeks()[:3]
+    functions.extend(lowest_dtw_distance_between_weeks()[:3])
+    functions.extend(mediumt_dtw_distance_between_weeks()[:3])
+
+    # Create a list of (fn, region) tuples
+    fn_region_pairs = [(function, region) for function in functions]
+
+    # Use ProcessPoolExecutor for CPU-bound tasks
+    # Use ThreadPoolExecutor for I/O-bound tasks
+    with concurrent.futures.ProcessPoolExecutor(max_workers=int(sys.argv[1])) as executor:
+        # Map the process_function to all the function-region pairs
+        executor.map(process_function, fn_region_pairs)
+
+
+def extract_huawei_arrivals(fn, region):
+    results = []
     for i in range(4):
         time_window = (10080 * i, 10080 * (i + 1))
         simulation_duration = 20
         new_average_rps = 7500
-        arrivals, new_std_rps = fetch_huawei_arrival_times(fn, region, time_window, simulation_duration, new_average_rps)
+        arrivals, new_std_rps = fetch_huawei_arrival_times(fn, region, time_window, simulation_duration,
+                                                           new_average_rps)
         arrival_file = f'{region}-{fn}-{time_window[0]}-{time_window[1]}-{new_average_rps}-{int(new_std_rps)}-{simulation_duration}'
         plot_pattern(arrivals, 60, f'data/nofs-ids/arrivals/{arrival_file}')
 
@@ -322,6 +349,11 @@ def main():
                 f'data/nofs-ids/arrivals/{arrival_file}.json',
                 'w') as fd:
             json.dump(arrivals_timestamps, fd)
+    return results
+
+def process_function(fn_region_tuple):
+    fn, region = fn_region_tuple
+    return extract_huawei_arrivals(fn, region)
 
 
 if __name__ == '__main__':

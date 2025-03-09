@@ -80,3 +80,8 @@ Short Version
 3. Sample
 4. Execute Initial
 5. Execute Optimization
+
+# Post Optimization
+
+1. fine tune base models with new data: src/optimizer.py -> saves models in optimized folder
+2. run baseline workloads with new models: src/motivational/proactiveparalleldiffworkloadsfinetunedmodels.py (model dir -> fine tuned folder)

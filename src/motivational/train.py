@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from src.executeinitial import setup_logging
+from src.motivational.constants import PREDICTION_WINDOW_SIZE, PREPARE_PREDICTION_WINDOW_SIZE
 from src.preprocessing import evaluate_xgboost_per_task, train_xgboost_per_task, \
     create_inputs_outputs_seperated_per_app_windowed, create_train_test_split_per_windowed, \
     create_inputs_outputs_seperated_per_app_windowed_system_events
@@ -35,10 +36,10 @@ def read_all_stats(dir, infra, rpss, logger, include_queue_length: bool):
                             app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
                         if not include_queue_length:
                             train_data_sample, test_data_sample = create_train_test_split_per_windowed(
-                                create_inputs_outputs_seperated_per_app_windowed(stats, 5, app_definitions))
+                                create_inputs_outputs_seperated_per_app_windowed(stats, PREPARE_PREDICTION_WINDOW_SIZE, app_definitions))
                         else:
                             train_data_sample, test_data_sample = create_train_test_split_per_windowed(
-                                create_inputs_outputs_seperated_per_app_windowed_system_events(stats, 5, app_definitions))
+                                create_inputs_outputs_seperated_per_app_windowed_system_events(stats, PREPARE_PREDICTION_WINDOW_SIZE, app_definitions))
                         if len(train_data_sample) == 0 or len(test_data_sample) == 0:
                             logger.warning(f'Data for infra {infra} and rps {rps} is empty')
                         for fn, data in train_data_sample.items():

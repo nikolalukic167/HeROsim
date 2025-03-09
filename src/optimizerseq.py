@@ -9,15 +9,9 @@ from typing import Dict, Tuple, Any
 import numpy as np
 import sklearn
 import xgboost as xgb
-from joblib import Parallel, delayed
-from skopt import Optimizer
-from skopt.callbacks import VerboseCallback
-from skopt.space import Integer, Real
 
 from src.bayesian import optimize_parameters
 from src.executeinitial import prepare_simulation_config, prepare_workloads, flatten_workloads, execute_simulation
-from src.motivational.constants import PROACTIVE_RECONCILE_INTERVAL, REACTIVE_RECONCILE_INTERVAL, \
-    PREPARE_PREDICTION_WINDOW_SIZE
 from src.preprocessing import create_inputs_outputs_seperated_per_app_windowed
 
 logger = logging.getLogger(__name__)
@@ -68,7 +62,7 @@ def run_reactive_simulation(state, params):
         result = execute_simulation(full_config, sim_inputs, scheduling_strategy, cache_policy=cache_policy,
                                     task_priority=task_priority,
                                     keep_alive=keep_alive,
-                                    queue_length=queue_length, reconcile_interval=REACTIVE_RECONCILE_INTERVAL)
+                                    queue_length=queue_length)
         result['sample'] = {
             'apps': apps,
             'sample': sample.tolist(),
@@ -125,7 +119,7 @@ def run_proactive_simulation(state, models, params):
         result = execute_simulation(full_config, sim_inputs, scheduling_strategy, cache_policy=cache_policy,
                                     task_priority=task_priority,
                                     keep_alive=keep_alive,
-                                    queue_length=queue_length, models=models, reconcile_interval=PROACTIVE_RECONCILE_INTERVAL)
+                                    queue_length=queue_length, models=models)
         result['sample'] = {
             'apps': apps,
             'sample': sample.tolist(),
@@ -145,43 +139,10 @@ def run_proactive_simulation(state, models, params):
         logger.error(f"Error in simulation")
         logger.exception(e)
 
-class TabularPrintCallback:
-    def __init__(self, param_names):
-        self.param_names = param_names
-        self.iteration = 0
-        self.header_printed = False
 
-    def __call__(self, res):
-        # Print header on first call
-        if not self.header_printed:
-            # Create header row with parameter names (truncated if needed)
-            param_headers = [name[:8] + "..." if len(name) > 8 else name for name in self.param_names]
-            header = f"|   iter    |  target   | " + " | ".join(param_headers) + " |"
-
-            # Print separator line
-            separator = "=" * len(header)
-            print(separator)
-            print(header)
-            print("-" * len(header))
-
-            self.header_printed = True
-
-        # Get best result so far
-        best_idx = np.argmin(res.func_vals)
-        best_value = res.func_vals[best_idx]
-        best_x = res.x_iters[best_idx]
-
-        # Format the row
-        row = f"| {self.iteration:<9} | {-best_value:<9.2f} | " + " | ".join(f"{val:<9.3f}" for val in best_x) + " |"
-        print(row)
-
-        self.iteration += 1
-        return False  # Continue optimization
-
-
-class ProactiveParallelOptimizer:
-    def __init__(self, initial_models: Dict[str, xgb.XGBRegressor], target_penalty=0.1,
-                 param_bounds_range_factor=0.25, n_iterations=10, n_parallel=4):
+class ProactiveSequentialOptimizer:
+    def __init__(self, initial_models: Dict[str, xgb.XGBRegressor], target_penalty=0.1, param_bounds_range_factor=0.25,
+                 n_iterations=10, init_points=5):
         self.target_penalty = target_penalty
         # Track best penalties per task
         self.best_penalties = {task: float('inf') for task in initial_models.keys()}
@@ -192,90 +153,91 @@ class ProactiveParallelOptimizer:
         self.best_proactive_penalty = float('inf')
         # Keep best models separately
         self.best_models = {task: deepcopy(model) for task, model in initial_models.items()}
+        self.improvement_history = {task: [] for task in initial_models.keys()}
         self.n_iterations = n_iterations
-        self.n_parallel = n_parallel
+        self.init_points = init_points
 
     def optimize_sample(self, initial_sample, state, space):
-        # Create the search space based on initial sample
-        dimensions, param_names = self.create_space(initial_sample, state, space)
-
-        # Initialize the optimizer
-        opt = Optimizer(
-            dimensions=dimensions,
-            base_estimator="GP",  # Gaussian Process
-            acq_func="EI",        # Expected Improvement
-            acq_optimizer="sampling",
-            random_state=42
+        param_bounds = self.get_bounds(initial_sample, state, space)
+        # Create evaluation function with fixed state
+        eval_func = partial(self.evaluate_parameters, state=state['sample'])
+        result, iterations = optimize_parameters(
+            evaluate_function=eval_func,
+            param_bounds=param_bounds,
+            target_penalty=self.target_penalty,
+            n_iterations=self.n_iterations,
+            init_points=self.init_points
         )
+        return result, iterations
 
-        iterations = []
-        # Print header for tabular output
-        param_headers = [name[:8] + "..." if len(name) > 8 else name for name in param_names]
-        header = f"|   iter    |  target   | " + " | ".join(param_headers) + " |"
-        separator = "=" * len(header)
-        print(separator)
-        print(header)
-        print("-" * len(header))
+    def fine_tune_model(self, model: xgb.XGBRegressor, new_data: Tuple, task: str):
+        """Fine-tune specific task model with new data."""
+        X_new, y_new = new_data
+        model.fit(
+            X_new, y_new,
+            xgb_model=model
+        )
+        return model
 
+    def evaluate_parameters(self, state, **params):
 
-        for i in range(self.n_iterations):
-                # Ask for points to evaluate in parallel
-                points = opt.ask(n_points=self.n_parallel)
+        # We want to avoid parameters which sum is higher than 1
+        total_prop = 0
+        for k in params.keys():
+            if k.startswith('device_'):
+                total_prop += params[k]
+        if not np.isclose(total_prop, 1.0, atol=0.01):
+            return -1e6
 
-                # Evaluate points in parallel
-                results = Parallel(n_jobs=self.n_parallel)(
-                    delayed(self.evaluate_parameters_wrapper)(x, state['sample'], param_names)
-                    for x in points
+        # Cluster size parameter must be discrete
+        params['cluster_size'] = round(params['cluster_size'])
+
+        # Create temporary models for fine-tuning
+        temp_models = {task: deepcopy(model) for task, model in self.best_models.items()}
+        # reactive_result = None
+        reactive_result = run_reactive_simulation(state, params)
+        if reactive_result is not None:
+            app_definitions = {}
+            for task in reactive_result['stats']['taskResults']:
+                app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
+            # Prepare data for all tasks
+            X_new, y_new = create_inputs_outputs_seperated_per_app_windowed(reactive_result['stats'], 5,
+                                                                            app_definitions)
+
+            # Fine-tune models and track improvements
+
+            # Fine-tune temporary models
+            for task, model in temp_models.items():
+                X = [[x] for x in X_new[task]]
+                y = np.array(y_new[task])
+                if len(X) == 0:
+                    continue
+                model.fit(X, y, xgb_model=model)
+
+        # Run proactive simulation with fine-tuned models
+        proactive_result = run_proactive_simulation(state, temp_models, params)
+
+        # Run proactive simulation with updated models
+        proactive_penalty = proactive_result['stats']['penaltyProportion']
+
+        # Check if this led to an improvement in proactive performance
+        if proactive_penalty < self.best_proactive_penalty:
+            self.best_proactive_penalty = proactive_penalty
+            # Update best models
+            self.best_models = temp_models
+            # Store the improvement data for all tasks
+            for task in self.best_models.keys():
+                self.improvement_history[task].append(
+                    OptimizationStep(
+                        params=params.copy(),
+                        X=X_new[task].copy(),
+                        y={task: y_new[task]},
+                        penalty=proactive_penalty,
+                        improvement=True
+                    )
                 )
 
-                # Tell optimizer the results
-                opt.tell(points, results)
-
-                # Track iteration
-                best_idx = np.argmin(opt.yi)
-                best_value = opt.yi[best_idx]
-                best_params = {param_names[j]: opt.Xi[best_idx][j] for j in range(len(param_names))}
-                best_x = opt.Xi[best_idx]
-
-                iterations.append({
-                    'iteration': i,
-                    'best_penalty': -best_value,
-                    'best_params': best_params
-                })
-
-                row = f"| {i:<9} | {-best_value:<9.2f} | " + " | ".join(f"{val:<9.3f}" for val in best_x) + " |"
-                print(row)
-
-                # Early stopping if we reach target penalty
-                if -best_value <= self.target_penalty:
-                    break
-
-        # Return best parameters found
-        best_idx = np.argmin(opt.yi)
-        best_params = {param_names[j]: opt.Xi[best_idx][j] for j in range(len(param_names))}
-
-        return best_params, iterations
-
-    def create_space(self, initial_sample, state, space):
-        """Convert parameter bounds to skopt space definition"""
-        param_bounds = self.get_bounds(initial_sample, state, space)
-
-        dimensions = []
-        param_names = []
-
-        for param_name, (lower, upper) in param_bounds.items():
-            param_names.append(param_name)
-            if param_name == 'cluster_size':
-                dimensions.append(Integer(lower, upper, name=param_name))
-            else:
-                dimensions.append(Real(lower, upper, name=param_name))
-
-        return dimensions, param_names
-
-    def evaluate_parameters_wrapper(self, x, state, param_names):
-        """Convert list of parameters to dictionary for evaluation"""
-        params = {param_names[i]: x[i] for i in range(len(x))}
-        return self.evaluate_parameters(state, **params)
+        return -proactive_penalty
 
     def get_bounds(self, initial_sample, state, space):
         mapping = state['sample']['mapping']
@@ -316,82 +278,8 @@ class ProactiveParallelOptimizer:
                     param_up = workload_max
                 if param_down < workload_min:
                     param_down = workload_min
-            if param != 'cluster_size' and param_up == param_down:
-                param_up += 0.0000001
-
-            if param == 'cluster_size' and param_up == param_down:
-                param_up += 1
-
             param_bounds[param] = (param_down, param_up)
         return param_bounds
-
-    def evaluate_parameters(self, state, **params):
-        # We want to avoid parameters which sum is higher than 1
-        total_prop = 0
-        for k in params.keys():
-            if k.startswith('device_'):
-                total_prop += params[k]
-        if not np.isclose(total_prop, 1.0, atol=0.01):
-            return -1e6
-
-        # Cluster size parameter must be discrete
-        params['cluster_size'] = round(params['cluster_size'])
-
-        # Create temporary models for fine-tuning
-        temp_models = {task: deepcopy(model) for task, model in self.best_models.items()}
-        # reactive_result = None
-        reactive_result = run_reactive_simulation(state, params)
-        if reactive_result is not None:
-            app_definitions = {}
-            for task in reactive_result['stats']['taskResults']:
-                app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
-            # Prepare data for all tasks
-            X_new, y_new = create_inputs_outputs_seperated_per_app_windowed(reactive_result['stats'], PREPARE_PREDICTION_WINDOW_SIZE,
-                                                                            app_definitions)
-
-            # Fine-tune models and track improvements
-
-            # Fine-tune temporary models
-            for task, model in temp_models.items():
-                X = [[x] for x in X_new[task]]
-                y = np.array(y_new[task])
-                if len(X) == 0:
-                    continue
-                model.fit(X, y, xgb_model=model)
-
-        # Run proactive simulation with fine-tuned models
-        proactive_result = run_proactive_simulation(state, temp_models, params)
-
-        # Run proactive simulation with updated models
-        proactive_penalty = proactive_result['stats']['penaltyProportion']
-
-        # Check if this led to an improvement in proactive performance
-        if proactive_penalty < self.best_proactive_penalty:
-            self.best_proactive_penalty = proactive_penalty
-            # Update best models
-            self.best_models = temp_models
-            # Store the improvement data for all tasks
-            for task in self.best_models.keys():
-                self.improvement_history[task].append(
-                    OptimizationStep(
-                        params=params.copy(),
-                        X=X_new[task].copy(),
-                        y={task: y_new[task]},
-                        penalty=proactive_penalty,
-                        improvement=True
-                    )
-                )
-
-        return -proactive_penalty
-
-    def fine_tune_model(self, model: xgb.XGBRegressor, new_data: Tuple, task: str):
-        """Fine-tune specific task model with new data."""
-        X_new, y_new = new_data
-        model.fit(
-            X_new, y_new,
-            xgb_model=model
-        )
-        return model
 
     def save_optimization_results(self, output_dir: Path):
         """Save models and their improvement datasets."""
@@ -408,6 +296,7 @@ class ProactiveParallelOptimizer:
             improvement_data = self.improvement_history[task]
             if improvement_data:
                 # Combine all improvement steps
+                # X_combined = np.vstack([step.X for step in improvement_data])
                 X_combined = np.vstack([np.array(step.X).reshape(-1, 1) for step in improvement_data])
                 y_combined = np.array([step.y[task] for step in improvement_data])
 

@@ -7,7 +7,7 @@ import multiprocessing as mp
 from datetime import datetime
 
 from src.executeinitial import load_simulation_inputs, setup_logging, flatten_workloads
-from src.motivational.constants import QUEUE_LENGTH, KEEP_ALIVE
+from src.motivational.constants import QUEUE_LENGTH, KEEP_ALIVE, PROACTIVE_RECONCILE_INTERVAL
 from src.motivational.proactive import get_model_locations
 from src.motivational.reactive import save_stats
 from src.motivational.reactiveparalleldiffworkloads import save_results
@@ -46,7 +46,7 @@ def execute_proactive(base_dir, infra, workload_config, sim_input_path, model_lo
         stats = execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, task_priority,
                             queue_length,
                             scheduling_strategy, workload, 'workload-mine', model_locations=model_locations,
-                            reconcile_interval=15)
+                            reconcile_interval=PROACTIVE_RECONCILE_INTERVAL)
         print(f'End simulation: peak_config - {infra}')
         return stats
 

@@ -1,5 +1,3 @@
-import multiprocessing
-
 import numpy as np
 import xgboost as xgb
 from pathlib import Path
@@ -9,9 +7,7 @@ from typing import Dict, List, Tuple
 import sys
 from datetime import datetime
 
-from joblib import Parallel, delayed
-
-from src.optimizer import ProactiveParallelOptimizer
+from src.optimizer import ProactiveOptimizer
 
 
 def setup_logging(output_dir: Path) -> logging.Logger:
@@ -33,50 +29,6 @@ def setup_logging(output_dir: Path) -> logging.Logger:
 
     return logger
 
-logger = setup_logging(Path('/tmp'))
-
-# Optimize each high-penalty sample
-def process_sample(idx, sample, state, space, optimizer, initial_penalties, high_penalty_indices):
-    logger.info(f"Optimizing sample {idx + 1}")
-    logger.info(f"Original penalty: {initial_penalties[high_penalty_indices[idx]]}")
-
-    try:
-        best_params, iterations = optimizer.optimize_sample(sample, state, space)
-
-        # The structure of best_params has changed in the new implementation
-        optimization_result = {
-            'sample_index': int(high_penalty_indices[idx]),
-            'original_sample': sample.tolist(),
-            'optimized_params': best_params,  # Now directly contains the parameters dictionary
-            'original_penalty': float(initial_penalties[high_penalty_indices[idx]]),
-            'final_penalty': float(optimizer.best_proactive_penalty),  # Get penalty from optimizer
-            'iterations': iterations
-        }
-
-        logger.info(f"Optimization completed in {len(iterations)} iterations")
-        logger.info(f"Final penalty: {optimizer.best_proactive_penalty}")
-
-        return optimization_result
-
-    except Exception as e:
-        logger.error(f"Error optimizing sample {idx}: {str(e)}")
-        raise e
-
-
-# 1st argument: target penalty
-# 2nd argument: n_iterations
-# 3rd argument: n_parallel
-# 4th argument: percentile to determine high violation samples
-# 5th argument: how many samples should be looked at in parallel
-class NumpyEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        if isinstance(obj, np.floating):
-            return float(obj)
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        return super().default(obj)
 
 def main():
     # Configuration
@@ -85,6 +37,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Setup logging
+    logger = setup_logging(output_dir)
     logger.info("Starting optimization process")
 
     try:
@@ -121,7 +74,7 @@ def main():
         initial_penalties = np.array([result['stats']['penaltyProportion'] for result in simulation_results])
 
         # Identify high-penalty samples
-        penalty_threshold = np.percentile(initial_penalties, int(sys.argv[4]))  # Top 10% worst cases
+        penalty_threshold = np.percentile(initial_penalties, 90)  # Top 10% worst cases
         high_penalty_mask = initial_penalties > penalty_threshold
         # high_penalty_mask = [True]
         high_penalty_results = simulation_results
@@ -131,25 +84,38 @@ def main():
         logger.info(f"Found {len(high_penalty_samples)} high-penalty samples to optimize")
 
         # Initialize optimizer
-        optimizer = ProactiveParallelOptimizer(
+        optimizer = ProactiveOptimizer(
             initial_models=initial_models,
-            target_penalty=float(sys.argv[1]),  # Set your target penalty,
-            n_iterations=int(sys.argv[2]),
-            n_parallel=int(sys.argv[3])
+            target_penalty=9,  # Set your target penalty,
+            n_iterations=8,
+            init_points=5
         )
 
+        # Optimize each high-penalty sample
+        optimization_results = []
+        for idx, (sample, state) in enumerate(zip(high_penalty_samples, high_penalty_results)):
+            logger.info(f"Optimizing sample {idx + 1}/{len(high_penalty_samples)}")
+            logger.info(f"Original penalty: {initial_penalties[high_penalty_indices[idx]]}")
 
-        # Determine number of cores to use
-        num_cores = multiprocessing.cpu_count()
-        # You might want to use fewer cores to avoid overloading the system
-        n_jobs = min(int(sys.argv[5]), num_cores - 1)
+            try:
+                result, iterations = optimizer.optimize_sample(sample, state, space)
 
-        # Run the optimization in parallel
-        optimization_results = Parallel(n_jobs=n_jobs, verbose=10)(
-            delayed(process_sample)(
-                idx, sample, state, space, optimizer, initial_penalties, high_penalty_indices
-            ) for idx, (sample, state) in enumerate(zip(high_penalty_samples, high_penalty_results))
-        )
+                optimization_results.append({
+                    'sample_index': int(high_penalty_indices[idx]),
+                    'original_sample': sample.tolist(),
+                    'optimized_params': result['params'],
+                    'original_penalty': float(initial_penalties[high_penalty_indices[idx]]),
+                    'final_penalty': float(-result['target']),
+                    'iterations': iterations
+                })
+
+                logger.info(f"Optimization completed in {iterations} iterations")
+                logger.info(f"Final penalty: {-result['target']}")
+
+            except Exception as e:
+                logger.error(f"Error optimizing sample {idx}: {str(e)}")
+                raise e
+
         # Save optimization results
         logger.info("Saving optimization results")
 
@@ -162,7 +128,7 @@ def main():
         }
 
         with open(output_dir / "optimization_summary.json", 'w') as f:
-            json.dump(summary, f, indent=2, cls=NumpyEncoder)
+            json.dump(summary, f, indent=2)
 
         # Save models and improvement datasets
         optimizer.save_optimization_results(output_dir / "models")

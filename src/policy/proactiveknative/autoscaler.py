@@ -28,6 +28,7 @@ from src.policy.knative.model import KnativeSchedulerState, KnativeSystemState
 from src.policy.proactiveknative.model import ProactiveKnativeSystemState
 from src.train import load_models
 from src.policy.knative.util import count_events_in_windows_ts
+from src.motivational.constants import PREDICTION_WINDOW_SIZE
 
 if TYPE_CHECKING:
     from src.placement.infrastructure import Node, Platform, Task
@@ -67,7 +68,7 @@ class ProactiveKnativeAutoscaler(Autoscaler):
             yield
         if self.models.get(task_type['name']) is None:
             return {"any": 0}
-        look_forward_size = 60
+        look_forward_size = PREDICTION_WINDOW_SIZE
         events = \
             count_events_in_windows_ts(self.env.now, system_state.time_series, task_type['name'], look_forward_size,
                                        look_forward_size)

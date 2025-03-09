@@ -199,7 +199,8 @@ def execute_simulation(
         cache_policy='fifo',
         task_priority='fifo',
         keep_alive=30,
-        queue_length=100
+        queue_length=100,
+        reconcile_interval=1
 ) -> Dict[str, Any]:
     """Execute simulation with full configuration and simulation inputs."""
 
@@ -214,7 +215,7 @@ def execute_simulation(
     stats = execute_sim(simulation_data, config['infrastructure'], cache_policy, keep_alive, task_priority,
                         queue_length,
                         scheduling_strategy, config['workload'], 'workload-mine',
-                        model_locations=model_locations, models=models, reconcile_interval=1)
+                        model_locations=model_locations, models=models, reconcile_interval=reconcile_interval)
     return {
         "status": "success",
         "config": config,

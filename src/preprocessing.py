@@ -123,7 +123,7 @@ def calculate_metrics_combined(workload_data, pods_data, application_to_task_map
                 q_counts = window_queue_lengths[task_type].get(window_start, [0])
 
                 avg_queue_length_window = sum(q_counts) / len(q_counts) if q_counts else 0
-                if avg_queue_length_window > QUEUE_LENGTH:
+                if avg_queue_length_window > QUEUE_LENGTH or not pod_counts:
                     continue
                 metrics[task_type][window_start] = {
                     'window_start': window_start,

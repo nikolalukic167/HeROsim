@@ -11,7 +11,7 @@ import pandas as pd
 import seaborn as sns
 
 from src.executeinitial import load_simulation_inputs, setup_logging
-from src.motivational.constants import KEEP_ALIVE, QUEUE_LENGTH
+from src.motivational.constants import KEEP_ALIVE, QUEUE_LENGTH, REACTIVE_RECONCILE_INTERVAL
 from src.placement.executor import execute_sim
 from src.placement.model import SimulationData, DataclassJSONEncoder
 
@@ -74,7 +74,7 @@ def execute_reactive(base_dir, infra, workload_config, sim_input_path):
         print(f'Start simulation: peak-config - {infra}')
         stats = execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, task_priority,
                             queue_length,
-                            scheduling_strategy, workload, 'workload-mine', reconcile_interval=1)
+                            scheduling_strategy, workload, 'workload-mine', reconcile_interval=REACTIVE_RECONCILE_INTERVAL)
         print(f'End simulation: peak-config - {infra}')
         return stats
 

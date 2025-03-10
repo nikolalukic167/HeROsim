@@ -158,8 +158,8 @@ def main():
     start_ts = time.time()
     # Create a pool of workers and map the work items
     print(f"Start time: {start_ts}")
-    with mp.Pool(num_cores) as pool:
-        pool.map(proactive_worker_function, work_items)
+    with mp.Pool(num_cores) as proactive_pool:
+        proactive_pool.map(proactive_worker_function, work_items)
     end_ts = time.time()
     print(f'{end_ts - start_ts} seconds passed')
     print(f"Finished simulation")

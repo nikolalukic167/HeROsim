@@ -105,7 +105,7 @@ def load_models(model_locations: Dict[str, str]):
             print(f"load: {fn} - {model_location}")
             loaded_model = xgb.XGBRegressor()
             print("instantiated xgb regressor")
-            loaded_model.load_model(pathlib.Path(model_location))
+            loaded_model.load_model(model_location)
             models[fn] = loaded_model
             print('loaded model')
         return models

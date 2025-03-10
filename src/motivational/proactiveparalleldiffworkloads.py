@@ -59,6 +59,9 @@ def worker_function(args):
 
 
 def main():
+    import multiprocessing as mp
+    # Set this at the beginning of your script
+    mp.set_start_method('spawn')
     if len(sys.argv) != 8:
         print(
             "Usage: script.py <results_dir> <model_infra> <output_infra> <model_dir> <workload_config_file> <repetitions> <num_cores>")

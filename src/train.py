@@ -1,6 +1,8 @@
 import json
+import time
 from collections import defaultdict
 from pathlib import Path
+from random import random
 from typing import Dict
 
 import numpy as np
@@ -94,6 +96,7 @@ def load_models(model_locations: Dict[str, str]):
     models = {}
     try:
         for fn, model_location in model_locations.items():
+            # time.sleep(random()*2)
             print(f"load: {fn} - {model_location}")
             loaded_model = xgb.XGBRegressor()
             loaded_model.load_model(model_location)

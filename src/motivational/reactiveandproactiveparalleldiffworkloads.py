@@ -97,8 +97,8 @@ def proactive_worker_function(args):
 
 
 def main():
-    if len(sys.argv) != 6:
-        print("Usage: script.py <output_dir> <infra> <peak_config> <repetitions> <num_cores>")
+    if len(sys.argv) != 8:
+        print("Usage: script.py <output_dir> <infra> <peak_config> <repetitions> <num_cores> <region> <fn>")
         sys.exit(1)
 
     output_dir = sys.argv[1]

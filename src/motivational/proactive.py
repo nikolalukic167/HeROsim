@@ -11,13 +11,20 @@ from src.placement.executor import execute_sim
 from src.placement.model import SimulationData
 
 
-def get_model_locations(model_dir: pathlib.Path):
+def get_model_locations_direct(model_dir: pathlib.Path):
     model_locations = {}
     for file in model_dir.iterdir():
         fn = Path(file).stem.replace('_model', '')
         model_locations[fn] = file
     return model_locations
 
+def get_model_locations(input_dir, infra, model_dir):
+    dir = Path(str(os.path.join(input_dir, f"infra-{infra}", 'models', model_dir)))
+    model_locations = {}
+    for file in dir.iterdir():
+        fn = Path(file).stem.replace('_model', '')
+        model_locations[fn] = file
+    return model_locations
 
 def main():
     logger = setup_logging(Path("data/nofs-ids"))

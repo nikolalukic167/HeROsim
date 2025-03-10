@@ -9,13 +9,12 @@ from datetime import datetime
 
 from src.executeinitial import load_simulation_inputs, setup_logging, flatten_workloads
 from src.motivational.constants import QUEUE_LENGTH, KEEP_ALIVE, PROACTIVE_RECONCILE_INTERVAL
-from src.motivational.proactive import get_model_locations
+from src.motivational.proactive import get_model_locations, get_model_locations_direct
 from src.motivational.proactiveparalleldiffworkloads import worker_function
 from src.motivational.reactive import save_stats
 from src.motivational.reactiveparalleldiffworkloads import save_results
 from src.placement.executor import execute_sim
 from src.placement.model import SimulationData, DataclassJSONEncoder
-
 
 
 def main():
@@ -43,7 +42,7 @@ def main():
     sim_input_path = Path("data/nofs-ids")
 
     print("Fetching model locations")
-    model_locations = get_model_locations(pathlib.Path(model_dir))
+    model_locations = get_model_locations_direct(pathlib.Path(model_dir))
     print(f"Model locations: {model_locations}")
     print(
         f"Starting proactive simulation with infra-{output_infra} workload_config: {workload_config_file} using {num_cores} cores")

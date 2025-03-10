@@ -1,4 +1,5 @@
 import json
+import pathlib
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -99,7 +100,7 @@ def load_models(model_locations: Dict[str, str]):
             # time.sleep(random()*2)
             print(f"load: {fn} - {model_location}")
             loaded_model = xgb.XGBRegressor()
-            loaded_model.load_model(model_location)
+            loaded_model.load_model(pathlib.Path(model_location))
             models[fn] = loaded_model
             print('loaded model')
         return models

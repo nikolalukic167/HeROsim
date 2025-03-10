@@ -14,6 +14,8 @@ from src.placement.model import SimulationData
 def get_model_locations_direct(model_dir: pathlib.Path):
     model_locations = {}
     for file in model_dir.iterdir():
+        if not '_model' in Path(file).stem:
+            continue
         fn = Path(file).stem.replace('_model', '')
         model_locations[fn] = file
     return model_locations

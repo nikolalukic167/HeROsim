@@ -97,17 +97,10 @@ def load_models(model_locations: Dict[str, str]):
     models = {}
     try:
         for fn, model_location in model_locations.items():
-            # time.sleep(random()*2)
-            # Wait between 100 and 600 milliseconds
-            wait_time = random.uniform(0.1, 0.6)  # Convert milliseconds to seconds
-            time.sleep(wait_time)
             model_location = f'./{model_location}'
-            print(f"load: {fn} - {model_location}")
             loaded_model = xgb.XGBRegressor()
-            print("instantiated xgb regressor")
             loaded_model.load_model(model_location)
             models[fn] = loaded_model
-            print('loaded model')
         return models
     except Exception as e:
         print(e)

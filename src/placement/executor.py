@@ -21,9 +21,7 @@ def execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, polic
         reconcile_interval=reconcile_interval
     )
     if models is None and model_locations is not None:
-        print("Loading models")
         models = load_models(model_locations)
-    print("Loading time series")
     # Read time series
     time_series: TimeSeries = TimeSeries.from_dict(workload_trace)
     print(len(time_series.events))

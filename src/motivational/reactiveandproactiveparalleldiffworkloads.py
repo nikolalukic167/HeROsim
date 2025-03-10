@@ -144,34 +144,34 @@ def main():
     result_files = [f'{x}/peak-config.json' for x in result_folders[:2]]
     models, eval_results = train_model_reactive_then_proactive(result_files, include_queue_length=False)
     model_paths = save_models(models, pathlib.Path(output_dir))
-    # del models
-    # model_locations = model_paths
-    # print(f"Model locations: {model_locations}")
-    # print(
-    #     f"Starting proactive simulation with infra-{infra} workload_config: {workload_config_file} using {num_cores} cores")
-    #
-    # start_time = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    #
-    # # Create work items for each combination of repetition and RPS
-    # work_items = [
-    #     (rep_idx, config, config_idx, base_dir, infra, sim_input_path, model_locations, output_dir, start_time,
-    #      f'{region}-{fn}', infra)
-    #     for rep_idx in range(repetitions)
-    #     for config_idx, config in enumerate(workload_configs)
-    # ]
-    #
-    # start_ts = time.time()
-    # # Create a pool of workers and map the work items
-    # print(f"Start time: {start_ts}")
-    # with mp.Pool(num_cores) as proactive_pool:
-    #     proactive_pool.map(proactive_worker_function, work_items)
-    # end_ts = time.time()
-    # print(f'{end_ts - start_ts} seconds passed')
-    # print(f"Finished simulation")
-    # print(f"Results saved under {os.path.join(output_dir, f'infra-{infra}', 'results-proactive')}")
-    #
-    # end_ts = time.time()
-    # print(f'Duration: {end_ts - start_ts} seconds')
+    del models
+    model_locations = model_paths
+    print(f"Model locations: {model_locations}")
+    print(
+        f"Starting proactive simulation with infra-{infra} workload_config: {workload_config_file} using {num_cores} cores")
+
+    start_time = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+
+    # Create work items for each combination of repetition and RPS
+    work_items = [
+        (rep_idx, config, config_idx, base_dir, infra, sim_input_path, model_locations, output_dir, start_time,
+         f'{region}-{fn}', infra)
+        for rep_idx in range(repetitions)
+        for config_idx, config in enumerate(workload_configs)
+    ]
+
+    start_ts = time.time()
+    # Create a pool of workers and map the work items
+    print(f"Start time: {start_ts}")
+    with mp.Pool(num_cores) as proactive_pool:
+        proactive_pool.map(proactive_worker_function, work_items)
+    end_ts = time.time()
+    print(f'{end_ts - start_ts} seconds passed')
+    print(f"Finished simulation")
+    print(f"Results saved under {os.path.join(output_dir, f'infra-{infra}', 'results-proactive')}")
+
+    end_ts = time.time()
+    print(f'Duration: {end_ts - start_ts} seconds')
 
 if __name__ == '__main__':
     main()

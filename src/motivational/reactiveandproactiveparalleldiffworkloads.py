@@ -99,9 +99,6 @@ def proactive_worker_function(args):
 
 
 def main():
-    if len(sys.argv) != 8:
-        print("Usage: script.py <output_dir> <infra> <peak_config> <repetitions> <num_cores> <region> <fn>")
-        sys.exit(1)
 
     output_dir = sys.argv[1]
     infra = sys.argv[2]
@@ -144,7 +141,11 @@ def main():
 
     result_files = [f'{x}/peak-config.json' for x in result_folders[:2]]
     models, eval_results = train_model_reactive_then_proactive(result_files, include_queue_length=False)
-    model_paths = save_models(models, pathlib.Path(output_dir))
+    model_paths = save_models(models, pathlib.Path(output_dir) / 'first_second')
+
+    result_files = [f'{x}/peak-config.json' for x in result_folders]
+    models, eval_results = train_model_reactive_then_proactive(result_files, include_queue_length=False)
+    model_paths = save_models(models, pathlib.Path(output_dir) / 'all')
     # del models
     # model_locations = get_model_locations_direct(pathlib.Path(output_dir))
     # print(f"Model locations: {model_locations}")

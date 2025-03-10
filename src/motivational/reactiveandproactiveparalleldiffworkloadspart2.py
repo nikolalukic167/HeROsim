@@ -99,9 +99,6 @@ def proactive_worker_function(args):
 
 
 def main():
-    if len(sys.argv) != 8:
-        print("Usage: script.py <output_dir> <infra> <peak_config> <repetitions> <num_cores> <region> <fn>")
-        sys.exit(1)
 
     output_dir = sys.argv[1]
     infra = sys.argv[2]
@@ -110,6 +107,7 @@ def main():
     num_cores = int(sys.argv[5])
     region = sys.argv[6]
     fn = sys.argv[7]
+    model_folder = sys.argv[8]
     os.makedirs(output_dir, exist_ok=True)
 
     with open(workload_config_file, 'r') as fd:
@@ -146,7 +144,7 @@ def main():
     # models, eval_results = train_model_reactive_then_proactive(result_files, include_queue_length=False)
     # model_paths = save_models(models, pathlib.Path(output_dir))
     # del models
-    model_locations = get_model_locations_direct(pathlib.Path(output_dir))
+    model_locations = get_model_locations_direct(pathlib.Path(output_dir) / model_folder)
     print(f"Model locations: {model_locations}")
     print(
         f"Starting proactive simulation with infra-{infra} workload_config: {workload_config_file} using {num_cores} cores")

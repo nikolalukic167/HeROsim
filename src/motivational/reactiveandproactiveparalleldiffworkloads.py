@@ -133,8 +133,13 @@ def main():
 
     # Create a pool of workers and map the work items
     start_ts = time.time()
-    with mp.Pool(num_cores) as pool:
-        result_folders = pool.map(reactive_worker_function, work_items)
+    reactive_pool = mp.Pool(num_cores)
+    try:
+        result_folders = reactive_pool.map(reactive_worker_function, work_items)
+    finally:
+        reactive_pool.close()
+        reactive_pool.join()
+
 
     result_files = [f'{x}/peak-config.json' for x in result_folders[:2]]
     models, eval_results = train_model_reactive_then_proactive(result_files, include_queue_length=False)

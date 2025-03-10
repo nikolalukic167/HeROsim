@@ -1,6 +1,7 @@
 import json
 import multiprocessing as mp
 import os
+import pathlib
 import sys
 import time
 from datetime import datetime
@@ -137,7 +138,7 @@ def main():
 
     result_files = [f'{x}/peak-config.json' for x in result_folders[:2]]
     models, eval_results = train_model_reactive_then_proactive(result_files, include_queue_length=False)
-    model_paths = save_models(models, output_dir)
+    model_paths = save_models(models, pathlib.Path(output_dir))
 
     model_locations = model_paths
     print(f"Model locations: {model_locations}")

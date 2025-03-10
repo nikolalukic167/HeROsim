@@ -42,7 +42,7 @@ def execute_proactive(base_dir, infra, workload_config, sim_input_path, model_lo
             application_types=sim_inputs['application_types'],
             task_types=sim_inputs['task_types'],
         )
-        print(f'Start simulation: peak_config - {infra}')
+        print(f'Start simulation: peak_config - {infra}, {model_locations}')
         stats = execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, task_priority,
                             queue_length,
                             scheduling_strategy, workload, 'workload-mine', model_locations=model_locations,

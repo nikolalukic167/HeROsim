@@ -39,6 +39,7 @@ def train_model(output_dir, samples, include_queue_length: bool, window_size=5):
     models = train_xgboost_per_task(all_train_data)
     return models, evaluate_xgboost_per_task(models, all_test_data)
 
+
 def train_model_reactive_then_proactive(output_files, include_queue_length: bool, window_size=5):
     all_train_data = defaultdict(list)
     all_test_data = defaultdict(list)
@@ -66,6 +67,7 @@ def train_model_reactive_then_proactive(output_files, include_queue_length: bool
     models = train_xgboost_per_task(all_train_data)
     return models, evaluate_xgboost_per_task(models, all_test_data)
 
+
 def train_model_in_memory(output_dir, all_results, window_size=5):
     all_train_data = defaultdict(list)
     all_test_data = defaultdict(list)
@@ -92,6 +94,7 @@ def load_models(model_locations: Dict[str, str]):
     models = {}
     try:
         for fn, model_location in model_locations.items():
+            print(f"load: {fn} - {model_location}")
             loaded_model = xgb.XGBRegressor()
             loaded_model.load_model(model_location)
             models[fn] = loaded_model

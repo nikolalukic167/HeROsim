@@ -141,11 +141,16 @@ def main():
 
     result_files = [f'{x}/peak-config.json' for x in result_folders[:2]]
     models, eval_results = train_model_reactive_then_proactive(result_files, include_queue_length=False)
-    model_paths = save_models(models, pathlib.Path(output_dir) / 'first_second')
+    dir_first_second = pathlib.Path(output_dir) / 'first_second'
+    os.makedirs(dir_first_second, exist_ok=True)
+    model_paths = save_models(models, dir_first_second)
 
     result_files = [f'{x}/peak-config.json' for x in result_folders]
     models, eval_results = train_model_reactive_then_proactive(result_files, include_queue_length=False)
-    model_paths = save_models(models, pathlib.Path(output_dir) / 'all')
+    dir_all = pathlib.Path(output_dir) / 'all'
+    os.makedirs(dir_all, exist_ok=True)
+    model_paths = save_models(models, dir_all)
+
     # del models
     # model_locations = get_model_locations_direct(pathlib.Path(output_dir))
     # print(f"Model locations: {model_locations}")

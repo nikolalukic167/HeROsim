@@ -13,6 +13,7 @@ import seaborn as sns
 
 from src.executeinitial import load_simulation_inputs, setup_logging
 from src.motivational.constants import KEEP_ALIVE, QUEUE_LENGTH, REACTIVE_RECONCILE_INTERVAL
+from src.motivational.proactive import get_model_locations_direct
 from src.motivational.proactiveparalleldiffworkloads import execute_proactive, save_single_stats
 from src.placement.executor import execute_sim
 from src.placement.model import SimulationData, DataclassJSONEncoder
@@ -145,7 +146,7 @@ def main():
     models, eval_results = train_model_reactive_then_proactive(result_files, include_queue_length=False)
     model_paths = save_models(models, pathlib.Path(output_dir))
     del models
-    model_locations = model_paths
+    model_locations = get_model_locations_direct(pathlib.Path(output_dir))
     print(f"Model locations: {model_locations}")
     print(
         f"Starting proactive simulation with infra-{infra} workload_config: {workload_config_file} using {num_cores} cores")

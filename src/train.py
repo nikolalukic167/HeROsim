@@ -90,11 +90,14 @@ def train_model_in_memory(output_dir, all_results, window_size=5):
 
 def load_models(model_locations: Dict[str, str]):
     models = {}
-    for fn, model_location in model_locations.items():
-        loaded_model = xgb.XGBRegressor()
-        loaded_model.load_model(model_location)
-        models[fn] = loaded_model
-    return models
+    try:
+        for fn, model_location in model_locations.items():
+            loaded_model = xgb.XGBRegressor()
+            loaded_model.load_model(model_location)
+            models[fn] = loaded_model
+        return models
+    except Exception as e:
+        print(e)
 
 
 def save_models(models, output_dir):

@@ -45,7 +45,7 @@ def train_model_reactive_then_proactive(output_files, include_queue_length: bool
 
     for out_file in output_files:
         with open(out_file, 'r') as fd:
-            obj = json.load(fd)['stats']
+            obj = json.load(fd)
             app_definitions = {}
             for task in obj['taskResults']:
                 app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())

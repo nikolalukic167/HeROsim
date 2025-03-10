@@ -153,7 +153,7 @@ def main():
 
     # Create work items for each combination of repetition and RPS
     work_items = [
-        (rep_idx, config, config_idx, base_dir, infra, sim_input_path, model_locations, output_dir, start_time,
+        (rep_idx, config, config_idx, base_dir, infra, sim_input_path, model_locations, f'{output_dir}/{model_folder}', start_time,
          f'{region}-{fn}', infra)
         for rep_idx in range(repetitions)
         for config_idx, config in enumerate(workload_configs)
@@ -167,7 +167,7 @@ def main():
     end_ts = time.time()
     print(f'{end_ts - start_ts} seconds passed')
     print(f"Finished simulation")
-    print(f"Results saved under {os.path.join(output_dir, f'infra-{infra}', 'results-proactive')}")
+    print(f"Results saved under {os.path.join(output_dir, f'infra-{infra}', 'results-proactive', model_folder)}")
 
     end_ts = time.time()
     print(f'Duration: {end_ts - start_ts} seconds')

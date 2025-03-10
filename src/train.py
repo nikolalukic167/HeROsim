@@ -98,6 +98,7 @@ def load_models(model_locations: Dict[str, str]):
             loaded_model = xgb.XGBRegressor()
             loaded_model.load_model(model_location)
             models[fn] = loaded_model
+            print('loaded model')
         return models
     except Exception as e:
         print(e)

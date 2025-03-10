@@ -98,6 +98,7 @@ def load_models(model_locations: Dict[str, str]):
     try:
         for fn, model_location in model_locations.items():
             # time.sleep(random()*2)
+            model_location = f'./{model_location}'
             print(f"load: {fn} - {model_location}")
             loaded_model = xgb.XGBRegressor()
             print("instantiated xgb regressor")

@@ -50,11 +50,8 @@ def generate_workload_combinations(wsc_config):
 
     return [dict(zip(apps, combo)) for combo in combinations]
 
-def generate_infrastructure_combinations(config_file):
+def generate_infrastructure_combinations(config):
     """Generate all valid infrastructure and workload combinations."""
-    # Read configuration
-    with open(config_file, 'r') as f:
-        config = json.load(f)
 
     # Generate network bandwidth options
     nwc_values = generate_range(
@@ -141,7 +138,7 @@ if __name__ == "__main__":
             config = json.load(f)
 
         # Generate combinations
-        combinations = generate_infrastructure_combinations(config_file)
+        combinations = generate_infrastructure_combinations(config)
 
         # Convert to arrays
         arrays = np.array([combination_to_array(combo, config) for combo in combinations])

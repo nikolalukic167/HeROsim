@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Default maximum number of parallel pipelines
-MAX_PARALLEL=${1:-2}
+MAX_PARALLEL=${1:-3}
 
 # Define the space IDs
-spaces=("R1-49" "R1-817" "R1-1233" "R1-1358" "R1-1412" "R1-1437" "R1-1465" "R1-2119" "R1-351")
+spaces=("R1-49" "R1-817" "R1-1233")
 
 # Function to run the optimization pipeline for a space
 run_pipeline() {
@@ -20,7 +20,7 @@ run_pipeline() {
     python -m src.optimization.generate "spaces/${space}" "${config_file}" 1 nofs-dnn1
     python -m src.optimization.sample "spaces/${space}" 15
     python -m src.optimization.initial "spaces/${space}" 4 nofs-dnn1
-    python -m src.optimization.optimization 1 25 5 90 1 "spaces/${space}" "${unique_id}"
+    python -m src.optimization.optimization 1 10 5 90 1 "spaces/${space}" "${unique_id}"
     python -m src.optimization.finetune "spaces/${space}" "${unique_id}"
     python -m src.optimization.validate "spaces/${space}" "${unique_id}" "${config_file}" 4
 

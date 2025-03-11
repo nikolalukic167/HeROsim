@@ -438,7 +438,7 @@ class ProactiveParallelOptimizer:
             if improvement_data:
                 # Combine all improvement steps
                 X_combined = np.vstack([np.array(step.X).reshape(-1, 1) for step in improvement_data])
-                y_combined = np.array([step.y[task].reshape(-1, 1) for step in improvement_data])
+                y_combined = np.vstack([step.y[task].reshape(-1, 1) for step in improvement_data])
 
                 # Save datasets
                 np.save(task_dir / "X_improvements.npy", X_combined)

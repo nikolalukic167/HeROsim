@@ -187,7 +187,7 @@ class TabularPrintCallback:
 
 class ProactiveParallelOptimizer:
     def __init__(self, initial_models: Dict[str, xgb.XGBRegressor], target_penalty=0.1,
-                 param_bounds_range_factor=0.25, n_iterations=10, n_parallel=4):
+                 param_bounds_range_factor=0.5, n_iterations=10, n_parallel=4):
         self.target_penalty = target_penalty
         # Track best penalties per task
         self.best_penalties = {task: float('inf') for task in initial_models.keys()}
@@ -356,8 +356,8 @@ class ProactiveParallelOptimizer:
                 if param_down < workload_min:
                     param_down = workload_min
 
-                param_up = workload_max
-                param_down = workload_min
+                # param_up = workload_max
+                # param_down = workload_min
 
             if param != 'cluster_size' and param_up == param_down:
                 param_up += 0.0000001

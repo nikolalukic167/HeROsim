@@ -19,8 +19,8 @@ run_pipeline() {
     # Run the four commands in sequence for this space
     python -m src.optimization.generate "spaces/${space}" "${config_file}" 1 nofs-dnn1
     python -m src.optimization.sample "spaces/${space}" 15
-    python -m src.optimization.initial "spaces/${space}" 4 nofs-dnn1
-    python -m src.optimization.optimization 1 10 5 90 1 "spaces/${space}" "${unique_id}"
+    python -m src.optimization.initial "spaces/${space}" 5 nofs-dnn1
+    python -m src.optimization.optimization 1 10 5 30 1 "spaces/${space}" "${unique_id}"
     python -m src.optimization.finetune "spaces/${space}" "${unique_id}"
     python -m src.optimization.validate "spaces/${space}" "${unique_id}" "${config_file}" 4
 

@@ -44,6 +44,31 @@ def poisson_process(lambd: int, duration_time: int) -> List[float]:
     return arrivals
 
 
+def ramp_up_poisson_process(lambd: int, duration_time: int, ramp_ups, ramp_up_time) -> List[float]:
+    arrivals: List[float] = []
+    current_time = 0.0
+    ramp_up_rps = lambd / ramp_ups
+
+    for i in range(ramp_ups):
+        end_ramp_up = current_time + ramp_up_time
+        while current_time < end_ramp_up:
+            inter_arrival_time = random.expovariate(ramp_up_rps * (i + 1))
+            current_time += inter_arrival_time
+
+            if current_time < end_ramp_up:
+                arrivals.append(current_time)
+
+    end_time = duration_time + (ramp_ups * ramp_up_time)
+    while current_time < end_time:
+        inter_arrival_time = random.expovariate(lambd)
+        current_time += inter_arrival_time
+
+        if current_time < end_time:
+            arrivals.append(current_time)
+
+    return arrivals
+
+
 def exponential_arrivals(mean_rate: float, duration: int) -> List[float]:
     arrivals = []
     current_time = 0.0
@@ -118,8 +143,17 @@ def generate_time_series(
         arrivals = compress_request_pattern_with_sampling(arrivals, 24 * 60, target_duration=round(duration_time / 60))
         plot_pattern(arrivals, 60, pdf_path)
         arrivals = convert_datetime_timestamps(arrivals)
+    elif pattern == 'poisson-increasing':
+        ramp_ups = 4
+        ramp_up_time = 30
+        arrivals = ramp_up_poisson_process(rps, duration_time, ramp_ups, ramp_up_time)
+        arrival_times_datetime = [datetime.datetime.fromtimestamp(ts) for ts in arrivals]
+        plot_pattern(arrival_times_datetime, 60, pdf_path)
+
     else:
         arrivals = poisson_process(rps, duration_time)
+        arrival_times_datetime = [datetime.datetime.fromtimestamp(ts) for ts in arrivals]
+        plot_pattern(arrival_times_datetime, 60, pdf_path)
 
     events: List[WorkloadEvent] = []
     qos_levels_per_app = {}
@@ -282,7 +316,7 @@ def generate_diurnal_pattern(hours=24, requests_per_hour=100, peaks=None):
     return [base_time + datetime.timedelta(seconds=t) for t in all_arrivals]
 
 
-def generate_diurnal_pattern_minutes(minutes=1440, requests_per_minute=100/60, peaks=None):
+def generate_diurnal_pattern_minutes(minutes=1440, requests_per_minute=100 / 60, peaks=None):
     """
     Generate a diurnal pattern with custom peaks and smooth transitions.
 
@@ -322,7 +356,7 @@ def generate_diurnal_pattern_minutes(minutes=1440, requests_per_minute=100/60, p
 
             # Apply Gaussian-like falloff from peak
             sigma = peak_width / 2.355  # Convert width to standard deviation
-            peak_contribution = peak_intensity * np.exp(-(dist**2) / (2 * sigma**2))
+            peak_contribution = peak_intensity * np.exp(-(dist ** 2) / (2 * sigma ** 2))
 
             # Add peak contribution to total intensity
             intensity = max(intensity, peak_contribution)
@@ -361,6 +395,7 @@ def generate_diurnal_pattern_minutes(minutes=1440, requests_per_minute=100/60, p
     # Sort arrivals and convert to datetime
     all_arrivals.sort()
     return [base_time + datetime.timedelta(seconds=t) for t in all_arrivals]
+
 
 def generate_diurnal_pattern_delayed(hours=24, requests_per_hour=100):
     all_arrivals = []

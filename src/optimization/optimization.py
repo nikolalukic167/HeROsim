@@ -58,11 +58,12 @@ def main():
         num_cores = multiprocessing.cpu_count()
         # You might want to use fewer cores to avoid overloading the system
         n_jobs = min(int(sys.argv[5]), num_cores - 1)
+        models_dir = base_dir / "initial_results"
 
         # Run the optimization in parallel
         optimization_results = Parallel(n_jobs=n_jobs, verbose=10)(
             delayed(process_sample)(
-                idx, sample, state, space, initial_penalties, high_penalty_indices, base_dir, output_dir
+                idx, sample, state, space, initial_penalties, high_penalty_indices, base_dir, output_dir, models_dir
             ) for idx, (sample, state) in enumerate(zip(high_penalty_samples, high_penalty_results))
         )
         # Save optimization results

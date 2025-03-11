@@ -36,7 +36,7 @@ def setup_logging(output_dir: Path) -> logging.Logger:
 logger = setup_logging(Path('/tmp'))
 
 # Optimize each high-penalty sample
-def process_sample(idx, sample, state, space, initial_penalties, high_penalty_indices, base_dir, output_dir):
+def process_sample(idx, sample, state, space, initial_penalties, high_penalty_indices, base_dir, output_dir, models_dir):
     logger.info(f"Optimizing sample {idx + 1}")
     logger.info(f"Original penalty: {initial_penalties[high_penalty_indices[idx]]}")
 
@@ -44,13 +44,12 @@ def process_sample(idx, sample, state, space, initial_penalties, high_penalty_in
         # Load initial models
         logger.info("Loading initial models")
         initial_models = {}
-        models_dir = base_dir / "initial_results_simple"
         for model_file in models_dir.glob("*_model.json"):
             task_name = model_file.stem.replace("_model", "")
             model = xgb.XGBRegressor()
             model.load_model(str(model_file))
             initial_models[task_name] = model
-
+        assert len(initial_models) > 0
         # Initialize optimizer
         optimizer = ProactiveParallelOptimizer(
             initial_models=initial_models,
@@ -148,11 +147,12 @@ def main():
         num_cores = multiprocessing.cpu_count()
         # You might want to use fewer cores to avoid overloading the system
         n_jobs = min(int(sys.argv[5]), num_cores - 1)
+        models_dir = base_dir / "initial_results_simple"
 
         # Run the optimization in parallel
         optimization_results = Parallel(n_jobs=n_jobs, verbose=10)(
             delayed(process_sample)(
-                idx, sample, state, space, initial_penalties, high_penalty_indices, base_dir, output_dir
+                idx, sample, state, space, initial_penalties, high_penalty_indices, base_dir, output_dir, models_dir
             ) for idx, (sample, state) in enumerate(zip(high_penalty_samples, high_penalty_results))
         )
         # Save optimization results

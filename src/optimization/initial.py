@@ -22,7 +22,7 @@ def generate_base_workload(sim_input_path, app, rps, ts_path):
         task_types=sim_inputs['task_types'],
     )
     time_series: TimeSeries = generate_time_series(
-        simulation_data, rps, 300, None, app, str(ts_path).replace('.json', ''), peaks=None
+        simulation_data, rps, 600, 'poisson-increasing', app, str(ts_path).replace('.json', ''), peaks=None
     )
     return time_series
 

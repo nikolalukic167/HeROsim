@@ -13,7 +13,9 @@ logger = setup_logging(Path('/tmp'))
 
 def main():
     base_dir = Path(sys.argv[6])
-    output_dir = base_dir / "optimization_results" / datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    exp_id = sys.argv[7]
+    output_dir = base_dir / "optimization_results" / exp_id
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Setup logging

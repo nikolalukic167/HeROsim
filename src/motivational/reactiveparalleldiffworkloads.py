@@ -35,7 +35,12 @@ def save_results(results_folder, stats):
     system_events_df.to_csv(os.path.join(results_folder, "system_events.csv"))
     penalty_over_time.to_csv(os.path.join(results_folder, "penalty_over_time.csv"))
 
-    sns.scatterplot(x='time', y='penalty', data=penalty_over_time)
+    df = penalty_over_time
+    window_size = 10
+    df['time_window'] = (df['time'] // window_size).astype(int)
+    aggregated_df = df.groupby('time_window').agg({'time': 'mean', 'penalty': 'mean'}).reset_index()
+
+    sns.scatterplot(x='time', y='penalty', data=aggregated_df)
     plt.savefig(os.path.join(results_folder, "penalties.pdf"))
     plt.close()
     sns.scatterplot(x='timestamp', y='count', hue='name', data=system_events_df)

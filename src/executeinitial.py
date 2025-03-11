@@ -33,8 +33,8 @@ def setup_logging(output_dir: Path) -> logging.Logger:
     logger.setLevel(logging.INFO)
 
     # File handler
-    fh = logging.FileHandler(output_dir / 'simulation.log')
-    fh.setLevel(logging.INFO)
+    # fh = logging.FileHandler(output_dir / 'simulation.log')
+    # fh.setLevel(logging.INFO)
 
     # Console handler
     ch = logging.StreamHandler()
@@ -42,10 +42,10 @@ def setup_logging(output_dir: Path) -> logging.Logger:
 
     # Formatter
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    fh.setFormatter(formatter)
+    # fh.setFormatter(formatter)
     ch.setFormatter(formatter)
 
-    logger.addHandler(fh)
+    # logger.addHandler(fh)
     logger.addHandler(ch)
 
     return logger

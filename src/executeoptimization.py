@@ -20,15 +20,15 @@ def setup_logging(output_dir: Path) -> logging.Logger:
     logger.setLevel(logging.INFO)
 
     # Create handlers
-    file_handler = logging.FileHandler(output_dir / 'optimization.log')
+    # file_handler = logging.FileHandler(output_dir / 'optimization.log')
     console_handler = logging.StreamHandler(sys.stdout)
 
     # Create formatter and add it to handlers
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-    file_handler.setFormatter(formatter)
+    # file_handler.setFormatter(formatter)
     console_handler.setFormatter(formatter)
 
-    logger.addHandler(file_handler)
+    # logger.addHandler(file_handler)
     logger.addHandler(console_handler)
 
     return logger

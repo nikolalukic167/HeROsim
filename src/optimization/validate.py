@@ -33,8 +33,8 @@ def main():
     sim_input_path = pathlib.Path("data/nofs-ids")  # Base path for simulation input files
     base_dir = pathlib.Path("data/nofs-ids")  # Base path for simulation input files
 
-    workload_config_file = sys.argv[4]
-    num_cores = int(sys.argv[5])
+    workload_config_file = sys.argv[3]
+    num_cores = int(sys.argv[4])
 
     with open(workload_config_file, 'r') as fd:
         workload_configs = json.load(fd)

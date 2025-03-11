@@ -17,7 +17,7 @@ run_pipeline() {
     python -m src.optimization.generate "spaces/${space}" "${config_file}" 1 nofs-dnn1
     python -m src.optimization.sample "spaces/${space}" 15
     python -m src.optimization.initial "spaces/${space}" 4 nofs-dnn1
-    python -m src.optimization.optimization 10 25 5 90 1 "spaces/${space}"
+    python -m src.optimization.optimization 1 25 5 90 1 "spaces/${space}"
 
     echo "Completed pipeline for ${space}"
 }

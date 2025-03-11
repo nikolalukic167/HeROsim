@@ -133,15 +133,15 @@ def start_simulation(
     # Logger
     simulation_time = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
-    file_handler = logging.FileHandler(f"log/{simulation_time}.log")
-    file_handler.setLevel(logging.DEBUG)
+    # file_handler = logging.FileHandler(f"log/{simulation_time}.log")
+    # file_handler.setLevel(logging.DEBUG)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.ERROR)
 
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(levelname)s [%(funcName)18s() ] %(message)s",
-        handlers=[file_handler, console_handler],
+        handlers=[console_handler],
     )
 
     # Simulation

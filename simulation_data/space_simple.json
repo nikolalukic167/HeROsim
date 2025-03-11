@@ -67,9 +67,9 @@
     }
   },
   "csc": {
-    "average": 15,
-    "min": 15,
-    "max": 15,
+    "average": 10,
+    "min": 10,
+    "max": 10,
     "step": 5
   },
   "nwc": {

@@ -355,6 +355,10 @@ class ProactiveParallelOptimizer:
                     param_up = workload_max
                 if param_down < workload_min:
                     param_down = workload_min
+
+                param_up = workload_max
+                param_down = workload_min
+
             if param != 'cluster_size' and param_up == param_down:
                 param_up += 0.0000001
 
@@ -362,6 +366,7 @@ class ProactiveParallelOptimizer:
                 param_up += 1
 
             param_bounds[param] = (param_down, param_up)
+        print(param_bounds)
         return param_bounds
 
     def evaluate_parameters(self, state, **params):

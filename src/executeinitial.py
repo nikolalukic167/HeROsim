@@ -412,6 +412,73 @@ def process_sample(args):
         return None
 
 
+def process_sample_proactive(args):
+    i, sample, output_dir, sim_input_path, mapping_file, config_file, workload_base_file, apps, model_locations = args
+    logger = setup_logging(output_dir)
+    logger.info(f"Processing sample {i + 1}")
+
+    try:
+        sim_inputs = load_simulation_inputs(sim_input_path)
+
+        with open(mapping_file, 'rb') as f:
+            mapping = pickle.load(f)
+
+        # Load infrastructure config
+        with open(config_file, 'r') as f:
+            infra_config = json.load(f)
+
+        with open(workload_base_file, 'r') as f:
+            workload_base = json.load(f)
+
+        # Prepare infrastructure configuration
+        sim_config = prepare_simulation_config(sample, mapping, infra_config)
+
+        # Prepare workloads
+        workloads = prepare_workloads(sample, mapping, workload_base, apps)
+        # Flatten workloads into single sorted list
+        flattened_workloads = flatten_workloads(workloads)
+
+        # Combine infrastructure and workload configurations
+        full_config = {
+            "infrastructure": sim_config,
+            "workload": flattened_workloads
+        }
+
+        # Execute simulation with additional inputs
+        cache_policy = 'fifo'
+        task_priority = 'fifo'
+        keep_alive = KEEP_ALIVE
+        queue_length = QUEUE_LENGTH
+        scheduling_strategy = 'prokn_prokn'
+        result = execute_simulation(full_config, sim_inputs, scheduling_strategy, model_locations=model_locations)
+        result['sample'] = {
+            'apps': apps,
+            'sample': sample.tolist(),
+            'mapping': mapping,
+            'infra_config': infra_config,
+            'workload_base': workload_base,
+            'sim_inputs': sim_inputs,
+            'scheduling_strategy': scheduling_strategy,
+            'cache_policy': cache_policy,
+            'task_priority': task_priority,
+            'keep_alive': keep_alive,
+            'queue_length': queue_length
+        }
+
+        # Save result
+        result_file = output_dir / f"simulation_{i + 1}.json"
+        with open(result_file, 'w') as f:
+            json.dump(result, f, indent=2, cls=DataclassJSONEncoder)
+
+        logger.info(f"Completed simulation {i + 1}")
+        return result_file
+
+    except Exception as e:
+        logger.error(f"Error in simulation {i + 1}: {str(e)}")
+        logger.exception(e)
+        return None
+
+
 def execute_reactive_samples_parallel(apps, config_file, mapping_file, output_dir, samples, sim_input_path,
                                       workload_base_file, max_workers):
     result_paths = []
@@ -425,6 +492,31 @@ def execute_reactive_samples_parallel(apps, config_file, mapping_file, output_di
         start_ts = time.time()
         # Submit all tasks and process results as they complete
         future_to_sample = {executor.submit(process_sample, sample_tuple): sample_tuple for sample_tuple in
+                            sample_tuples}
+
+        for future in concurrent.futures.as_completed(future_to_sample):
+            result_file = future.result()
+            if result_file is not None:
+                result_paths.append(result_file)
+        end_ts = time.time()
+        print(f'Duration: {end_ts - start_ts}')
+    return result_paths
+
+
+def execute_proactive_samples_parallel(apps, config_file, mapping_file, output_dir, samples, sim_input_path,
+                                       workload_base_file, max_workers, model_paths):
+    result_paths = []
+
+    # Use ProcessPoolExecutor for CPU-bound tasks, ThreadPoolExecutor for I/O-bound tasks
+    # Adjust max_workers as needed based on your system's capabilities
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        # Create a list of (index, sample) tuples to process
+        sample_tuples = [
+            (i, sample, output_dir, sim_input_path, mapping_file, config_file, workload_base_file, apps, model_paths)
+            for i, sample in enumerate(samples)]
+        start_ts = time.time()
+        # Submit all tasks and process results as they complete
+        future_to_sample = {executor.submit(process_sample_proactive, sample_tuple): sample_tuple for sample_tuple in
                             sample_tuples}
 
         for future in concurrent.futures.as_completed(future_to_sample):

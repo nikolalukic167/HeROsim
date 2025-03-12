@@ -6,7 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
-from src.executeinitial import setup_logging, execute_reactive_samples_parallel, load_simulation_inputs
+from src.executeinitial import setup_logging, execute_reactive_samples_parallel, load_simulation_inputs, \
+    execute_proactive_samples_parallel
 from src.generator.traces import generate_time_series
 from src.placement.model import DataclassJSONEncoder, TimeSeries, SimulationData
 from src.train import train_model, save_models
@@ -33,12 +34,14 @@ def main():
     mapping_file = base_dir / "lhs_samples_mapping.pkl"
     config_file = base_dir / "space.json"
     # workload_base_file = "data/nofs-ids/traces/workload-125-250.json"
-    output_dir = base_dir / "initial_results"
-    os.makedirs(output_dir, exist_ok=True)
+    reactive_output_dir = base_dir / "initial_results_reactive"
+    proactive_output_dir = base_dir / "initial_results"
+    os.makedirs(reactive_output_dir, exist_ok=True)
+    os.makedirs(proactive_output_dir, exist_ok=True)
     max_workers = int(sys.argv[2])
     app = sys.argv[3]
     # Setup logging
-    logger = setup_logging(output_dir)
+    logger = setup_logging(Path("/tmp"))
 
     logger.info("Starting simulation preparation")
 
@@ -60,17 +63,20 @@ def main():
         json.dump(ts, fd, indent=2, cls=DataclassJSONEncoder)
 
     apps = [app]
-    reactive_results_paths = execute_reactive_samples_parallel(apps, config_file, mapping_file, output_dir, samples,
+    reactive_results_paths = execute_reactive_samples_parallel(apps, config_file, mapping_file, reactive_output_dir, samples,
                                                                sim_input_path, ts_path, max_workers)
     print(reactive_results_paths)
     logger.info("Completed all simulations")
 
     logger.info("Training model now...")
-    models, eval_results = train_model(output_dir, samples, include_queue_length=False)
-    model_paths = save_models(models, output_dir)
+    models, eval_results = train_model(reactive_output_dir, samples, include_queue_length=False)
+    model_paths = save_models(models, proactive_output_dir)
+
+    proactive_results_paths = execute_proactive_samples_parallel(apps, config_file, mapping_file, proactive_output_dir, samples,
+                                                               sim_input_path, ts_path, max_workers, model_paths)
 
     logger.info('Finished model training')
-    logger.info(f'All files can be found under {output_dir}')
+    logger.info(f'All files can be found under {proactive_output_dir}')
 
 
 if __name__ == '__main__':

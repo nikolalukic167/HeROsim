@@ -222,7 +222,7 @@ class ProactiveParallelOptimizer:
         print(separator)
         print(header)
         print("-" * len(header))
-
+        best_x = None
         for i in range(self.n_iterations):
             # Ask for points to evaluate in parallel
             points = opt.ask(n_points=self.n_parallel)
@@ -274,6 +274,7 @@ class ProactiveParallelOptimizer:
             best_idx = np.argmin(opt.yi)
             best_value = opt.yi[best_idx]
             best_params = {param_names[j]: opt.Xi[best_idx][j] for j in range(len(param_names))}
+            previous_best_x = best_x
             best_x = opt.Xi[best_idx]
 
             iterations.append({
@@ -281,6 +282,10 @@ class ProactiveParallelOptimizer:
                 'best_penalty': -best_value,
                 'best_params': best_params
             })
+
+            if previous_best_x == best_x:
+                break
+
 
             row = f"| {i:<9} | {-best_value:<9.2f} | " + " | ".join(f"{val:<9.3f}" for val in best_x) + " |"
             print(row)
@@ -356,8 +361,8 @@ class ProactiveParallelOptimizer:
                 if param_down < workload_min:
                     param_down = workload_min
 
-                # param_up = workload_max
-                # param_down = workload_min
+                param_up = workload_max
+                param_down = workload_min
 
             if param != 'cluster_size' and param_up == param_down:
                 param_up += 0.0000001

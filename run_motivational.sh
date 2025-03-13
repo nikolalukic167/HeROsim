@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define arrays to store the command modules and their corresponding arguments
-modules=("src.motivational.reactiveandproactiveparalleldiffworkloads" "src.motivational.reactiveandproactiveparalleldiffworkloadspart2" "src.motivational.reactiveandproactiveparalleldiffworkloadspart2")
+modules=("src.motivational.reactiveandproactiveparalleldiffworkloads" "src.motivational.reactiveandproactiveparalleldiffworkloadspart2" "src.motivational.reactiveandproactiveparalleldiffworkloadspart2" "src.motivational.reactiveandproactiveparalleldiffworkloadspart2" "src.motivational.reactiveandproactiveparalleldiffworkloadspart2")
 # Define the last argument for each module execution
 last_args=("" "one_day" "first" "first_second" "first_second_third")
 

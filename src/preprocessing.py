@@ -33,14 +33,12 @@ def preprocess_pods(pods_data):
 
         pods_by_name[name][timestamp] = count
 
-
     # Apply forward fill
     result = {}
     for name, time_data in pods_by_name.items():
         sorted_timestamps = sorted(time_data.keys())
         min_time = sorted_timestamps[0]
         max_time = sorted_timestamps[-1]
-
 
         filled_data = {}
         last_count = 0
@@ -51,6 +49,7 @@ def preprocess_pods(pods_data):
         result[name] = filled_data
 
     return result
+
 
 def calculate_metrics_combined(workload_data, pods_data, application_to_task_map, window_size=60, until=None):
     """
@@ -109,7 +108,6 @@ def calculate_metrics_combined(workload_data, pods_data, application_to_task_map
         elif task_type in window_pods:
             window_pods[task_type][window_start] = [pod['count']]
             window_queue_lengths[task_type][window_start] = [pod['average_queue_length']]
-
 
     # Calculate final metrics
     for task_type in metrics:
@@ -173,7 +171,6 @@ def preprocess_workload_task_results(workload_data):
     #     requests_per_second = [0] * (max_time - min_time + 1)
     #     for time, count in time_data.items():
     #         requests_per_second[time - min_time] = count
-
 
     #     last_count = requests_per_second[0]  # Initialize with 0, assuming no pods initially
 
@@ -266,7 +263,6 @@ def preprocess_workload_app_results(workload_data):
 
     return workload_by_task
 
-
     # # Convert to list of request counts per second, filling missing seconds with 0
     # result = {}
     # for task_type, time_data in workload_by_task.items():
@@ -276,7 +272,6 @@ def preprocess_workload_app_results(workload_data):
     #     requests_per_second = [0] * (max_time - min_time + 1)
     #     for time, count in time_data.items():
     #         requests_per_second[time - min_time] = count
-
 
     #     last_count = requests_per_second[0]  # Initialize with 0, assuming no pods initially
 
@@ -288,7 +283,6 @@ def preprocess_workload_app_results(workload_data):
     #         requests_per_second[i] = last_count  # Assign the last_count (either new or previous)
 
     #     result[task_type] = requests_per_second
-
 
 
 def create_inputs_outputs(workload_data, pods_data):
@@ -309,17 +303,15 @@ def create_inputs_outputs(workload_data, pods_data):
         if task_type in pods_data:
             pods = pods_data[task_type]
 
-
             # Find common timestamps
             common_timestamps = sorted(set(workload.keys()) & set(pods.keys()))
-
 
             # Create input/output pairs for common timestamps
             for timestamp in common_timestamps:
                 inputs_outputs.append((task_type, timestamp, workload[timestamp], pods[timestamp]))
 
-
     return inputs_outputs
+
 
 def create_inputs_outputs_seperated_per_task(result):
     workload_data = preprocess_workload_task_results(result['stats']['taskResults'])
@@ -330,18 +322,16 @@ def create_inputs_outputs_seperated_per_task(result):
         if task_type in pods_data:
             pods = pods_data[task_type]
 
-
             # Find common timestamps
             common_timestamps = sorted(set(workload.keys()) & set(pods.keys()))
-
 
             # Create input/output pairs for common timestamps
             for timestamp in common_timestamps:
                 inputs[task_type].append(workload[timestamp])
                 outputs[task_type].append(pods[timestamp])
 
-
     return np.array(inputs), np.array(outputs)
+
 
 def create_inputs_outputs_seperated_per_app(result):
     workload_data = preprocess_workload_task_results(result['stats']['applicationResults'])
@@ -352,18 +342,16 @@ def create_inputs_outputs_seperated_per_app(result):
         if task_type in pods_data:
             pods = pods_data[task_type]
 
-
             # Find common timestamps
             common_timestamps = sorted(set(workload.keys()) & set(pods.keys()))
-
 
             # Create input/output pairs for common timestamps
             for timestamp in common_timestamps:
                 inputs[task_type].append(workload[timestamp])
                 outputs[task_type].append(pods[timestamp])
 
-
     return np.array(inputs), np.array(outputs)
+
 
 def preprocess_system_events(pods_data):
     """
@@ -392,8 +380,8 @@ def preprocess_system_events(pods_data):
         pods_by_name[name][timestamp] = count
         average_queue_length_by_name[name][timestamp] = average_queue_length
 
-
     return pods_by_name, average_queue_length_by_name
+
 
 # def create_inputs_outputs_seperated_per_app_windowed(result, window_size, app_definitions):
 #     """
@@ -463,7 +451,8 @@ def create_inputs_outputs_seperated_per_app_windowed(result, window_size, app_de
     Returns:
     A tuple of dictionaries (inputs, outputs) with NumPy arrays of workload and pod metrics.
     """
-    metrics = calculate_metrics_combined(result['applicationResults'], result['systemEvents'], app_definitions, window_size)
+    metrics = calculate_metrics_combined(result['applicationResults'], result['systemEvents'], app_definitions,
+                                         window_size)
     inputs = defaultdict(list)
     outputs = defaultdict(list)
 
@@ -489,6 +478,7 @@ def create_inputs_outputs_seperated_per_app_windowed(result, window_size, app_de
 
     print(outputs)
     return inputs, outputs
+
 
 def create_inputs_outputs_seperated_per_app_windowed(result, window_size, app_definitions, until=None):
     """
@@ -502,7 +492,8 @@ def create_inputs_outputs_seperated_per_app_windowed(result, window_size, app_de
     Returns:
     A tuple of dictionaries (inputs, outputs) with NumPy arrays of workload and pod metrics.
     """
-    metrics = calculate_metrics_combined(result['applicationResults'], result['systemEvents'], app_definitions, window_size, until)
+    metrics = calculate_metrics_combined(result['applicationResults'], result['systemEvents'], app_definitions,
+                                         window_size, until)
     inputs = defaultdict(list)
     outputs = defaultdict(list)
 
@@ -528,6 +519,7 @@ def create_inputs_outputs_seperated_per_app_windowed(result, window_size, app_de
 
     print(outputs)
     return inputs, outputs
+
 
 def create_inputs_outputs_seperated_per_app_windowed_system_events(result, window_size, app_definitions):
     """
@@ -548,7 +540,6 @@ def create_inputs_outputs_seperated_per_app_windowed_system_events(result, windo
     inputs = defaultdict(list)
     outputs = defaultdict(list)
 
-
     for app_type, workload in workload_data.items():
         for task_type in app_definitions[app_type]:
             if task_type in pods_data:
@@ -558,11 +549,9 @@ def create_inputs_outputs_seperated_per_app_windowed_system_events(result, windo
                 # Find common timestamps and sort them
                 common_timestamps = sorted(set(workload.keys()) & set(pods.keys()))
 
-
                 # Aggregate into time windows
                 for i in range(0, len(common_timestamps) - window_size + 1, window_size):  # Step by window_size
                     window_timestamps = common_timestamps[i:i + window_size]  # Get timestamps for the current window
-
 
                     # Sum workload for the window
                     workload_sum = math.ceil(sum(workload[ts] for ts in window_timestamps))
@@ -574,18 +563,16 @@ def create_inputs_outputs_seperated_per_app_windowed_system_events(result, windo
                     # Find maximum pod count for the window
                     pod_max = max(pods[ts] for ts in window_timestamps)
 
-
                     inputs[task_type].append([workload_sum, q_max])
                     outputs[task_type].append(pod_max)
-
 
     # Convert to NumPy arrays
     for task_type in inputs.keys():
         inputs[task_type] = np.array(inputs[task_type])
         outputs[task_type] = np.array(outputs[task_type])
 
-
     return inputs, outputs
+
 
 def create_train_test_split_per_windowed(inputs_outputs, test_size=0.2, random_state=42):
     """
@@ -608,22 +595,28 @@ def create_train_test_split_per_windowed(inputs_outputs, test_size=0.2, random_s
     # Split data for each task type
     for task_type, data in inputs_outputs[0].items():
 
-
         workload_counts = data
         pod_counts = inputs_outputs[1][task_type]
         print(len(pod_counts))
         print(len(workload_counts))
 
-        X_train, X_test, y_train, y_test = train_test_split(
-            workload_counts, pod_counts, test_size=test_size, random_state=random_state, train_size=1
-        )
+        if len(pod_counts) == 0 or len(workload_counts) == 0:
+            return {}, {}
+
+        if len(pod_counts) == 1 and len(workload_counts) == 1:
+            # Handle the single sample case manually
+            X_train, y_train = workload_counts, pod_counts
+            X_test, y_test = np.empty(shape=(0, 1)), np.empty(shape=(0,))
+        else:
+            X_train, X_test, y_train, y_test = train_test_split(
+                workload_counts, pod_counts, test_size=test_size, random_state=random_state, train_size=1
+            )
 
         if len(X_train.shape) == 1:
             X_train = X_train.reshape(-1, 1)
             X_test = X_test.reshape(-1, 1)
         train_data[task_type] = list(zip(X_train, y_train))
         test_data[task_type] = list(zip(X_test, y_test))
-
 
     return train_data, test_data
 
@@ -646,7 +639,6 @@ def create_train_test_split_per_task(inputs_outputs, test_size=0.2, random_state
     train_data = {}
     test_data = {}
 
-
     # Group data by task type
     grouped_data = {}
     for (task_type, timestamp), (workload_count, pod_count) in zip(inputs_outputs[0], inputs_outputs[1]):
@@ -654,24 +646,21 @@ def create_train_test_split_per_task(inputs_outputs, test_size=0.2, random_state
             grouped_data[task_type] = []
         grouped_data[task_type].append((timestamp, workload_count, pod_count))
 
-
     # Split data for each task type
     for task_type, data in grouped_data.items():
         timestamps = [item[0] for item in data]
         workload_counts = [item[1] for item in data]
         pod_counts = [item[2] for item in data]
 
-
         X_train, X_test, y_train, y_test = train_test_split(
             workload_counts, pod_counts, test_size=test_size, random_state=random_state
         )
 
-
         train_data[task_type] = list(zip(X_train, y_train))
         test_data[task_type] = list(zip(X_test, y_test))
 
-
     return train_data, test_data
+
 
 def train_xgboost_per_task(train_data, params=None):
     """Trains an XGBoost model for each task type.
@@ -689,24 +678,21 @@ def train_xgboost_per_task(train_data, params=None):
     if params is None:
         params = {'objective': 'reg:squarederror', 'n_estimators': 200, 'seed': 435}  # Default parameters
 
-
     for task_type, data in train_data.items():
         # Extract features (timestamp, workload_count) and target (pod_count)
         X_train = [item[0] for item in data]  # Input
         y_train = [item[1] for item in data]  # Pod count
 
-
         # Convert lists to NumPy arrays
         X_train = np.array(X_train)
         y_train = np.array(y_train)
-
 
         model = xgb.XGBRegressor(**params)
         model.fit(X_train, y_train)
         models[task_type] = model
 
-
     return models
+
 
 def evaluate_xgboost_per_task(models, test_data):
     """Evaluates the trained XGBoost models on the test data.
@@ -722,18 +708,15 @@ def evaluate_xgboost_per_task(models, test_data):
     """
     mse_scores = {}
 
-
     for task_type, data in test_data.items():
         if task_type in models:  # Make sure we have a model for this task type
             # Extract features (workload_count) and target (pod_count)
             X_test = [item[0] for item in data]  # Only workload count
             y_test = [item[1] for item in data]  # Pod count
 
-
             # Convert lists to NumPy arrays
             X_test = np.array(X_test)
             y_test = np.array(y_test)
-
 
             y_pred = models[task_type].predict(X_test)
             mse = root_mean_squared_error(y_test, y_pred)
@@ -741,8 +724,8 @@ def evaluate_xgboost_per_task(models, test_data):
         else:
             mse_scores[task_type] = None  # Or some other indicator that there's no model
 
-
     return mse_scores
+
 
 def main():
     with open('./result/20250219-123131-522218.json', 'r') as f:
@@ -753,6 +736,7 @@ def main():
         for task in result['taskResults']:
             app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
         print(create_inputs_outputs_seperated_per_app_windowed(result, 5, app_definitions))
+
 
 if __name__ == '__main__':
     main()

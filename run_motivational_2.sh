@@ -3,7 +3,7 @@
 # Define arrays to store the command modules and their corresponding arguments
 modules=("src.motivational.reactiveandproactiveparalleldiffworkloads" "src.motivational.reactiveandproactiveparalleldiffworkloadspart2" "src.motivational.reactiveandproactiveparalleldiffworkloadspart2" "src.motivational.reactiveandproactiveparalleldiffworkloadspart2" "src.motivational.reactiveandproactiveparalleldiffworkloadspart2")
 # Define the last argument for each module execution
-last_args=("" "one_day" "first" "first_second" "all")
+last_args=("" "one_day" "first" "first_second" "first_second_third")
 
 output_prefixes=("R1-1233-output")
 config_files=("./data/nofs-ids/workload-configs/R1-1233-7500-20.json")

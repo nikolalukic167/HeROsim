@@ -52,7 +52,7 @@ def preprocess_pods(pods_data):
 
     return result
 
-def calculate_metrics_combined(workload_data, pods_data, application_to_task_map, window_size=60):
+def calculate_metrics_combined(workload_data, pods_data, application_to_task_map, window_size=60, until=None):
     """
     Calculates average throughput and pod count over time windows by processing workload and pods simultaneously.
 
@@ -125,6 +125,8 @@ def calculate_metrics_combined(workload_data, pods_data, application_to_task_map
                 avg_queue_length_window = sum(q_counts) / len(q_counts) if q_counts else 0
                 if avg_queue_length_window > QUEUE_LENGTH or not pod_counts:
                     continue
+                if window_start + window_size >= until:
+                    break
                 metrics[task_type][window_start] = {
                     'window_start': window_start,
                     'window_end': window_start + window_size,
@@ -488,6 +490,44 @@ def create_inputs_outputs_seperated_per_app_windowed(result, window_size, app_de
     print(outputs)
     return inputs, outputs
 
+def create_inputs_outputs_seperated_per_app_windowed(result, window_size, app_definitions, until=None):
+    """
+    Aggregates workload and pod data into time windows using metrics from calculate_metrics_combined.
+
+    Args:
+    result: A dictionary containing 'stats' with 'applicationResults' and 'scaleEvents'.
+    window_size: The size of the time window in seconds.
+    app_definitions: Dictionary mapping app types to task types.
+
+    Returns:
+    A tuple of dictionaries (inputs, outputs) with NumPy arrays of workload and pod metrics.
+    """
+    metrics = calculate_metrics_combined(result['applicationResults'], result['systemEvents'], app_definitions, window_size, until)
+    inputs = defaultdict(list)
+    outputs = defaultdict(list)
+
+    for app_type, app_tasks in app_definitions.items():
+        for task_type in app_tasks:
+            if task_type in metrics:
+                for window_data in metrics[task_type].values():
+                    # Skip windows with zero throughput
+                    if window_data['avg_throughput'] == 0:
+                        continue
+
+                    # Convert throughput to requests per window
+                    workload_sum = window_data['avg_throughput']
+                    pod_count = math.ceil(window_data['avg_pods'])
+
+                    inputs[task_type].append(workload_sum)
+                    outputs[task_type].append(pod_count)
+
+    # Convert to NumPy arrays
+    for task_type in inputs.keys():
+        inputs[task_type] = np.array(inputs[task_type])
+        outputs[task_type] = np.array(outputs[task_type])
+
+    print(outputs)
+    return inputs, outputs
 
 def create_inputs_outputs_seperated_per_app_windowed_system_events(result, window_size, app_definitions):
     """

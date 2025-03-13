@@ -138,16 +138,33 @@ def main():
         reactive_pool.close()
         reactive_pool.join()
 
+    test_size = 0.01
 
+    one_day_until = 172
+    result_files = [f'{x}/peak-config.json' for x in result_folders[:1]]
+    models, eval_results = train_model_reactive_then_proactive(result_files, include_queue_length=False, test_size=test_size, until=one_day_until)
+    dir_first_second = pathlib.Path(output_dir) / 'one_day'
+    os.makedirs(dir_first_second, exist_ok=True)
+    model_paths = save_models(models, dir_first_second)
+
+    # first week training
+    result_files = [f'{x}/peak-config.json' for x in result_folders[:1]]
+    models, eval_results = train_model_reactive_then_proactive(result_files, include_queue_length=False, test_size=test_size)
+    dir_first_second = pathlib.Path(output_dir) / 'first'
+    os.makedirs(dir_first_second, exist_ok=True)
+    model_paths = save_models(models, dir_first_second)
+
+    # first & second week training
     result_files = [f'{x}/peak-config.json' for x in result_folders[:2]]
-    models, eval_results = train_model_reactive_then_proactive(result_files, include_queue_length=False)
+    models, eval_results = train_model_reactive_then_proactive(result_files, include_queue_length=False, test_size=test_size)
     dir_first_second = pathlib.Path(output_dir) / 'first_second'
     os.makedirs(dir_first_second, exist_ok=True)
     model_paths = save_models(models, dir_first_second)
 
-    result_files = [f'{x}/peak-config.json' for x in result_folders]
-    models, eval_results = train_model_reactive_then_proactive(result_files, include_queue_length=False)
-    dir_all = pathlib.Path(output_dir) / 'all'
+    # first & second & third week training
+    result_files = [f'{x}/peak-config.json' for x in result_folders[:3]]
+    models, eval_results = train_model_reactive_then_proactive(result_files, include_queue_length=False, test_size=test_size)
+    dir_all = pathlib.Path(output_dir) / 'first_second_third'
     os.makedirs(dir_all, exist_ok=True)
     model_paths = save_models(models, dir_all)
 

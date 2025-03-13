@@ -615,7 +615,7 @@ def create_train_test_split_per_windowed(inputs_outputs, test_size=0.2, random_s
         print(len(workload_counts))
 
         X_train, X_test, y_train, y_test = train_test_split(
-            workload_counts, pod_counts, test_size=test_size, random_state=random_state
+            workload_counts, pod_counts, test_size=test_size, random_state=random_state, train_size=1
         )
 
         if len(X_train.shape) == 1:

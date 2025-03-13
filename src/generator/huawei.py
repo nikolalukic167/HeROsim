@@ -339,7 +339,7 @@ def main():
 def extract_huawei_arrivals(fn, region):
     results = []
     simulation_duration = 20
-    new_average_rps = 7500
+    new_average_rps = 9500
     for i in range(4):
         time_window = (10080 * i, 10080 * (i + 1))
 
@@ -347,7 +347,7 @@ def extract_huawei_arrivals(fn, region):
                                                            new_average_rps)
         arrival_file = f'{region}-{fn}-{time_window[0]}-{time_window[1]}-{new_average_rps}-{int(new_std_rps)}-{simulation_duration}'
         plot_pattern(arrivals, 60, f'data/nofs-ids/arrivals/{arrival_file}')
-
+        print(f'plot pattern {fn} {region} {i}')
         arrivals_timestamps = convert_datetime_timestamps(arrivals)
         with open(
                 f'data/nofs-ids/arrivals/{arrival_file}.json',
@@ -360,10 +360,12 @@ def extract_huawei_arrivals(fn, region):
         simulation_duration = 20
         results.append(map_to_events(app, arrival_file, arrivals_timestamps, data, data_directory, new_average_rps, simulation_duration))
     with open(f'data/nofs-ids/workload-configs/{region}-{fn}-{str(new_average_rps)}-{str(simulation_duration)}.json', 'w') as fd:
+        print(f'dump results {fn} {region} {i}')
         json.dump(results, fd)
     return results
 
 def process_function(fn_region_tuple):
+    print(fn_region_tuple)
     fn, region = fn_region_tuple
     return extract_huawei_arrivals(fn, region)
 

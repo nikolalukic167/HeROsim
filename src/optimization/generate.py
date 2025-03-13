@@ -52,19 +52,19 @@ def main():
         seconds = 0
         requests_in_a_day = []
         for event in workload['events']:
-            seconds += event['timestamp']
-            if seconds < duration_per_day:
+            if event['timestamp'] < duration_per_day:
                 requests_in_a_day.append(event)
             else:
                 break
         counts, min_requests, max_requests, average_requests = count_requests_per_second_with_stats(requests_in_a_day)
 
+    print(max_requests)
     with open(base_space_file, 'r') as fd:
         base_space = json.load(fd)
         base_space['wsc'][app] = {
             'average': average_requests,
             'min': (min_requests / average_requests) * 0.5,
-            'max': (max_requests / average_requests) * 2,
+            'max': (max_requests / average_requests) * 1.5,
             'step': 0.05
         }
         # Generate combinations

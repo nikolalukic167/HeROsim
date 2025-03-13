@@ -9,3 +9,9 @@ Motivational Experiments
 5. repeat 1,2,3,4 with infra 1 (`python -m src.motivational.reactive 1`)
 6. use model trained on infra 0 and use for infra 1 (`python -m src.motivational.proactive 0 1`)
 7. use model trained on infra 1 and use for infra 0 (`python -m src.motivational.proactive 1 0`)
+
+Functions:
+
+medium similarity: 817, 2119, 1412
+high similarity: 1233, 1437, 351
+low similarity: 49, 1465, 1358

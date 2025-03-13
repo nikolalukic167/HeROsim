@@ -6,7 +6,7 @@ modules=("src.motivational.reactiveandproactiveparalleldiffworkloads" "src.motiv
 last_args=("" "one_day" "first" "first_second" "first_second_third")
 
 output_prefixes=("R1-1233-output")
-config_files=("./data/nofs-ids/workload-configs/R1-1233-7500-20.json")
+config_files=("./data/nofs-ids/workload-configs/R1-1233-9500-20.json")
 r1_values=("1233")
 
 # Function to run a specific module with all arguments

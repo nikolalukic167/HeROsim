@@ -10,7 +10,7 @@ spaces=("R1-1358" "R1-1412" "R1-1437" "R1-1465" "R1-2119" "R1-351")
 # Function to run the optimization pipeline for a space
 run_pipeline() {
     local space=$1
-    local config_file="data/nofs-ids/workload-configs/${space}-7500-20.json"
+    local config_file="data/nofs-ids/workload-configs/${space}-9500-20.json"
 
     # Generate a unique ID using timestamp and random string
     local unique_id="pipeline-${space}-$(date +%Y%m%d%H%M%S)"

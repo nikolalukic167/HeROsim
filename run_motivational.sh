@@ -6,7 +6,7 @@ modules=("src.motivational.reactiveandproactiveparalleldiffworkloads" "src.motiv
 last_args=("" "one_day" "first" "first_second" "first_second_third")
 
 output_prefixes=("R1-1233-output" "R1-1358-output" "R1-1412-output" "R1-1437-output" "R1-1465-output" "R1-2119-output" "R1-351-output" "R1-49-output" "R1-817-output")
-config_files=("./data/nofs-ids/workload-configs/R1-1233-7500-20.json" "./data/nofs-ids/workload-configs/R1-1358-7500-20.json" "./data/nofs-ids/workload-configs/R1-1412-7500-20.json" "./data/nofs-ids/workload-configs/R1-1437-7500-20.json" "./data/nofs-ids/workload-configs/R1-1465-7500-20.json" "./data/nofs-ids/workload-configs/R1-2119-7500-20.json" "./data/nofs-ids/workload-configs/R1-351-7500-20.json" "./data/nofs-ids/workload-configs/R1-49-7500-20.json" "./data/nofs-ids/workload-configs/R1-817-7500-20.json")
+config_files=("./data/nofs-ids/workload-configs/R1-1233-9500-20.json" "./data/nofs-ids/workload-configs/R1-1358-9500-20.json" "./data/nofs-ids/workload-configs/R1-1412-9500-20.json" "./data/nofs-ids/workload-configs/R1-1437-9500-20.json" "./data/nofs-ids/workload-configs/R1-1465-9500-20.json" "./data/nofs-ids/workload-configs/R1-2119-9500-20.json" "./data/nofs-ids/workload-configs/R1-351-9500-20.json" "./data/nofs-ids/workload-configs/R1-49-9500-20.json" "./data/nofs-ids/workload-configs/R1-817-9500-20.json")
 r1_values=("1233" "1358" "1412" "1437" "1465" "2119" "351" "49" "817")
 
 # Function to run a specific module with all arguments

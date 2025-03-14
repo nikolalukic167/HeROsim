@@ -63,17 +63,15 @@ def main():
         json.dump(ts, fd, indent=2, cls=DataclassJSONEncoder)
 
     apps = [app]
-    reactive_results_paths = execute_reactive_samples_parallel(apps, config_file, mapping_file, reactive_output_dir, samples,
-                                                               sim_input_path, ts_path, max_workers)
-    print(reactive_results_paths)
-    logger.info("Completed all simulations")
 
-    logger.info("Training model now...")
-    models, eval_results = train_model(reactive_output_dir, samples, include_queue_length=False)
-    model_paths = save_models(models, proactive_output_dir)
+    logger.info("Loading model paths now...")
+    model_paths = {}
+    for model_file in proactive_output_dir.glob("*_model.json"):
+        task_name = model_file.stem.replace("_model", "")
+        model_paths[task_name] = model_file
 
-    # proactive_results_paths = execute_proactive_samples_parallel(apps, config_file, mapping_file, proactive_output_dir, samples,
-    #                                                            sim_input_path, ts_path, max_workers, model_paths)
+    proactive_results_paths = execute_proactive_samples_parallel(apps, config_file, mapping_file, proactive_output_dir, samples,
+                                                               sim_input_path, ts_path, max_workers, model_paths)
 
     logger.info('Finished model training')
     logger.info(f'All files can be found under {proactive_output_dir}')

@@ -229,7 +229,8 @@ class ProactiveParallelOptimizer:
 
             # Evaluate points in parallel
             eval_results = Parallel(n_jobs=self.n_parallel)(
-                delayed(self.evaluate_parameters_wrapper)(x, state['sample'], param_names)
+                delayed(self.evaluate_parameters_wrapper)(x, state['sample'], {task: deepcopy(model) for task, model in
+                                                                               self.best_models.items()}, param_names)
                 for x in points
             )
 
@@ -253,19 +254,40 @@ class ProactiveParallelOptimizer:
                 print("Best in batch is global best for now")
                 self.best_proactive_penalty = best_batch_penalty
 
-                # Update best models if available
-                if 'temp_models' in best_batch_result:
-                    self.best_models = best_batch_result['temp_models']
+                # # Update best models if available
+                # if 'temp_models' in best_batch_result:
+                #     self.best_models = best_batch_result['temp_models']
+                #
+                # # Store improvement data
+                # if all(key in best_batch_result for key in ['X_new', 'y_new', 'params']):
+                #     for task in self.best_models.keys():
+                #         if best_batch_result['X_new'] is not None and task in best_batch_result['X_new']:
+                #             self.improvement_history[task].append(
+                #                 OptimizationStep(
+                #                     params=best_batch_result['params'].copy(),
+                #                     X=best_batch_result['X_new'][task].copy(),
+                #                     y={task: best_batch_result['y_new'][task]},
+                #                     penalty=best_batch_penalty,
+                #                     improvement=True
+                #                 )
+                #             )
 
-                # Store improvement data
-                if all(key in best_batch_result for key in ['X_new', 'y_new', 'params']):
+            for eval_result in eval_results:
+                if all(key in eval_result for key in ['X_new', 'y_new', 'params']):
+                    for task, model in self.best_models.items():
+                        X = [[x] for x in eval_result['X_new'][task]]
+                        y = np.array(eval_result['y_new'][task])
+                        if len(X) == 0:
+                            continue
+                        model.fit(X, y, xgb_model=model)
+
                     for task in self.best_models.keys():
-                        if best_batch_result['X_new'] is not None and task in best_batch_result['X_new']:
+                        if eval_result['X_new'] is not None and task in eval_result['X_new']:
                             self.improvement_history[task].append(
                                 OptimizationStep(
-                                    params=best_batch_result['params'].copy(),
-                                    X=best_batch_result['X_new'][task].copy(),
-                                    y={task: best_batch_result['y_new'][task]},
+                                    params=eval_result['params'].copy(),
+                                    X=eval_result['X_new'][task].copy(),
+                                    y={task: eval_result['y_new'][task]},
                                     penalty=best_batch_penalty,
                                     improvement=True
                                 )
@@ -285,7 +307,6 @@ class ProactiveParallelOptimizer:
 
             if previous_best_x == best_x:
                 break
-
 
             row = f"| {i:<9} | {-best_value:<9.2f} | " + " | ".join(f"{val:<9.3f}" for val in best_x) + " |"
             print(row)
@@ -316,7 +337,7 @@ class ProactiveParallelOptimizer:
 
         return dimensions, param_names
 
-    def evaluate_parameters_wrapper(self, x, state, param_names):
+    def evaluate_parameters_wrapper(self, x, state, models, param_names):
         """Convert list of parameters to dictionary for evaluation"""
         params = {param_names[i]: x[i] for i in range(len(x))}
         return self.evaluate_parameters(state, **params)
@@ -490,6 +511,7 @@ def load_optimization_results(input_dir: Path) -> Dict[str, Any]:
 
     return results
 
+
 def read_and_finetune_opt_results(opt_path: pathlib.Path):
     with open(opt_path / 'optimization_summary.json', 'r') as fd:
         optimization_summary = json.load(fd)
@@ -498,12 +520,13 @@ def read_and_finetune_opt_results(opt_path: pathlib.Path):
         y_improvements_by_task = defaultdict(list)
         for i in range(n_samples):
             input_dir = opt_path / str(i) / "models"
-            for task_dir in  input_dir.iterdir():
+            for task_dir in input_dir.iterdir():
                 if task_dir.is_dir():
                     task_name = task_dir.name
                     X_improvements_by_task[task_name].extend(np.load(task_dir / "X_improvements.npy"))
                     y_improvements_by_task[task_name].extend(np.load(task_dir / "y_improvements.npy").reshape(-1, 1))
     return X_improvements_by_task, y_improvements_by_task
+
 
 def finetune_initial_models(models_path: pathlib.Path, opt_path: pathlib.Path):
     X_improvements_by_task, y_improvements_by_task = read_and_finetune_opt_results(opt_path)
@@ -516,12 +539,11 @@ def finetune_initial_models(models_path: pathlib.Path, opt_path: pathlib.Path):
         X_new = X_improvements_by_task[task_name]
         y_new = y_improvements_by_task[task_name]
         model.fit(
-                X_new, y_new,
-                xgb_model=model
-            )
+            X_new, y_new,
+            xgb_model=model
+        )
         fine_tuned_models[task_name] = model
     return fine_tuned_models
-
 
 
 def main():
@@ -531,7 +553,6 @@ def main():
     path_fine_tuned_models = opt_path / "fine_tuned_models"
     os.makedirs(path_fine_tuned_models, exist_ok=True)
     save_models(fine_tuned_models, path_fine_tuned_models)
-
 
 
 if __name__ == '__main__':

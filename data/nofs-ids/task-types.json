@@ -40,7 +40,7 @@
         "input": 12800,
         "output": 8000
       },
-      "nofs-dnn2": {
+      "nofs-dnn1": {
         "input": 153600,
         "output": 8000
       }

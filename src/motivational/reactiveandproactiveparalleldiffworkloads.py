@@ -168,6 +168,9 @@ def main():
     os.makedirs(dir_all, exist_ok=True)
     model_paths = save_models(models, dir_all)
 
+    for result_folder in result_folders:
+        os.remove(f'{result_folder}/peak-config.json')
+
     # del models
     # model_locations = get_model_locations_direct(pathlib.Path(output_dir))
     # print(f"Model locations: {model_locations}")

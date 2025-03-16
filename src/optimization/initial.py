@@ -72,6 +72,9 @@ def main():
     models, eval_results = train_model(reactive_output_dir, samples, include_queue_length=False)
     model_paths = save_models(models, proactive_output_dir)
 
+    for result_path in reactive_results_paths:
+        os.remove(result_path)
+
     # proactive_results_paths = execute_proactive_samples_parallel(apps, config_file, mapping_file, proactive_output_dir, samples,
     #                                                            sim_input_path, ts_path, max_workers, model_paths)
 

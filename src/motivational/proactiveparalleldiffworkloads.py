@@ -15,12 +15,13 @@ from src.placement.executor import execute_sim
 from src.placement.model import SimulationData, DataclassJSONEncoder
 
 
-def save_single_stats(results_dir, rps, stats, output_infra, results_postfix):
+def save_single_stats(results_dir, rps, stats, output_infra, results_postfix, save_raw_results: bool=True):
     results_folder = os.path.join(results_dir, f"infra-{output_infra}", f"results-{results_postfix}")
     os.makedirs(results_folder, exist_ok=True)
     save_results(results_folder, stats)
-    with open(os.path.join(results_folder, f"peak-config.json"), "w") as outfile:
-        json.dump(stats, outfile, indent=2, cls=DataclassJSONEncoder)
+    if save_raw_results:
+        with open(os.path.join(results_folder, f"peak-config.json"), "w") as outfile:
+            json.dump(stats, outfile, indent=2, cls=DataclassJSONEncoder)
     return results_folder
 
 

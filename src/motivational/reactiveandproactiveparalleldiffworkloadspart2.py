@@ -95,7 +95,7 @@ def proactive_worker_function(args):
     rep_idx, workload_config, config_idx, base_dir, output_infra, sim_input_path, model_locations, results_dir, start_time, model_dir, model_infra = args
     stats = execute_proactive(base_dir, output_infra, workload_config, sim_input_path, model_locations)
     results_postfix = f'proactive/{model_dir}-origin-{model_infra}-target-{output_infra}/{start_time}/{str(rep_idx)}/{config_idx}'
-    save_single_stats(results_dir, workload_config, stats, output_infra, results_postfix)
+    save_single_stats(results_dir, workload_config, stats, output_infra, results_postfix, save_raw_results=False)
 
 
 def main():

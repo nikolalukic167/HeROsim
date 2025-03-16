@@ -222,7 +222,6 @@ class ProactiveParallelOptimizer:
         print(separator)
         print(header)
         print("-" * len(header))
-        best_x = None
         for i in range(self.n_iterations):
             # Ask for points to evaluate in parallel
             points = opt.ask(n_points=self.n_parallel)
@@ -254,23 +253,6 @@ class ProactiveParallelOptimizer:
                 print("Best in batch is global best for now")
                 self.best_proactive_penalty = best_batch_penalty
 
-                # # Update best models if available
-                # if 'temp_models' in best_batch_result:
-                #     self.best_models = best_batch_result['temp_models']
-                #
-                # # Store improvement data
-                # if all(key in best_batch_result for key in ['X_new', 'y_new', 'params']):
-                #     for task in self.best_models.keys():
-                #         if best_batch_result['X_new'] is not None and task in best_batch_result['X_new']:
-                #             self.improvement_history[task].append(
-                #                 OptimizationStep(
-                #                     params=best_batch_result['params'].copy(),
-                #                     X=best_batch_result['X_new'][task].copy(),
-                #                     y={task: best_batch_result['y_new'][task]},
-                #                     penalty=best_batch_penalty,
-                #                     improvement=True
-                #                 )
-                #             )
 
             for eval_result in eval_results:
                 if all(key in eval_result for key in ['X_new', 'y_new', 'params']):
@@ -296,7 +278,6 @@ class ProactiveParallelOptimizer:
             best_idx = np.argmin(opt.yi)
             best_value = opt.yi[best_idx]
             best_params = {param_names[j]: opt.Xi[best_idx][j] for j in range(len(param_names))}
-            previous_best_x = best_x
             best_x = opt.Xi[best_idx]
 
             iterations.append({
@@ -305,15 +286,9 @@ class ProactiveParallelOptimizer:
                 'best_params': best_params
             })
 
-            if previous_best_x == best_x:
-                break
-
             row = f"| {i:<9} | {-best_value:<9.2f} | " + " | ".join(f"{val:<9.3f}" for val in best_x) + " |"
             print(row)
 
-            # Early stopping if we reach target penalty
-            if -best_value <= self.target_penalty:
-                break
 
         # Return best parameters found
         best_idx = np.argmin(opt.yi)

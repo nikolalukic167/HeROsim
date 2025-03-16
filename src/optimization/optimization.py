@@ -46,8 +46,8 @@ def main():
         initial_penalties = np.array([result['stats']['penaltyProportion'] for result in simulation_results])
 
         # Identify high-penalty samples
-        penalty_threshold = np.percentile(initial_penalties, int(sys.argv[4]))  # Top 10% worst cases
-        high_penalty_mask = initial_penalties > penalty_threshold
+        penalty_threshold = np.max(initial_penalties)  # Top 10% worst cases
+        high_penalty_mask = initial_penalties == penalty_threshold
         high_penalty_indices = np.where(high_penalty_mask)[0]
         high_penalty_results = np.array(simulation_results)[high_penalty_indices]
         high_penalty_samples = samples[high_penalty_indices]

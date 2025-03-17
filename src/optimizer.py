@@ -234,7 +234,7 @@ class ProactiveParallelOptimizer:
             )
 
             # Extract penalties for optimizer
-            penalties = [result['penalty'] for result in eval_results]
+            penalties = [result['penalty'] for result in eval_results if result['penalty']]
 
             # Tell optimizer the results
             opt.tell(points, penalties)
@@ -401,9 +401,6 @@ class ProactiveParallelOptimizer:
                 'penalty': 1e6,
                 'proactive_penalty': 1e6,
                 'params': params,
-                'temp_models': temp_models,
-                'X_new': np.array([]),
-                'y_new': np.array([])
             }
 
         # reactive_result = None

@@ -185,6 +185,32 @@ class TabularPrintCallback:
         return False  # Continue optimization
 
 
+def create_device_constraint_function(dimensions):
+    """
+    Creates a constraint function that ensures all parameters starting with 'device_' sum to 1
+
+    Args:
+        dimensions: List of dimension objects with names
+    """
+    # Create a mapping of parameter names to indices
+    param_indices = {dim.name: i for i, dim in enumerate(dimensions)}
+
+    # Filter for parameters that start with 'device_'
+    device_params = [name for name in param_indices.keys() if name.startswith('device_')]
+
+    def constraint(x):
+        # If no device parameters, constraint is satisfied
+        if not device_params:
+            return True
+
+        # Sum the values of the device parameters
+        device_sum = sum(x[param_indices[param]] for param in device_params)
+
+        # Check if sum equals 1 (with small tolerance for floating point precision)
+        return abs(device_sum - 1.0) < 1e-6
+
+    return constraint
+
 class ProactiveParallelOptimizer:
     def __init__(self, initial_models: Dict[str, xgb.XGBRegressor], target_penalty=0.1,
                  param_bounds_range_factor=0.5, n_iterations=10, n_parallel=4):
@@ -201,9 +227,14 @@ class ProactiveParallelOptimizer:
         self.n_iterations = n_iterations
         self.n_parallel = n_parallel
 
+
     def optimize_sample(self, initial_sample, state, space):
         # Create the search space based on initial sample
         dimensions, param_names = self.create_space(initial_sample, state, space)
+
+
+        # Create constraint function for device parameters
+        constraint = create_device_constraint_function(dimensions)
 
         # Initialize the optimizer
         opt = Optimizer(
@@ -211,6 +242,8 @@ class ProactiveParallelOptimizer:
             base_estimator="GP",  # Gaussian Process
             acq_func="EI",  # Expected Improvement
             acq_optimizer="sampling",
+            space_constraint=constraint,
+            initial_point_generator="lhs_modified",
             random_state=42
         )
 
@@ -321,7 +354,7 @@ class ProactiveParallelOptimizer:
     def evaluate_parameters_wrapper(self, x, state, models, param_names):
         """Convert list of parameters to dictionary for evaluation"""
         params = {param_names[i]: x[i] for i in range(len(x))}
-        return self.evaluate_parameters(state, **params)
+        return self.evaluate_parameters(state, models, **params)
 
     def get_bounds(self, initial_sample, state, space):
         mapping = state['sample']['mapping']
@@ -388,7 +421,7 @@ class ProactiveParallelOptimizer:
         print(param_bounds)
         return param_bounds
 
-    def evaluate_parameters(self, state, **params):
+    def evaluate_parameters(self, state, models, **params):
         # We want to avoid parameters which sum is higher than 1
         total_prop = 0
         for k in params.keys():
@@ -400,7 +433,7 @@ class ProactiveParallelOptimizer:
         params['cluster_size'] = round(params['cluster_size'])
 
         # Create temporary models for fine-tuning
-        temp_models = {task: deepcopy(model) for task, model in self.best_models.items()}
+        temp_models = {task: deepcopy(model) for task, model in models.items()}
 
         if not np.isclose(total_prop, 1.0, atol=0.01):
             return {

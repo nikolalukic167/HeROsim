@@ -222,7 +222,9 @@ class ProactiveParallelOptimizer:
         print(separator)
         print(header)
         print("-" * len(header))
-        for i in range(self.n_iterations):
+        max_i = self.n_iterations
+        i = 0
+        while i < max_i:
             # Ask for points to evaluate in parallel
             points = opt.ask(n_points=self.n_parallel)
 
@@ -280,14 +282,18 @@ class ProactiveParallelOptimizer:
             best_params = {param_names[j]: opt.Xi[best_idx][j] for j in range(len(param_names))}
             best_x = opt.Xi[best_idx]
 
-            iterations.append({
-                'iteration': i,
-                'best_penalty': -best_value,
-                'best_params': best_params
-            })
+            if best_value != 1e6:
+                iterations.append({
+                    'iteration': i,
+                    'best_penalty': -best_value,
+                    'best_params': best_params
+                })
 
-            row = f"| {i:<9} | {-best_value:<9.2f} | " + " | ".join(f"{val:<9.3f}" for val in best_x) + " |"
-            print(row)
+                row = f"| {i:<9} | {-best_value:<9.2f} | " + " | ".join(f"{val:<9.3f}" for val in best_x) + " |"
+                print(row)
+                i = i + 1
+            else:
+                print("invalid config")
 
 
         # Return best parameters found

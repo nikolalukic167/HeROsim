@@ -20,7 +20,7 @@ def save_single_stats(results_dir, rps, stats, output_infra, results_postfix):
 def proactive_worker_function(args):
     rep_idx, workload_config, config_idx, base_dir, output_infra, sim_input_path, model_locations, results_dir, exp_id, model_infra = args
     stats = execute_proactive(base_dir, output_infra, workload_config, sim_input_path, model_locations)
-    results_postfix = f'{exp_id}/{config_idx}'
+    results_postfix = f'{exp_id}/{output_infra}'
     save_single_stats(results_dir, workload_config, stats, output_infra, results_postfix)
 
 def main():
@@ -41,7 +41,7 @@ def main():
 
     result_dir = out_dir / "validation_results"
     repetitions = 1
-    infra = '1'
+    infra = sys.argv[5]
     # Create work items for each combination of repetition and RPS
     work_items = [
         (rep_idx, config, config_idx, base_dir, infra, sim_input_path, model_locations, result_dir, exp_id,

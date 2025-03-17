@@ -25,7 +25,9 @@ run_pipeline() {
     # the argument with index 4 is not used..
     python -m src.optimizationinfra.optimization 1 5 7 30 1 "spaces/${space}" "${unique_id}"
     python -m src.optimizationinfra.finetune "spaces/${space}" "${unique_id}"
-    python -m src.optimizationinfra.validate "spaces/${space}" "${unique_id}" "${config_file}" 4
+    python -m src.optimizationinfra.validate "spaces/${space}" "${unique_id}" "${config_file}" 4 2
+    python -m src.optimizationinfra.validate "spaces/${space}" "${unique_id}" "${config_file}" 4 3
+    python -m src.optimizationinfra.validate "spaces/${space}" "${unique_id}" "${config_file}" 4 4
 
     echo "Completed pipeline for ${space} with ID: ${unique_id}"
 }

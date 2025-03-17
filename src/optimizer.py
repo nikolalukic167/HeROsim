@@ -267,8 +267,11 @@ class ProactiveParallelOptimizer:
                 if abs(device_sum - 1.0) < 1e-6:
                     valid_points.append(point)
             if len(valid_points) == 0:
+                # Tell optimizer the results
+                opt.tell(points, [1e6 for _ in points])
                 print(f'no valid points')
                 continue
+
             # Evaluate points in parallel
             eval_results = Parallel(n_jobs=self.n_parallel)(
                 delayed(self.evaluate_parameters_wrapper)(x, state['sample'], {task: deepcopy(model) for task, model in

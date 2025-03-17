@@ -211,6 +211,7 @@ def create_device_constraint_function(dimensions):
 
     return constraint
 
+
 class ProactiveParallelOptimizer:
     def __init__(self, initial_models: Dict[str, xgb.XGBRegressor], target_penalty=0.1,
                  param_bounds_range_factor=0.5, n_iterations=10, n_parallel=4):
@@ -227,11 +228,9 @@ class ProactiveParallelOptimizer:
         self.n_iterations = n_iterations
         self.n_parallel = n_parallel
 
-
     def optimize_sample(self, initial_sample, state, space):
         # Create the search space based on initial sample
         dimensions, param_names = self.create_space(initial_sample, state, space)
-
 
         # Create constraint function for device parameters
         constraint = create_device_constraint_function(dimensions)
@@ -265,11 +264,11 @@ class ProactiveParallelOptimizer:
                 device_params = [param for param in param_names if param.startswith('device_')]
                 device_sum = sum(point[param_names.index(param)] for param in device_params)
                 print(device_sum)
-                if abs(device_sum - 1.0) < 1e-1:
+                if np.isclose(device_sum, 1.0, atol=0.1):
                     valid_points.append(point)
             if len(valid_points) == 0:
                 # Tell optimizer the results
-                opt.tell(points, [-1e6 for _ in points])
+                opt.tell(points, [1e6 for _ in points])
                 print(f'no valid points')
                 continue
 
@@ -299,7 +298,6 @@ class ProactiveParallelOptimizer:
             if best_batch_result is not None and best_batch_penalty < self.best_proactive_penalty:
                 print("Best in batch is global best for now")
                 self.best_proactive_penalty = best_batch_penalty
-
 
             for eval_result in eval_results:
                 if all(key in eval_result for key in ['X_new', 'y_new', 'params']):
@@ -339,7 +337,6 @@ class ProactiveParallelOptimizer:
                 i = i + 1
             else:
                 print("invalid config")
-
 
         # Return best parameters found
         best_idx = np.argmin(opt.yi)
@@ -440,14 +437,13 @@ class ProactiveParallelOptimizer:
             if k.startswith('device_'):
                 total_prop += params[k]
 
-
         # Cluster size parameter must be discrete
         params['cluster_size'] = round(params['cluster_size'])
 
         # Create temporary models for fine-tuning
         temp_models = {task: deepcopy(model) for task, model in models.items()}
 
-        if not np.isclose(total_prop, 1.0, atol=0.01):
+        if not np.isclose(total_prop, 1.0, atol=0.1):
             return {
                 'penalty': 1e6,
                 'proactive_penalty': 1e6,

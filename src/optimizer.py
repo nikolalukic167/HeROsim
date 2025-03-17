@@ -398,7 +398,7 @@ class ProactiveParallelOptimizer:
 
         if not np.isclose(total_prop, 1.0, atol=0.01):
             return {
-                'penalty': -1e6,
+                'penalty': 1e6,
                 'proactive_penalty': 1e6,
                 'params': params,
                 'temp_models': temp_models,

@@ -288,7 +288,7 @@ class ProactiveParallelOptimizer:
             points = opt.ask(n_points=self.n_parallel)
             print(points)
             valid_points = preprocess_points(points, param_names)
-
+            print(valid_points)
             # Evaluate points in parallel
             eval_results = Parallel(n_jobs=self.n_parallel)(
                 delayed(self.evaluate_parameters_wrapper)(x, state['sample'], {task: deepcopy(model) for task, model in

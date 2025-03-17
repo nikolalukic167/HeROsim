@@ -243,7 +243,7 @@ class ProactiveParallelOptimizer:
             acq_func="EI",  # Expected Improvement
             acq_optimizer="sampling",
             space_constraint=constraint,
-            initial_point_generator="lhs_modified",
+            initial_point_generator="lhs",
             random_state=42
         )
 

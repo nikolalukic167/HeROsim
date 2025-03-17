@@ -329,10 +329,16 @@ class ProactiveParallelOptimizer:
             if param == 'cluster_size':
                 param_down = int(param_down)
                 param_up = int(param_up)
-                if param_up > space['csc']['max']:
-                    param_up = space['csc']['max']
-                if param_down < space['csc']['min']:
-                    param_down = space['csc']['min']
+                cluste_max = space['csc']['max']
+                cluster_min = space['csc']['min']
+
+                if param_up > cluste_max:
+                    param_up = cluste_max
+                if param_down < cluster_min:
+                    param_down = cluster_min
+                param_up = int(cluste_max)
+                param_down = int(cluster_min)
+
             if 'device' in param:
                 device = param.split('_')[-1]
                 device_max_proportion = space['pci'][device]['max']
@@ -341,6 +347,9 @@ class ProactiveParallelOptimizer:
                     param_up = device_max_proportion
                 if param_down < device_min_proportion:
                     param_down = device_min_proportion
+
+                param_up = device_max_proportion
+                param_down = device_min_proportion
             if param == 'network_bandwidth':
                 network_max_bandwidth = space['nwc']['max']
                 network_min_bandwidth = space['nwc']['min']
@@ -348,6 +357,9 @@ class ProactiveParallelOptimizer:
                     param_up = network_max_bandwidth
                 if param_down < network_min_bandwidth:
                     param_down = network_min_bandwidth
+
+                param_up = network_max_bandwidth
+                param_down = network_min_bandwidth
             if 'workload' in param:
                 app = param.split('_')[-1]
                 workload_min = space['wsc'][app]['min']

@@ -327,15 +327,18 @@ class ProactiveParallelOptimizer:
 
                     for task in self.best_models.keys():
                         if eval_result['X_new'] is not None and task in eval_result['X_new']:
-                            self.improvement_history[task].append(
-                                OptimizationStep(
-                                    params=eval_result['params'].copy(),
-                                    X=eval_result['X_new'][task].copy(),
-                                    y={task: eval_result['y_new'][task]},
-                                    penalty=best_batch_penalty,
-                                    improvement=True
+                            y_new_task_ = eval_result['y_new'][task]
+                            x_new_task_ = eval_result['X_new'][task]
+                            if len(x_new_task_) > 0 and len(y_new_task_) > 0:
+                                self.improvement_history[task].append(
+                                    OptimizationStep(
+                                        params=eval_result['params'].copy(),
+                                        X=x_new_task_.copy(),
+                                        y={task: np.array(y_new_task_)},
+                                        penalty=best_batch_penalty,
+                                        improvement=True
+                                    )
                                 )
-                            )
             # Track iteration
             best_idx = np.argmin(opt.yi)
             best_value = opt.yi[best_idx]

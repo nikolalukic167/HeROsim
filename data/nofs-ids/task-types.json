@@ -4,39 +4,45 @@
     "platforms": [
       "rpiCpu",
       "xavierGpu",
-      "xavierCpu"
+      "xavierCpu",
+      "pynqFpga"
     ],
     "memoryRequirements": {
-      "rpiCpu": 0.069229126,
+      "rpiCpu": 0.066188812,
       "xavierGpu": 0.9,
-      "xavierCpu": 0.068973541
+      "xavierCpu": 0.068969727,
+      "pynqFpga": 0.0
     },
     "coldStartDuration": {
-      "rpiCpu": 0.636,
-      "xavierGpu": 6.14,
-      "xavierCpu": 0.096
+      "rpiCpu": 0.33,
+      "xavierGpu": 6.17,
+      "xavierCpu": 0.071,
+      "pynqFpga": 0.98
     },
     "executionTime": {
-      "rpiCpu": 0.16842,
-      "xavierGpu": 0.0362488,
-      "xavierCpu": 0.0239175
+      "rpiCpu": 0.00290875,
+      "xavierGpu": 0.020835,
+      "xavierCpu": 0.0010475,
+      "pynqFpga": 0.00056625
     },
     "energy": {
-      "rpiCpu": 1.35764e-7,
-      "xavierGpu": 1.41667e-7,
-      "xavierCpu": 8.19445e-8
+      "rpiCpu": 1.64931e-8,
+      "xavierGpu": 7.53473e-8,
+      "xavierCpu": 1.52604e-8,
+      "pynqFpga": 2.99653e-10
     },
     "imageSize": {
       "rpiCpu": 3.057,
       "xavierGpu": 2.99,
-      "xavierCpu": 2.987
+      "xavierCpu": 2.987,
+      "pynqFpga": 0.004
     },
     "stateSize": {
-      "ae-dnn2": {
+      "ae-dnn1": {
         "input": 20000,
         "output": 8000
       },
-      "es-dnn2": {
+      "es-dnn1": {
         "input": 12800,
         "output": 8000
       },

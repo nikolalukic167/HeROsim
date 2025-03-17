@@ -1,0 +1,49 @@
+{
+  "dnn1": {
+    "name": "dnn1",
+    "platforms": [
+      "rpiCpu",
+      "xavierGpu",
+      "xavierCpu"
+    ],
+    "memoryRequirements": {
+      "rpiCpu": 0.069229126,
+      "xavierGpu": 0.9,
+      "xavierCpu": 0.068973541
+    },
+    "coldStartDuration": {
+      "rpiCpu": 0.636,
+      "xavierGpu": 6.14,
+      "xavierCpu": 0.096
+    },
+    "executionTime": {
+      "rpiCpu": 0.16842,
+      "xavierGpu": 0.0362488,
+      "xavierCpu": 0.0239175
+    },
+    "energy": {
+      "rpiCpu": 1.35764e-7,
+      "xavierGpu": 1.41667e-7,
+      "xavierCpu": 8.19445e-8
+    },
+    "imageSize": {
+      "rpiCpu": 3.057,
+      "xavierGpu": 2.99,
+      "xavierCpu": 2.987
+    },
+    "stateSize": {
+      "ae-dnn2": {
+        "input": 20000,
+        "output": 8000
+      },
+      "es-dnn2": {
+        "input": 12800,
+        "output": 8000
+      },
+      "nofs-dnn1": {
+        "input": 153600,
+        "output": 8000
+      }
+    }
+  }
+}

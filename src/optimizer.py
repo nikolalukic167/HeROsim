@@ -227,7 +227,7 @@ class ProactiveParallelOptimizer:
         while i < max_i:
             # Ask for points to evaluate in parallel
             points = opt.ask(n_points=self.n_parallel)
-
+            print(points)
             # Evaluate points in parallel
             eval_results = Parallel(n_jobs=self.n_parallel)(
                 delayed(self.evaluate_parameters_wrapper)(x, state['sample'], {task: deepcopy(model) for task, model in
@@ -282,7 +282,7 @@ class ProactiveParallelOptimizer:
             best_params = {param_names[j]: opt.Xi[best_idx][j] for j in range(len(param_names))}
             best_x = opt.Xi[best_idx]
 
-            if best_value != 1e6:
+            if -best_value != -1000000.00:
                 iterations.append({
                     'iteration': i,
                     'best_penalty': -best_value,

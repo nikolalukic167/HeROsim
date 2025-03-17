@@ -211,6 +211,34 @@ def create_device_constraint_function(dimensions):
 
     return constraint
 
+# Function to preprocess points before evaluation
+def preprocess_points(points, param_names):
+    processed_points = []
+
+    for point in points:
+        # Create a copy of the point
+        new_point = point.copy()
+
+        # Find all device parameters and their indices
+        device_indices = [i for i, name in enumerate(param_names) if name.startswith('device_')]
+
+        if device_indices:
+            # Get the current sum of device parameters
+            device_sum = sum(point[i] for i in device_indices)
+
+            # Only scale if the sum is not zero (to avoid division by zero)
+            if device_sum > 0:
+                # Scale the device parameters to sum to 1
+                for i in device_indices:
+                    new_point[i] = point[i] / device_sum
+            else:
+                # If all device parameters are zero, distribute evenly
+                for i in device_indices:
+                    new_point[i] = 1.0 / len(device_indices)
+
+        processed_points.append(new_point)
+
+    return processed_points
 
 class ProactiveParallelOptimizer:
     def __init__(self, initial_models: Dict[str, xgb.XGBRegressor], target_penalty=0.1,
@@ -259,18 +287,7 @@ class ProactiveParallelOptimizer:
             # Ask for points to evaluate in parallel
             points = opt.ask(n_points=self.n_parallel)
             print(points)
-            valid_points = []
-            for point in points:
-                device_params = [param for param in param_names if param.startswith('device_')]
-                device_sum = sum(point[param_names.index(param)] for param in device_params)
-                print(device_sum)
-                if np.isclose(device_sum, 1.0, atol=0.1):
-                    valid_points.append(point)
-            if len(valid_points) == 0:
-                # Tell optimizer the results
-                opt.tell(points, [1e6 for _ in points])
-                print(f'no valid points')
-                continue
+            valid_points = preprocess_points(points, param_names)
 
             # Evaluate points in parallel
             eval_results = Parallel(n_jobs=self.n_parallel)(

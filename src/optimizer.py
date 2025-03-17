@@ -264,6 +264,7 @@ class ProactiveParallelOptimizer:
             for point in points:
                 device_params = [param for param in param_names if param.startswith('device_')]
                 device_sum = sum(point[param_names.index(param)] for param in device_params)
+                print(device_sum)
                 if abs(device_sum - 1.0) < 1e-1:
                     valid_points.append(point)
             if len(valid_points) == 0:

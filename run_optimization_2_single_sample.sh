@@ -22,7 +22,8 @@ run_pipeline() {
     python -m src.optimization.sample "spaces/${space}" 5
     python -m src.optimization.initial "spaces/${space}" 5 nofs-dnn1
     python -m src.optimization.initialproactive "spaces/${space}" 5 nofs-dnn1
-    python -m src.optimization.optimization 1 95 5 30 1 "spaces/${space}" "${unique_id}"
+    # the argument with index 4 is not used..
+    python -m src.optimization.optimization 1 10 5 30 1 "spaces/${space}" "${unique_id}"
     python -m src.optimization.finetune "spaces/${space}" "${unique_id}"
     python -m src.optimization.validate "spaces/${space}" "${unique_id}" "${config_file}" 4
 

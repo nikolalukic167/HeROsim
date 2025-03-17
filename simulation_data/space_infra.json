@@ -1,8 +1,8 @@
 {
   "pci": {
     "rpi": {
-      "min": 0.2,
-      "max": 0.5,
+      "min": 0.1,
+      "max": 0.9,
       "step": 0.1,
       "specs": {
         "memory": 8,
@@ -19,9 +19,9 @@
       }
     },
     "xavier": {
-      "min": 0.2,
-      "max": 0.5,
-      "step": 0.1,
+      "min": 0.1,
+      "max": 0.4,
+      "step": 0.05,
       "specs": {
         "memory": 32,
         "platforms": [
@@ -41,21 +41,6 @@
           "someRemote"
         ]
       }
-    },
-    "pyngFpga": {
-      "min": 0.2,
-      "max": 0.5,
-      "step": 0.1,
-      "specs": {
-        "memory": 0.5,
-        "platforms": [
-          "pynqFpga"
-        ],
-        "storage": [
-          "flashCard",
-          "someRemote"
-        ]
-      }
     }
   },
   "wsc": {
@@ -64,24 +49,18 @@
       "min": 2,
       "max": 9,
       "step": 1
-    },
-    "nofs-cnn": {
-      "average": 6,
-      "min": 2,
-      "max": 9,
-      "step": 1
     }
   },
   "csc": {
-    "average": 15,
-    "min": 10,
+    "average": 10,
+    "min": 5,
     "max": 30,
     "step": 5
   },
   "nwc": {
     "average": 100,
     "min": 100,
-    "max": 100,
-    "step": 50
+    "max": 500,
+    "step": 10
   }
 }

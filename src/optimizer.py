@@ -293,7 +293,7 @@ class ProactiveParallelOptimizer:
             eval_results = Parallel(n_jobs=self.n_parallel)(
                 delayed(self.evaluate_parameters_wrapper)(x, state['sample'], {task: deepcopy(model) for task, model in
                                                                                self.best_models.items()}, param_names)
-                for x in points
+                for x in valid_points
             )
 
             # Extract penalties for optimizer

@@ -388,14 +388,24 @@ class ProactiveParallelOptimizer:
         for k in params.keys():
             if k.startswith('device_'):
                 total_prop += params[k]
-        if not np.isclose(total_prop, 1.0, atol=0.01):
-            return -1e6
+
 
         # Cluster size parameter must be discrete
         params['cluster_size'] = round(params['cluster_size'])
 
         # Create temporary models for fine-tuning
         temp_models = {task: deepcopy(model) for task, model in self.best_models.items()}
+
+        if not np.isclose(total_prop, 1.0, atol=0.01):
+            return {
+                'penalty': -1e6,
+                'proactive_penalty': 1e6,
+                'params': params,
+                'temp_models': temp_models,
+                'X_new': np.array([]),
+                'y_new': np.array([])
+            }
+
         # reactive_result = None
         reactive_result = run_reactive_simulation(state, params)
         app_definitions = {}

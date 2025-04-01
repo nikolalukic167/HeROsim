@@ -8,6 +8,7 @@ from sklearn.metrics import mean_squared_error, root_mean_squared_error
 from sklearn.model_selection import train_test_split
 
 from src.motivational.constants import QUEUE_LENGTH
+from src.motivationalhetero.encoders import PLATFORM_TYPES
 
 
 def preprocess_pods(pods_data):
@@ -134,6 +135,106 @@ def calculate_metrics_combined(workload_data, pods_data, application_to_task_map
                     'total_requests': total_requests,
                     'penalty_rate': total_penalties / total_requests if total_requests > 0 else 0
                 }
+
+    return metrics
+
+def calculate_metrics_combined_by_platform_type(workload_data, pods_data, application_to_task_map, window_size=60, until=None):
+    """
+    Calculates average throughput and pod count over time windows by processing workload and pods simultaneously,
+    grouped by both task type and device type.
+
+    Args:
+    workload_data: List of dicts with keys 'type', 'dispatchedTime', 'elapsedTime', 'penalty', 'platform_type'
+    pods_data: List of dicts with keys 'name', 'timestamp', 'count', 'platform_type'
+    window_size: Size of the time window in seconds (default: 60)
+
+    Returns:
+    Dictionary with metrics per task type and device type containing windows with avg throughput and pod count
+    """
+    # Initialize data structures
+    metrics = {}
+    window_requests = {}
+    window_queue_lengths = {}
+    window_penalties = {}
+    window_pods = {}
+
+    # Process workload data
+    for item in workload_data:
+        task_type = application_to_task_map[item['type']][0]
+        platform_type = item['platform_type']
+        completion_time = int(item['dispatchedTime'] + item['elapsedTime'])
+        window_start = (completion_time // window_size) * window_size
+
+        # Initialize dictionaries for new task types, device types, and windows
+        if task_type not in metrics:
+            metrics[task_type] = {}
+            window_requests[task_type] = {}
+            window_queue_lengths[task_type] = {}
+            window_penalties[task_type] = {}
+            window_pods[task_type] = {}
+
+        if platform_type not in metrics[task_type]:
+            metrics[task_type][platform_type] = {}
+            window_requests[task_type][platform_type] = {}
+            window_queue_lengths[task_type][platform_type] = {}
+            window_penalties[task_type][platform_type] = {}
+            window_pods[task_type][platform_type] = {}
+
+        if window_start not in window_requests[task_type][platform_type]:
+            window_requests[task_type][platform_type][window_start] = 0
+            window_penalties[task_type][platform_type][window_start] = 0
+            window_queue_lengths[task_type][platform_type][window_start] = []
+            window_pods[task_type][platform_type][window_start] = []
+
+        # Count requests and penalties
+        window_requests[task_type][platform_type][window_start] += 1
+        if item['penalty']:
+            window_penalties[task_type][platform_type][window_start] += 1
+
+    # Process pods data
+    for pod in pods_data:
+        task_type = pod['name']
+        timestamp = int(pod['timestamp'])
+        for platform_type in PLATFORM_TYPES:
+
+            count = pod.get(platform_type)
+            if count is None:
+                continue
+            window_start = (timestamp // window_size) * window_size
+
+            if task_type in window_pods and platform_type in window_pods[task_type] and window_start in window_pods[task_type][platform_type]:
+                window_pods[task_type][platform_type][window_start].append(count)
+                window_queue_lengths[task_type][platform_type][window_start].append(pod['average_queue_length'])
+            elif task_type in window_pods and platform_type in window_pods[task_type]:
+                window_pods[task_type][platform_type][window_start] = [count]
+                window_queue_lengths[task_type][platform_type][window_start] = [pod['average_queue_length']]
+
+    # Calculate final metrics
+    for task_type in metrics:
+        for platform_type in metrics[task_type]:
+            for window_start in window_requests[task_type][platform_type]:
+                total_requests = window_requests[task_type][platform_type][window_start]
+                total_penalties = window_penalties[task_type][platform_type][window_start]
+
+                # Skip windows with high penalty rate
+                if total_requests > 0 and (total_penalties / total_requests) <= 0.2:
+                    pod_counts = window_pods[task_type][platform_type].get(window_start, [0])
+                    q_counts = window_queue_lengths[task_type][platform_type].get(window_start, [0])
+
+                    avg_queue_length_window = sum(q_counts) / len(q_counts) if q_counts else 0
+                    if avg_queue_length_window > QUEUE_LENGTH or not pod_counts:
+                        continue
+                    if until is not None and window_start + window_size >= until:
+                        break
+                    metrics[task_type][platform_type][window_start] = {
+                        'window_start': window_start,
+                        'window_end': window_start + window_size,
+                        'avg_throughput': total_requests / window_size,
+                        'avg_queue_length': avg_queue_length_window,
+                        'avg_pods': sum(pod_counts) / len(pod_counts) if pod_counts else 0,
+                        'total_requests': total_requests,
+                        'penalty_rate': total_penalties / total_requests if total_requests > 0 else 0
+                    }
 
     return metrics
 
@@ -520,8 +621,108 @@ def create_inputs_outputs_seperated_per_app_windowed(result, window_size, app_de
     print(outputs)
     return inputs, outputs
 
+from collections import defaultdict
+import numpy as np
+import math
+
+def create_inputs_outputs_seperated_per_app_windowed_per_device_type(result, window_size, app_definitions, until=None):
+    """
+    Aggregates workload and pod data into time windows using metrics from calculate_metrics_combined,
+    separated by application type, task type, and device type.
+
+    Args:
+    result: A dictionary containing 'stats' with 'applicationResults' and 'systemEvents'.
+    window_size: The size of the time window in seconds.
+    app_definitions: Dictionary mapping app types to task types.
+    until: Optional end time for processing.
+
+    Returns:
+    A tuple of dictionaries (inputs, outputs) with NumPy arrays of workload and pod metrics,
+    grouped by task type and device type.
+    """
+    metrics = calculate_metrics_combined_by_platform_type(result['applicationResults'], result['systemEvents'], app_definitions,
+                                                          window_size, until)
+    inputs = defaultdict(lambda: defaultdict(list))
+    outputs = defaultdict(lambda: defaultdict(list))
+
+    for app_type, app_tasks in app_definitions.items():
+        for task_type in app_tasks:
+            if task_type in metrics:
+                for device_type, device_metrics in metrics[task_type].items():
+                    for window_data in device_metrics.values():
+                        # Skip windows with zero throughput
+                        if window_data['avg_throughput'] == 0:
+                            continue
+
+                        # Convert throughput to requests per window
+                        workload_sum = window_data['avg_throughput']
+                        pod_count = math.ceil(window_data['avg_pods'])
+
+                        inputs[task_type][device_type].append(workload_sum)
+                        outputs[task_type][device_type].append(pod_count)
+
+    # Convert to NumPy arrays
+    for task_type in inputs.keys():
+        for device_type in inputs[task_type].keys():
+            inputs[task_type][device_type] = np.array(inputs[task_type][device_type])
+            outputs[task_type][device_type] = np.array(outputs[task_type][device_type])
+
+    return inputs, outputs
+
 
 def create_inputs_outputs_seperated_per_app_windowed_system_events(result, window_size, app_definitions):
+    """
+    Aggregates workload and pod data into time windows.
+
+
+    Args:
+    result: A dictionary containing 'stats' with 'applicationResults' and 'scaleEvents'.
+    window_size: The size of the time window (number of timestamps to aggregate).
+
+
+    Returns:
+    A tuple of dictionaries (inputs, outputs), where each dictionary has task types as keys and lists of aggregated
+    workload sums and maximum pod counts as values.  Returns NumPy arrays for compatibility with XGBoost.
+    """
+    workload_data = preprocess_workload_app_results(result['applicationResults'])
+    pods_data, queue_data = preprocess_system_events(result['systemEvents'])
+    inputs = defaultdict(list)
+    outputs = defaultdict(list)
+
+    for app_type, workload in workload_data.items():
+        for task_type in app_definitions[app_type]:
+            if task_type in pods_data:
+                pods = pods_data[task_type]
+                qs = queue_data[task_type]
+
+                # Find common timestamps and sort them
+                common_timestamps = sorted(set(workload.keys()) & set(pods.keys()))
+
+                # Aggregate into time windows
+                for i in range(0, len(common_timestamps) - window_size + 1, window_size):  # Step by window_size
+                    window_timestamps = common_timestamps[i:i + window_size]  # Get timestamps for the current window
+
+                    # Sum workload for the window
+                    workload_sum = math.ceil(sum(workload[ts] for ts in window_timestamps))
+                    if workload_sum == 0:
+                        continue
+
+                    # Find maximum queue length for the window
+                    q_max = max(qs[ts] for ts in window_timestamps)
+                    # Find maximum pod count for the window
+                    pod_max = max(pods[ts] for ts in window_timestamps)
+
+                    inputs[task_type].append([workload_sum, q_max])
+                    outputs[task_type].append(pod_max)
+
+    # Convert to NumPy arrays
+    for task_type in inputs.keys():
+        inputs[task_type] = np.array(inputs[task_type])
+        outputs[task_type] = np.array(outputs[task_type])
+
+    return inputs, outputs
+
+def create_inputs_outputs_seperated_per_app_windowed_system_events_per_device_type(result, window_size, app_definitions):
     """
     Aggregates workload and pod data into time windows.
 
@@ -619,6 +820,86 @@ def create_train_test_split_per_windowed(inputs_outputs, test_size=0.2, random_s
         test_data[task_type] = list(zip(X_test, y_test))
 
     return train_data, test_data
+
+
+def create_train_test_split_per_windowed_per_device_type(inputs_outputs, test_size=0.2, random_state=42, encoder=None):
+    """
+    Splits the data into training and testing sets, ensuring a split *within* each task type and device type.
+    One-hot encodes the device type and includes it as part of the input features.
+
+    Args:
+    inputs_outputs: A tuple of dictionaries (inputs, outputs) where each dictionary has task types as keys
+                   and a nested dictionary with device types as keys and NumPy arrays as values.
+    test_size: The proportion of data to use for testing.
+    random_state: Random seed for reproducibility.
+    encoder: OneHotEncoder instance for encoding device types. If None, a new encoder will be created.
+
+    Returns:
+    A tuple of dictionaries: (train_data, test_data)
+    Each dictionary has task types as keys and a list of (features, pod_count) tuples as values,
+    where features include the workload count and one-hot encoded device type.
+    """
+    from sklearn.preprocessing import OneHotEncoder
+    from sklearn.model_selection import train_test_split
+    import numpy as np
+
+    train_data = {}
+    test_data = {}
+
+    # Create or use the provided encoder
+    if encoder is None:
+        # Get all unique device types across all task types
+        all_device_types = []
+        for task_type in inputs_outputs[0]:
+            all_device_types.extend(list(inputs_outputs[0][task_type].keys()))
+        all_device_types = list(set(all_device_types))
+
+        # Create and fit the encoder
+        encoder = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
+        encoder.fit([[device_type] for device_type in all_device_types])
+
+    # Split data for each task type
+    for task_type in inputs_outputs[0]:
+        train_data[task_type] = []
+        test_data[task_type] = []
+
+        # Process each device type for this task type
+        for device_type, workload_counts in inputs_outputs[0][task_type].items():
+            pod_counts = inputs_outputs[1][task_type][device_type]
+
+            if len(pod_counts) == 0 or len(workload_counts) == 0:
+                continue
+
+            # One-hot encode the device type
+            device_encoded = encoder.transform([[device_type]])
+
+            if len(pod_counts) == 1 and len(workload_counts) == 1:
+                # Handle the single sample case manually
+                # Combine workload count with encoded device type
+                X_train = np.column_stack((workload_counts, np.tile(device_encoded, (len(workload_counts), 1))))
+                y_train = pod_counts
+                X_test = np.empty(shape=(0, X_train.shape[1]))
+                y_test = np.empty(shape=(0,))
+            else:
+                # Split the data
+                X_train_raw, X_test_raw, y_train, y_test = train_test_split(
+                    workload_counts, pod_counts, test_size=test_size, random_state=random_state
+                )
+
+                # Reshape if needed
+                if len(X_train_raw.shape) == 1:
+                    X_train_raw = X_train_raw.reshape(-1, 1)
+                    X_test_raw = X_test_raw.reshape(-1, 1)
+
+                # Combine workload count with encoded device type
+                X_train = np.column_stack((X_train_raw, np.tile(device_encoded, (len(X_train_raw), 1))))
+                X_test = np.column_stack((X_test_raw, np.tile(device_encoded, (len(X_test_raw), 1))))
+
+            # Add to the appropriate data collection
+            train_data[task_type].extend(list(zip(X_train, y_train)))
+            test_data[task_type].extend(list(zip(X_test, y_test)))
+
+    return train_data, test_data, encoder
 
 
 def create_train_test_split_per_task(inputs_outputs, test_size=0.2, random_state=42):

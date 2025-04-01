@@ -12,7 +12,9 @@ import xgboost as xgb
 # Assuming increase_events is imported from your previous script
 from src.preprocessing import train_xgboost_per_task, evaluate_xgboost_per_task, \
     create_inputs_outputs_seperated_per_app_windowed, create_train_test_split_per_windowed, \
-    create_inputs_outputs_seperated_per_app_windowed_system_events
+    create_inputs_outputs_seperated_per_app_windowed_system_events, \
+    create_train_test_split_per_windowed_per_device_type, \
+    create_inputs_outputs_seperated_per_app_windowed_per_device_type
 
 
 def train_model(output_dir, samples, include_queue_length: bool, window_size=5):
@@ -71,6 +73,36 @@ def train_model_reactive_then_proactive(output_files, include_queue_length: bool
     models = train_xgboost_per_task(all_train_data)
     return models, evaluate_xgboost_per_task(models, all_test_data)
 
+
+
+def train_model_reactive_then_proactive_per_device_type(output_files, include_queue_length: bool, window_size=5, test_size=0.2, until=None, encoder=None):
+    all_train_data = defaultdict(list)
+    all_test_data = defaultdict(list)
+
+    for out_file in output_files:
+        with open(out_file, 'r') as fd:
+            obj = json.load(fd)
+            app_definitions = {}
+            for task in obj['taskResults']:
+                app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
+            if not include_queue_length:
+                train_data_sample, test_data_sample, encoder = create_train_test_split_per_windowed_per_device_type(
+                    create_inputs_outputs_seperated_per_app_windowed_per_device_type(obj, window_size, app_definitions, until), test_size, encoder=encoder)
+            else:
+                assert False
+                train_data_sample, test_data_sample = create_train_test_split_per_windowed_per_device_type(
+                    create_inputs_outputs_seperated_per_app_windowed_system_events(obj, window_size, app_definitions),
+                    test_size)
+            for fn, data in train_data_sample.items():
+                all_train_data[fn].extend(data)
+            for fn, data in test_data_sample.items():
+                all_test_data[fn].extend(data)
+    # for fn, data in all_train_data.items():
+    #     all_train_data[fn] = np.array(data).reshape(-1, 2)
+    # for fn, data in all_test_data.items():
+    #     all_test_data[fn] = np.array(data).reshape(-1, 2)
+    models = train_xgboost_per_task(all_train_data)
+    return models
 
 def train_model_in_memory(output_dir, all_results, window_size=5):
     all_train_data = defaultdict(list)

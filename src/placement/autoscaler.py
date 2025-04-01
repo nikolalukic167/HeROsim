@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import math
 from abc import abstractmethod
+from collections import defaultdict
 from typing import Dict, Generator, List, Set, Tuple, TYPE_CHECKING
 
 from simpy.core import Environment, SimTime
@@ -412,6 +413,11 @@ class Autoscaler:
 
     def log_system_status(self, replicas: Dict[str, Set[Tuple[Node, Platform]]]):
         for function_name, function_replicas in replicas.items():
+            count_by_platform_type = defaultdict(int)
+
+            for _, platform in function_replicas:
+                count_by_platform_type[platform.type['shortName']] += 1
+
             event: ScaleEvent = {
                 "name": function_name,
                 "timestamp": self.env.now,
@@ -428,4 +434,7 @@ class Autoscaler:
                     else 0.0
                 ),
             }
+
+            for platform_type, count in count_by_platform_type.items():
+                event[platform_type] = count
             self.system_status_events.append(event)

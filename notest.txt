@@ -1,0 +1,7 @@
+platform started per function
+platform itself is not tied to function, selection simply happens by scheduler
+
+platform == function replica. only that a platform can be any type of replica and
+all values (delay, download) are based on task
+
+node.available_platforms shows number of available platform

@@ -124,7 +124,8 @@ class Application:
             "executionTime": self.execution_time,
             "communicationsTime": self.communications_time,
             "penalty": self.penalty,
-            "type": self.type['name']
+            "type": self.type['name'],
+            "platform_type": self.tasks[0].platform.type['shortName']
         }
 
 
@@ -792,6 +793,7 @@ class Node:
         network: NetworkDescription,
         policy: SimulationPolicy,
         data: SimulationData,
+        node_type: str
     ):
         self.id = node_id
         self.memory = memory
@@ -800,6 +802,7 @@ class Node:
         self.network = network
         self.policy = policy
         self.data = data
+        self.node_type = node_type
 
         self.env = env
 

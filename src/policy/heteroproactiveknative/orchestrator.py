@@ -16,10 +16,11 @@ limitations under the License.
 
 import logging
 import math
+from collections import defaultdict
 from typing import TYPE_CHECKING, Dict, Set, Tuple
 
+from src.policy.heteroproactiveknative.model import HeteroProactiveKnativeSystemState
 from src.policy.knative.model import KnativeSchedulerState, KnativeSystemState
-from src.policy.proactiveknative.model import ProactiveKnativeSystemState
 
 if TYPE_CHECKING:
     from src.placement.infrastructure import Node, Platform
@@ -27,8 +28,8 @@ if TYPE_CHECKING:
 from src.placement.orchestrator import Orchestrator
 
 
-class ProactiveKnativeOrchestrator(Orchestrator):
-    def initialize_state(self) -> ProactiveKnativeSystemState:
+class HeteroProactiveKnativeOrchestrator(Orchestrator):
+    def initialize_state(self) -> KnativeSystemState:
         # Initialize scheduler state
         scheduler_state = KnativeSchedulerState(
             average_contention={task_type: {} for task_type in self.data.task_types},
@@ -51,12 +52,26 @@ class ProactiveKnativeOrchestrator(Orchestrator):
         replicas: Dict[str, Set[Tuple[Node, Platform]]] = {
             task_type: set() for task_type in self.data.task_types
         }
-        system_state = ProactiveKnativeSystemState(
+
+        system_state_vector = []
+        device_type_count = defaultdict(int)
+        for node in self.nodes.items:
+            device_type_count[node.node_type] += 1
+
+        device_type_proportions = {}
+        for device_type, count in device_type_count.items():
+            device_type_proportions[device_type] = count / len(self.nodes.items)
+
+
+
+
+        system_state = HeteroProactiveKnativeSystemState(
             scheduler_state=scheduler_state,
             available_resources=available_resources,
             replicas=replicas,
             tasks=self.task_archive,
-            time_series=self.time_series
+            time_series=self.time_series,
+            system_state_vector=device_type_proportions
         )
 
         return system_state

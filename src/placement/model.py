@@ -170,6 +170,7 @@ class NodeDescription(TypedDict):
     memory: SizeGigabyte
     platforms: List[str]
     storage: List[str]
+    type: str
 
 
 @final
@@ -226,6 +227,7 @@ class ApplicationResult(TypedDict):
     communicationsTime: DurationSecond
     penalty: bool
     type: str
+    platform_type: str
 
 
 @final

@@ -88,6 +88,7 @@ def create_nodes(
             network=infrastructure["network"],
             policy=simulation_policy,
             data=simulation_data,
+            node_type=node["type"]
         )
         nodes_store.put(current_node)
 

@@ -15,23 +15,19 @@ limitations under the License.
 """
 
 from __future__ import annotations
-from abc import abstractmethod
 
 import logging
 import statistics
-
+from abc import abstractmethod
 from graphlib import TopologicalSorter
+from typing import Dict, Generator, List, Tuple, Type
 
 from simpy.core import Environment, SimTime
 from simpy.events import Event, Process
 from simpy.resources.store import Store, FilterStore
 
-from typing import Dict, Generator, List, Tuple, Type
-
-from src.placement.infrastructure import Application, Task
 from src.placement.autoscaler import Autoscaler
-from src.placement.scheduler import Scheduler
-
+from src.placement.infrastructure import Application, Task
 from src.placement.model import (
     ApplicationResult,
     MomentSecond,
@@ -45,6 +41,7 @@ from src.placement.model import (
     TimeSeries,
     WorkloadEvent,
 )
+from src.placement.scheduler import Scheduler
 
 
 class Orchestrator:
@@ -59,7 +56,8 @@ class Orchestrator:
             nodes: FilterStore,
             end_event: Event,
             trace_file: str,
-            models=None
+            models=None,
+            device_type_mapping=None
     ):
         self.env = env
         self.mutex = Store(env, capacity=1)
@@ -73,6 +71,8 @@ class Orchestrator:
         self.monitor: Process
         if models is not None:
             self.autoscaler = autoscaler(self.env, self.mutex, self.data, self.policy, models)
+        elif models is not None and device_type_mapping is not None:
+            self.autoscaler = autoscaler(self.env, self.mutex, self.data, self.policy, models, device_type_mapping)
         else:
             self.autoscaler = autoscaler(self.env, self.mutex, self.data, self.policy)
         self.scheduler = scheduler(

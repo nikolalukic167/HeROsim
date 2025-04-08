@@ -54,16 +54,11 @@ class HeteroProactiveKnativeOrchestrator(Orchestrator):
         }
 
         system_state_vector = []
-        device_type_count = defaultdict(int)
+        available_platform_types = defaultdict(int)
         for node in self.nodes.items:
-            device_type_count[node.node_type] += 1
-
-        device_type_proportions = {}
-        for device_type, count in device_type_count.items():
-            device_type_proportions[device_type] = count / len(self.nodes.items)
-
-
-
+            for platform in node.platforms.items:
+                short_name = platform.type['shortName']
+                available_platform_types[short_name] += 1
 
         system_state = HeteroProactiveKnativeSystemState(
             scheduler_state=scheduler_state,
@@ -71,7 +66,7 @@ class HeteroProactiveKnativeOrchestrator(Orchestrator):
             replicas=replicas,
             tasks=self.task_archive,
             time_series=self.time_series,
-            system_state_vector=device_type_proportions
+            available_platform_types=available_platform_types
         )
 
         return system_state

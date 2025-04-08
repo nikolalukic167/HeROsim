@@ -35,7 +35,7 @@ def execute_proactive(base_dir, infra, workload_config, sim_input_path, model_lo
         task_priority = 'fifo'
         keep_alive = KEEP_ALIVE
         queue_length = QUEUE_LENGTH
-        scheduling_strategy = 'prokn_prokn'
+        scheduling_strategy = 'prohetkn_prohetkn'
         simulation_data = SimulationData(
             platform_types=sim_inputs['platform_types'],
             storage_types=sim_inputs['storage_types'],

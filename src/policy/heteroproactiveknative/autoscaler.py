@@ -18,25 +18,24 @@ from __future__ import annotations
 
 import logging
 import math
-import numpy as np
-from typing import Set, Tuple, TYPE_CHECKING, Dict, List
+from collections import defaultdict
+from typing import Set, Tuple, TYPE_CHECKING, Dict
 
+import numpy as np
 import xgboost
 from simpy import Environment, Store
 
+from src.motivational.constants import PREDICTION_WINDOW_SIZE
+from src.motivationalhetero.encoders import get_platform_type_encoder, PLATFORM_TYPES
 from src.policy.heteroproactiveknative.model import HeteroProactiveKnativeSystemState
 from src.policy.knative.model import KnativeSchedulerState, KnativeSystemState
-from src.policy.proactiveknative.model import ProactiveKnativeSystemState
-from src.train import load_models
 from src.policy.knative.util import count_events_in_windows_ts
-from src.motivational.constants import PREDICTION_WINDOW_SIZE
 
 if TYPE_CHECKING:
-    from src.placement.infrastructure import Node, Platform, Task
+    from src.placement.infrastructure import Node, Platform
 
 from src.placement.model import (
     DurationSecond,
-    PlatformVector,
     SchedulerState,
     SizeGigabyte,
     SpeedMBps,
@@ -49,6 +48,188 @@ from src.placement.autoscaler import Autoscaler
 logger = logging.getLogger(__name__)
 
 
+# def manage_platforms(platforms, available_platform_types):
+#     # Sort the list of tuples based on modify_replicas (ascending)
+#     sorted_platforms = sorted(platforms, key=lambda x: x[1])
+#
+#     # Start as many platforms as possible based on availability
+#     started_platforms = {}
+#     remaining_workload = {}
+#
+#     for platform_type, needed_replicas in sorted_platforms:
+#         available_replicas = available_platform_types.get(platform_type, 0)
+#         if available_replicas >= needed_replicas:
+#             started_platforms[platform_type] = needed_replicas
+#             available_platform_types[platform_type] -= needed_replicas
+#         else:
+#             started_platforms[platform_type] = available_replicas
+#             remaining_workload[platform_type] = needed_replicas - available_replicas
+#             available_platform_types[platform_type] = 0
+#
+#     # Calculate total platforms needed for 100% workload
+#     total_platforms_needed = {}
+#     for platform_type, replicas in platforms:
+#         total_platforms_needed[platform_type] = replicas
+#
+#     # Calculate percentage of workload satisfied
+#     workload_satisfied = {}
+#     for platform_type in total_platforms_needed:
+#         if platform_type in started_platforms:
+#             workload_satisfied[platform_type] = (started_platforms[platform_type] /
+#                                                  total_platforms_needed[platform_type]) * 100
+#         else:
+#             workload_satisfied[platform_type] = 0
+#
+#     return sorted_platforms, started_platforms, remaining_workload, workload_satisfied
+
+
+def select_platforms_for_100_percent(workload_satisfied, platforms):
+    # Convert workload_satisfied dictionary to a list of tuples
+    workload_list = [(platform_type, percentage) for platform_type, percentage in workload_satisfied.items()]
+
+    # Sort the workload list by percentages in descending order
+    sorted_workload = sorted(workload_list, key=lambda x: x[1], reverse=True)
+
+    # Select platform types until the sum of percentages reaches or exceeds 100
+    selected_platforms = []
+    total_percentage = 0
+
+    for platform_type, percentage in sorted_workload:
+        if total_percentage < 100:
+            selected_platforms.append((platform_type, percentage))
+            total_percentage += percentage
+        else:
+            break
+
+    # Create a dictionary with platform_type as key and the number of replicas as value
+    replicas_needed = {}
+
+    # Find the original number of replicas for each platform type
+    platform_replicas = {platform_type: replicas for platform_type, replicas in platforms.items()}
+
+    # Calculate the number of replicas needed for each selected platform
+    for platform_type, percentage in selected_platforms:
+        # Get the original number of replicas needed for this platform type
+        original_replicas = platform_replicas.get(platform_type, 0)
+
+        # Calculate the number of replicas based on the percentage contribution
+        replicas_needed[platform_type] = original_replicas
+
+    return selected_platforms, total_percentage, replicas_needed
+
+
+def manage_platforms(platforms, available_platform_types, running_platforms=None):
+    """
+    Manages platform allocation considering available platforms, running platforms,
+    and minimizing changes while ensuring 100% workload coverage.
+
+    Args:
+        platforms: List of tuples (platform_type, required_replicas) for 100% workload
+        available_platform_types: Dict of {platform_type: available_count}
+        running_platforms: Dict of {platform_type: currently_running_count}, defaults to empty dict
+
+    Returns:
+        Dict with comprehensive platform allocation information
+    """
+    # Initialize running_platforms if not provided
+    if running_platforms is None:
+        running_platforms = {}
+
+    # Sort the list of tuples based on required_replicas (ascending)
+    sorted_platforms = sorted(platforms, key=lambda x: x[1])
+
+    # Create a dictionary of required replicas for each platform type
+    required_replicas = {platform_type: replicas for platform_type, replicas in platforms}
+
+    # Start as many platforms as possible based on availability
+    started_platforms = {}
+    remaining_workload = {}
+
+    # First consider platforms that are already running
+    for platform_type, needed_replicas in sorted_platforms:
+        running_replicas = running_platforms.get(platform_type, 0)
+        available_replicas = available_platform_types.get(platform_type, 0)
+
+        # Calculate how many more we need to start
+        additional_needed = max(0, needed_replicas - running_replicas)
+
+        if available_replicas >= additional_needed:
+            # We can start all the additional replicas we need
+            started_platforms[platform_type] = running_replicas + additional_needed
+            available_platform_types[platform_type] -= additional_needed
+        else:
+            # Start as many as we can
+            started_platforms[platform_type] = running_replicas + available_replicas
+            remaining_workload[platform_type] = needed_replicas - (running_replicas + available_replicas)
+            available_platform_types[platform_type] = 0
+
+    # Calculate percentage of workload satisfied for each platform type
+    workload_satisfied = {}
+    for platform_type, needed_replicas in platforms:
+        started = started_platforms.get(platform_type, 0)
+        workload_satisfied[platform_type] = (started / needed_replicas) * 100 if needed_replicas > 0 else 0
+
+    # Sort platforms by workload percentage (descending) for 100% selection
+    sorted_workload = sorted(workload_satisfied.items(), key=lambda x: x[1], reverse=True)
+
+    # Select platform types until the sum of percentages reaches or exceeds 100
+    selected_platforms = []
+    total_percentage = 0
+
+    for platform_type, percentage in sorted_workload:
+        if total_percentage < 100:
+            selected_platforms.append((platform_type, percentage))
+            total_percentage += percentage
+        else:
+            break
+
+    # Create a dictionary with platform_type as key and the number of replicas as value
+    replicas_needed = {}
+
+    # Calculate the number of replicas needed for each selected platform
+    for platform_type, _ in selected_platforms:
+        # Get the original number of replicas needed for this platform type
+        replicas_needed[platform_type] = required_replicas.get(platform_type, 0)
+
+    # Get the list of selected platform types
+    selected_platform_types = [platform_type for platform_type, _ in selected_platforms]
+
+    # Calculate changes needed (positive = add, negative = remove) ONLY for selected platforms
+    changes_needed = {}
+
+    # For platforms in selected_platforms, calculate changes needed
+    for platform in selected_platform_types:
+        required = replicas_needed.get(platform, 0)
+        running = running_platforms.get(platform, 0)
+        changes_needed[platform] = required - running
+
+    # For platforms that are running but not selected, they should be removed
+    for platform in running_platforms:
+        if platform not in selected_platform_types:
+            changes_needed[platform] = -running_platforms[platform]
+
+    # Calculate platforms to add and remove
+    platforms_to_add = {p: c for p, c in changes_needed.items() if c > 0}
+    platforms_to_remove = {p: -c for p, c in changes_needed.items() if c < 0}
+
+    # Calculate total changes
+    total_changes = sum(abs(change) for change in changes_needed.values())
+
+    return {
+        "sorted_platforms": sorted_platforms,
+        "started_platforms": started_platforms,
+        "remaining_workload": remaining_workload,
+        "workload_satisfied": workload_satisfied,
+        "selected_platforms": selected_platforms,
+        "total_percentage": total_percentage,
+        "replicas_needed": replicas_needed,
+        "changes_needed": changes_needed,
+        "platforms_to_add": platforms_to_add,
+        "platforms_to_remove": platforms_to_remove,
+        "total_changes": total_changes
+    }
+
+
 class HeteroProactiveKnativeAutoscaler(Autoscaler):
 
     def __init__(
@@ -57,9 +238,13 @@ class HeteroProactiveKnativeAutoscaler(Autoscaler):
             mutex: Store,
             data: SimulationData,
             policy: SimulationPolicy,
-            models: Dict[str, xgboost.XGBRegressor]
+            models: Dict[str, xgboost.XGBRegressor],
+            encoder=None
     ):
         super().__init__(env, mutex, data, policy)
+        if encoder is None:
+            encoder = get_platform_type_encoder()
+        self.encoder = encoder
         self.models = models
 
     def scaling_level(self, system_state: HeteroProactiveKnativeSystemState, task_type: TaskType):
@@ -73,96 +258,46 @@ class HeteroProactiveKnativeAutoscaler(Autoscaler):
         events = \
             count_events_in_windows_ts(self.env.now, system_state.time_series, task_type['name'], look_forward_size,
                                        look_forward_size)
-        for platform_type in PLATFORM_TYPES:
-
-            predict for each platform number of replicas and then decide which one to use
-            platform_type
         if events is None:
             print(f'FN {task_type["name"]} has no events')
             return {"any": 0}
+
         events = events[0] / look_forward_size
+        no_replicas_by_platform_type = {}
+        for platform_type in PLATFORM_TYPES:
+            platform_encoded = self.encoder.transform([[platform_type]])
+            X_events = np.array([events])
+            X = np.column_stack((X_events, np.tile(platform_encoded, (len(X_events), 1))))
+            no_replicas = self.models[task_type['name']].predict(X)[0]
+            no_replicas_by_platform_type[platform_type] = math.ceil(no_replicas)
 
+        function_replicas: Set[Tuple[Node, Platform]] = system_state.replicas[
+            task_type["name"]
+        ]
 
-        no_replicas = self.models[task_type['name']].predict(np.array([events]))[0]
+        function_replica_count_by_platform = defaultdict(int)
+        for _, platform in function_replicas:
+            function_replica_count_by_platform[platform.type['shortName']] += 1
 
-        current_replicas = len(system_state.replicas[task_type['name']])
+        modify_replicas_by_platform_type = defaultdict(int)
+        modify_replicas_by_platform_type_sorted = []
+        for platform_type in PLATFORM_TYPES:
+            current_no_replicas = function_replica_count_by_platform[platform_type]
+            predicted_no_replicas = no_replicas_by_platform_type[platform_type]
+            modify_replicas = predicted_no_replicas - current_no_replicas
+            modify_replicas_by_platform_type[platform_type] = modify_replicas
+            modify_replicas_by_platform_type_sorted.append((platform_type, no_replicas_by_platform_type[platform_type]))
 
-        modify_replicas = no_replicas - current_replicas
-        # print(modify_replicas)
-        # return {
-        #     platform_type["shortName"]: int(modify_replicas)
-        #     for platform_type in self.data.platform_types.values()
-        # }
-        return {
-            "any": math.ceil(modify_replicas)
-        }
-        # # Knative default values (cf. https://knative.dev/docs/serving/autoscaling/concurrency/)
-        # # Lambda is 1 (cf. https://notes.crmarsh.com/isolates-microvms-and-webassembly)
-        # state: KnativeSchedulerState = system_state.scheduler_state
-        # target_concurrencies: PlatformVector = state.target_concurrencies[
-        #     task_type["name"]
-        # ]
-        # function_concurrencies = state.average_contention[task_type["name"]].values()
-        # function_replicas: Set[Tuple[Node, Platform]] = system_state.replicas[
-        #     task_type["name"]
-        # ]
-        #
-        # """
-        # target_concurrencies: PlatformVector = {
-        #     platform: self.policy.queue_length if platform == baseline_platform else 0
-        #     for platform in self.data.platform_types
-        # }
-        # """
-        #
-        # platform_count = len(
-        #     [
-        #         platform
-        #         for platform in self.data.platform_types.values()
-        #         # if platform["hardware"] == "cpu"
-        #     ]
-        # )
-        #
-        # # Per-function concurrency level
-        # # Knative only allocates CPUs (baseline platform)
-        # in_system_concurrencies: PlatformVector = {
-        #     platform_type["shortName"]: (
-        #         0.0
-        #         if not function_concurrencies
-        #         else sum(function_concurrencies) / platform_count
-        #         # if platform_type["hardware"] == "cpu"
-        #         # else 0.0
-        #     )
-        #     for platform_type in self.data.platform_types.values()
-        # }
-        #
-        # replica_count = len(function_replicas)
-        #
-        # # Result > 0 means scaling up
-        # # Result < 0 means scaling down
-        # # Result == 0 means current scaling level is adequate
-        # concurrency_results: PlatformVector = {
-        #     platform_type["shortName"]: (
-        #             math.ceil(
-        #                 in_system_concurrencies[platform_type["shortName"]]
-        #                 / target_concurrencies[platform_type["shortName"]]
-        #             )
-        #             - replica_count
-        #         # if platform_type["hardware"] == "cpu"
-        #         # else 0
-        #     )
-        #     for platform_type in self.data.platform_types.values()
-        # }
-        #
-        # """
-        # logging.error(f"[ {self.env.now} ] ===")
-        # logging.error(f"[ {self.env.now} ] {task_type['name']} {in_system_concurrencies}")
-        # logging.error(f"[ {self.env.now} ] {task_type['name']} {function_replicas}")
-        # logging.error(f"[ {self.env.now} ] {task_type['name']} {target_concurrencies}")
-        # logging.error(f"[ {self.env.now} ] {task_type['name']} {concurrency_results}")
-        # logging.error(f"[ {self.env.now} ] ===")
-        # """
-        #
-        # return concurrency_results
+        running_platforms = [x[1] for x in system_state.replicas[task_type["name"]]]
+        running_platform_count = defaultdict(int)
+        for platform in running_platforms:
+            running_platform_count[platform.type['shortName']] += 1
+
+        a = manage_platforms(modify_replicas_by_platform_type_sorted, system_state.available_platform_types,
+                             running_platform_count)
+        # selected_platforms, total_percentage, replicas_needed = select_platforms_for_100_percent(workload_satisfied, started_platforms)
+        print(a['changes_needed'])
+        return a['changes_needed']
 
     def create_first_replica(self, system_state: SystemState, task_type: TaskType):
         # Knative will allocate a new CPU replica

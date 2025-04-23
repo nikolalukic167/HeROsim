@@ -199,21 +199,21 @@ def main():
 
     # first week training
     result_files = [f'{x}/peak-config.json' for x in result_folders[:1]]
-    models, eval_results = train_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
+    models = train_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
     dir_first_second = pathlib.Path(output_dir) / 'first'
     os.makedirs(dir_first_second, exist_ok=True)
     model_paths = save_models(models, dir_first_second)
 
     # first & second week training
     result_files = [f'{x}/peak-config.json' for x in result_folders[:2]]
-    models, eval_results = train_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
+    models = train_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
     dir_first_second = pathlib.Path(output_dir) / 'first_second'
     os.makedirs(dir_first_second, exist_ok=True)
     model_paths = save_models(models, dir_first_second)
 
     # first & second & third week training
     result_files = [f'{x}/peak-config.json' for x in result_folders[:3]]
-    models, eval_results = train_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
+    models = train_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
     dir_all = pathlib.Path(output_dir) / 'first_second_third'
     os.makedirs(dir_all, exist_ok=True)
     model_paths = save_models(models, dir_all)

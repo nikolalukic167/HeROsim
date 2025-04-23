@@ -15,9 +15,11 @@ from src.executeinitial import load_simulation_inputs, setup_logging
 from src.motivational.constants import KEEP_ALIVE, QUEUE_LENGTH, REACTIVE_RECONCILE_INTERVAL
 from src.motivational.proactive import get_model_locations_direct
 from src.motivational.proactiveparalleldiffworkloads import execute_proactive, save_single_stats
-from src.motivationalhetero.encoders import get_platform_type_encoder
+from src.motivationalhetero.encoders import get_platform_type_encoder, PLATFORM_TYPES
 from src.placement.executor import execute_sim
 from src.placement.model import SimulationData, DataclassJSONEncoder
+from src.preprocessing import create_inputs_outputs_seperated_per_app_windowed_per_device_type, \
+    calculate_metrics_combined_by_platform_type
 from src.train import train_model, train_model_reactive_then_proactive, save_models, \
     train_model_reactive_then_proactive_per_device_type
 
@@ -47,7 +49,57 @@ def save_results(results_folder, stats):
     sns.scatterplot(x='timestamp', y='count', hue='name', data=system_events_df)
     plt.savefig(os.path.join(results_folder, "system_events.pdf"))
     plt.close()
+    melted_df = system_events_df.melt(id_vars=['timestamp'], value_vars=[x for  x in PLATFORM_TYPES if x in system_events_df.columns],
+                        var_name='platform', value_name='pods_count')
 
+    # Plot
+    plt.figure(figsize=(10, 6))
+    sns.lineplot(data=melted_df, x='timestamp', y='pods_count', hue='platform', marker='o')
+    plt.title('Number of Pods per Platform Over Time')
+    plt.xlabel('Timestamp')
+    plt.ylabel('Number of Pods')
+    plt.legend(title='Platform')
+    plt.savefig(os.path.join(results_folder, "system_events_by_platform.pdf"))
+    plt.close()
+
+    app_definitions = {}
+    for task in stats['taskResults']:
+        app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
+
+    metrics = calculate_metrics_combined_by_platform_type(stats['applicationResults'], stats['systemEvents'], window_size=5, application_to_task_map=app_definitions)
+    rows = []
+    for function, platforms in metrics.items():
+        for platform, windows in platforms.items():
+            for window, stats in windows.items():
+                row = {
+                    'function': function,
+                    'platform': platform,
+                    'window_start': stats.get('window_start'),
+                    'window_end': stats.get('window_end'),
+                    'avg_pods': stats.get('avg_pods'),
+                    'avg_queue_length': stats.get('avg_queue_length'),
+                    'avg_throughput': stats.get('avg_throughput'),
+                    'penalty_rate': stats.get('penalty_rate'),
+                    'total_requests': stats.get('total_requests')
+                }
+                rows.append(row)
+
+    # Create DataFrame
+    df_metrics = pd.DataFrame(rows)
+    df_metrics.to_csv(os.path.join(results_folder, "performance_metrics_over_time.csv"))
+
+    sns.lineplot(x='window_start', y='avg_throughput', hue='platform', data=df_metrics)
+    plt.savefig(os.path.join(results_folder, "throughput_by_platform.pdf"))
+    plt.close()
+    sns.lineplot(x='window_start', y='penalty_rate', hue='platform', data=df_metrics)
+    plt.savefig(os.path.join(results_folder, "penalty_rate_by_platform.pdf"))
+    plt.close()
+    sns.lineplot(x='window_start', y='total_requests', hue='platform', data=df_metrics)
+    plt.savefig(os.path.join(results_folder, "total_requests_by_platform.pdf"))
+    plt.close()
+    sns.lineplot(x='window_start', y='avg_queue_length', hue='platform', data=df_metrics)
+    plt.savefig(os.path.join(results_folder, "queue_length_by_platform.pdf"))
+    plt.close()
 
 def save_stats(output_dir, rps, stats, infra, results_postfix):
     results_folder = os.path.join(output_dir, f"infra-{infra}", f"results-{results_postfix}")
@@ -90,14 +142,7 @@ def reactive_worker_function(args):
     rep_idx, workload_config, config_idx, base_dir, infra, sim_input_path, output_dir, start_time = args
     stats = execute_reactive(base_dir, infra, workload_config, sim_input_path)
     return save_stats(output_dir, workload_config, stats, infra,
-                      f'reactive/{start_time}/{str(rep_idx)}/{str(config_idx)}')
-
-
-def proactive_worker_function(args):
-    rep_idx, workload_config, config_idx, base_dir, output_infra, sim_input_path, model_locations, results_dir, start_time, model_dir, model_infra = args
-    stats = execute_proactive(base_dir, output_infra, workload_config, sim_input_path, model_locations)
-    results_postfix = f'proactive/{model_dir}-origin-{model_infra}-target-{output_infra}/{start_time}/{str(rep_idx)}/{config_idx}'
-    save_single_stats(results_dir, workload_config, stats, output_infra, results_postfix)
+                      f'hetero-reactive/{start_time}/{str(rep_idx)}/{str(config_idx)}')
 
 
 def main():
@@ -152,58 +197,29 @@ def main():
     print('here')
     model_paths = save_models(models, dir_first_second)
 
-    # # first week training
-    # result_files = [f'{x}/peak-config.json' for x in result_folders[:1]]
-    # models, eval_results = train_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
-    # dir_first_second = pathlib.Path(output_dir) / 'first'
-    # os.makedirs(dir_first_second, exist_ok=True)
-    # model_paths = save_models(models, dir_first_second)
-    #
-    # # first & second week training
-    # result_files = [f'{x}/peak-config.json' for x in result_folders[:2]]
-    # models, eval_results = train_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
-    # dir_first_second = pathlib.Path(output_dir) / 'first_second'
-    # os.makedirs(dir_first_second, exist_ok=True)
-    # model_paths = save_models(models, dir_first_second)
-    #
-    # # first & second & third week training
-    # result_files = [f'{x}/peak-config.json' for x in result_folders[:3]]
-    # models, eval_results = train_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
-    # dir_all = pathlib.Path(output_dir) / 'first_second_third'
-    # os.makedirs(dir_all, exist_ok=True)
-    # model_paths = save_models(models, dir_all)
+    # first week training
+    result_files = [f'{x}/peak-config.json' for x in result_folders[:1]]
+    models, eval_results = train_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
+    dir_first_second = pathlib.Path(output_dir) / 'first'
+    os.makedirs(dir_first_second, exist_ok=True)
+    model_paths = save_models(models, dir_first_second)
+
+    # first & second week training
+    result_files = [f'{x}/peak-config.json' for x in result_folders[:2]]
+    models, eval_results = train_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
+    dir_first_second = pathlib.Path(output_dir) / 'first_second'
+    os.makedirs(dir_first_second, exist_ok=True)
+    model_paths = save_models(models, dir_first_second)
+
+    # first & second & third week training
+    result_files = [f'{x}/peak-config.json' for x in result_folders[:3]]
+    models, eval_results = train_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
+    dir_all = pathlib.Path(output_dir) / 'first_second_third'
+    os.makedirs(dir_all, exist_ok=True)
+    model_paths = save_models(models, dir_all)
 
     for result_folder in result_folders:
         os.remove(f'{result_folder}/peak-config.json')
-
-    # del models
-    # model_locations = get_model_locations_direct(pathlib.Path(output_dir))
-    # print(f"Model locations: {model_locations}")
-    # print(
-    #     f"Starting proactive simulation with infra-{infra} workload_config: {workload_config_file} using {num_cores} cores")
-    #
-    # start_time = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    #
-    # # Create work items for each combination of repetition and RPS
-    # work_items = [
-    #     (rep_idx, config, config_idx, base_dir, infra, sim_input_path, model_locations, output_dir, start_time,
-    #      f'{region}-{fn}', infra)
-    #     for rep_idx in range(repetitions)
-    #     for config_idx, config in enumerate(workload_configs)
-    # ]
-    #
-    # start_ts = time.time()
-    # # Create a pool of workers and map the work items
-    # print(f"Start time: {start_ts}")
-    # with mp.Pool(num_cores) as proactive_pool:
-    #     proactive_pool.map(proactive_worker_function, work_items)
-    # end_ts = time.time()
-    # print(f'{end_ts - start_ts} seconds passed')
-    # print(f"Finished simulation")
-    # print(f"Results saved under {os.path.join(output_dir, f'infra-{infra}', 'results-proactive')}")
-    #
-    # end_ts = time.time()
-    # print(f'Duration: {end_ts - start_ts} seconds')
 
 if __name__ == '__main__':
     main()

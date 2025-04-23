@@ -217,12 +217,13 @@ def calculate_metrics_combined_by_platform_type(workload_data, pods_data, applic
                 total_penalties = window_penalties[task_type][platform_type][window_start]
 
                 # Skip windows with high penalty rate
-                if total_requests > 0 and (total_penalties / total_requests) <= 0.2:
+                penalty_proportion = total_penalties / total_requests
+                if total_requests > 0 and penalty_proportion <= 0.4:
                     pod_counts = window_pods[task_type][platform_type].get(window_start, [0])
                     q_counts = window_queue_lengths[task_type][platform_type].get(window_start, [0])
 
                     avg_queue_length_window = sum(q_counts) / len(q_counts) if q_counts else 0
-                    if avg_queue_length_window > QUEUE_LENGTH or not pod_counts:
+                    if avg_queue_length_window > QUEUE_LENGTH * 1.25 or not pod_counts:
                         continue
                     if until is not None and window_start + window_size >= until:
                         break
@@ -233,7 +234,7 @@ def calculate_metrics_combined_by_platform_type(workload_data, pods_data, applic
                         'avg_queue_length': avg_queue_length_window,
                         'avg_pods': sum(pod_counts) / len(pod_counts) if pod_counts else 0,
                         'total_requests': total_requests,
-                        'penalty_rate': total_penalties / total_requests if total_requests > 0 else 0
+                        'penalty_rate': penalty_proportion if total_requests > 0 else 0
                     }
 
     return metrics

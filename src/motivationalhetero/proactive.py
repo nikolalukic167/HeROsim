@@ -15,8 +15,10 @@ from src.executeinitial import load_simulation_inputs, setup_logging
 from src.motivational.constants import KEEP_ALIVE, QUEUE_LENGTH, REACTIVE_RECONCILE_INTERVAL
 from src.motivational.proactive import get_model_locations_direct
 from src.motivational.proactiveparalleldiffworkloads import execute_proactive, save_single_stats
+from src.motivationalhetero.encoders import PLATFORM_TYPES
 from src.placement.executor import execute_sim
 from src.placement.model import SimulationData, DataclassJSONEncoder
+from src.preprocessing import calculate_metrics_combined_by_platform_type
 from src.train import train_model, train_model_reactive_then_proactive, save_models
 
 
@@ -46,6 +48,58 @@ def save_results(results_folder, stats):
     plt.savefig(os.path.join(results_folder, "system_events.pdf"))
     plt.close()
 
+    melted_df = system_events_df.melt(id_vars=['timestamp'], value_vars=[x for  x in PLATFORM_TYPES if x in system_events_df.columns],
+                        var_name='platform', value_name='pods_count')
+
+    # Plot
+    plt.figure(figsize=(10, 6))
+    sns.lineplot(data=melted_df, x='timestamp', y='pods_count', hue='platform', marker='o')
+    plt.title('Number of Pods per Platform Over Time')
+    plt.xlabel('Timestamp')
+    plt.ylabel('Number of Pods')
+    plt.legend(title='Platform')
+    plt.savefig(os.path.join(results_folder, "system_events_by_platform.pdf"))
+    plt.close()
+
+    app_definitions = {}
+    for task in stats['taskResults']:
+        app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
+
+    metrics = calculate_metrics_combined_by_platform_type(stats['applicationResults'], stats['systemEvents'], window_size=5, application_to_task_map=app_definitions)
+    rows = []
+    for function, platforms in metrics.items():
+        for platform, windows in platforms.items():
+            for window, stats in windows.items():
+                row = {
+                    'function': function,
+                    'platform': platform,
+                    'window_start': stats.get('window_start'),
+                    'window_end': stats.get('window_end'),
+                    'avg_pods': stats.get('avg_pods'),
+                    'avg_queue_length': stats.get('avg_queue_length'),
+                    'avg_throughput': stats.get('avg_throughput'),
+                    'penalty_rate': stats.get('penalty_rate'),
+                    'total_requests': stats.get('total_requests')
+                }
+                rows.append(row)
+
+    # Create DataFrame
+    df_metrics = pd.DataFrame(rows)
+    df_metrics.to_csv(os.path.join(results_folder, "performance_metrics_over_time.csv"))
+
+    sns.lineplot(x='window_start', y='avg_throughput', hue='platform', data=df_metrics)
+    plt.savefig(os.path.join(results_folder, "throughput_by_platform.pdf"))
+    plt.close()
+    sns.lineplot(x='window_start', y='penalty_rate', hue='platform', data=df_metrics)
+    plt.savefig(os.path.join(results_folder, "penalty_rate_by_platform.pdf"))
+    plt.close()
+    sns.lineplot(x='window_start', y='total_requests', hue='platform', data=df_metrics)
+    plt.savefig(os.path.join(results_folder, "total_requests_by_platform.pdf"))
+    plt.close()
+    sns.lineplot(x='window_start', y='avg_queue_length', hue='platform', data=df_metrics)
+    plt.savefig(os.path.join(results_folder, "queue_length_by_platform.pdf"))
+    plt.close()
+
 
 def save_stats(output_dir, rps, stats, infra, results_postfix):
     results_folder = os.path.join(output_dir, f"infra-{infra}", f"results-{results_postfix}")
@@ -56,45 +110,13 @@ def save_stats(output_dir, rps, stats, infra, results_postfix):
     return results_folder
 
 
-def execute_reactive(base_dir, infra, workload_config, sim_input_path):
-    sim_inputs = load_simulation_inputs(sim_input_path)
-    with open(base_dir / f'motivational-infrastructures/{infra}.json', 'r') as fd:
-        infrastructure = json.load(fd)
 
-    with open(workload_config, 'r') as fd:
-        workload = json.load(fd)
-        cache_policy = 'fifo'
-        task_priority = 'fifo'
-        keep_alive = KEEP_ALIVE
-        queue_length = QUEUE_LENGTH
-        scheduling_strategy = 'kn_kn'
-        simulation_data = SimulationData(
-            platform_types=sim_inputs['platform_types'],
-            storage_types=sim_inputs['storage_types'],
-            qos_types=sim_inputs['qos_types'],
-            application_types=sim_inputs['application_types'],
-            task_types=sim_inputs['task_types'],
-        )
-        print(f'Start simulation: peak-config - {infra}')
-        stats = execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, task_priority,
-                            queue_length,
-                            scheduling_strategy, workload, 'workload-mine',
-                            reconcile_interval=REACTIVE_RECONCILE_INTERVAL)
-        print(f'End simulation: peak-config - {infra}')
-        return stats
-
-
-def reactive_worker_function(args):
-    rep_idx, workload_config, config_idx, base_dir, infra, sim_input_path, output_dir, start_time = args
-    stats = execute_reactive(base_dir, infra, workload_config, sim_input_path)
-    return save_stats(output_dir, workload_config, stats, infra,
-                      f'reactive/{start_time}/{str(rep_idx)}/{str(config_idx)}')
 
 
 def proactive_worker_function(args):
     rep_idx, workload_config, config_idx, base_dir, output_infra, sim_input_path, model_locations, results_dir, start_time, model_dir, model_infra = args
     stats = execute_proactive(base_dir, output_infra, workload_config, sim_input_path, model_locations)
-    results_postfix = f'proactive/{model_dir}-origin-{model_infra}-target-{output_infra}/{start_time}/{str(rep_idx)}/{config_idx}'
+    results_postfix = f'hetero-proactive/{model_dir}-origin-{model_infra}-target-{output_infra}/{start_time}/{str(rep_idx)}/{config_idx}'
     save_single_stats(results_dir, workload_config, stats, output_infra, results_postfix, save_raw_results=False)
 
 

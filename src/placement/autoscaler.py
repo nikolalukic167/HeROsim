@@ -285,7 +285,7 @@ class Autoscaler:
         # Scale down
         for _ in range(count):
             replicas_count = len(function_replicas)
-
+            print('scale down')
             removed_replica: Tuple[Node, Platform]
             removed_replica = yield self.env.process(
                 self.remove_replica(

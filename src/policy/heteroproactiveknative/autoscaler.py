@@ -270,6 +270,7 @@ class HeteroProactiveKnativeAutoscaler(Autoscaler):
             X = np.column_stack((X_events, np.tile(platform_encoded, (len(X_events), 1))))
             no_replicas = self.models[task_type['name']].predict(X)[0]
             no_replicas_by_platform_type[platform_type] = math.ceil(no_replicas)
+            print(f"{platform_type} - {X} - {no_replicas_by_platform_type}")
 
         function_replicas: Set[Tuple[Node, Platform]] = system_state.replicas[
             task_type["name"]
@@ -292,7 +293,7 @@ class HeteroProactiveKnativeAutoscaler(Autoscaler):
         running_platform_count = defaultdict(int)
         for platform in running_platforms:
             running_platform_count[platform.type['shortName']] += 1
-
+        print(running_platform_count)
         a = manage_platforms(modify_replicas_by_platform_type_sorted, system_state.available_platform_types,
                              running_platform_count)
         # selected_platforms, total_percentage, replicas_needed = select_platforms_for_100_percent(workload_satisfied, started_platforms)

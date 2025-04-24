@@ -2,6 +2,8 @@ import json
 import math
 from collections import defaultdict
 
+import pandas as pd
+import seaborn as sns
 import numpy as np
 import xgboost as xgb
 from matplotlib import pyplot as plt
@@ -875,14 +877,24 @@ def create_train_test_split_per_windowed_per_device_type(inputs_outputs, test_si
     for task_type in inputs_outputs[0]:
         train_data[task_type] = []
         test_data[task_type] = []
-
+        first = True
         # Process each device type for this task type
         for device_type, workload_counts in inputs_outputs[0][task_type].items():
-            pod_counts = inputs_outputs[1][task_type][device_type]
+            if not first and device_type != 'xavierGpu':
+                continue
+            if first and device_type != 'xavierGpu':
+                # pod_counts = inputs_outputs[1][task_type][device_type][:2]
+                continue
+            else:
+                pod_counts = inputs_outputs[1][task_type][device_type]
+            first = False
+
 
             if len(pod_counts) == 0 or len(workload_counts) == 0:
                 continue
 
+            print(device_type)
+            print(workload_counts, pod_counts)
             # One-hot encode the device type
             device_encoded = encoder.transform([[device_type]])
 
@@ -988,6 +1000,7 @@ def train_xgboost_per_task(train_data, params=None):
     return models
 
 
+
 def train_gpr_per_task(train_data, params=None):
     """Trains an XGBoost model for each task type.
 
@@ -1020,6 +1033,8 @@ def train_gpr_per_task(train_data, params=None):
 
         # Transform training data
         X_train_scaled = X_train.copy()
+        
+        visualize(X_train, y_train)
         # Scale only the first feature (column)
         # Extract the first column, reshape it to 2D array, scale it, and flatten back
         X_train_scaled[:, 0] = X_scaler.fit_transform(X_train[:, 0].reshape(-1, 1)).flatten()
@@ -1035,12 +1050,20 @@ def train_gpr_per_task(train_data, params=None):
         kernel = ConstantKernel() * Matern(length_scale=1.0, nu=1.5)
 
         # Create and train the GP model
-        model = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10, alpha=1e-5 )
+        model = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10, alpha=1e-1 )
 
         model.fit(X_train_scaled, y_train_scaled)
         models[task_type] = model
 
     return models, X_scalers, y_scalers
+
+
+def visualize(X_train, y_train):
+    X = X_train[:, 0].reshape(-1, 1)
+    df = pd.DataFrame({'x': [x[0] for x in X], 'y': y_train})
+    sns.scatterplot(x='x',y='y',data=df)
+    plt.show()
+    plt.close()
 
 
 def evaluate_xgboost_per_task(models, test_data):

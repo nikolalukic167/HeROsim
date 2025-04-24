@@ -4,6 +4,10 @@ from collections import defaultdict
 
 import numpy as np
 import xgboost as xgb
+from matplotlib import pyplot as plt
+from scipy import stats
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import ConstantKernel, RBF
 from sklearn.metrics import mean_squared_error, root_mean_squared_error
 from sklearn.model_selection import train_test_split
 
@@ -138,7 +142,9 @@ def calculate_metrics_combined(workload_data, pods_data, application_to_task_map
 
     return metrics
 
-def calculate_metrics_combined_by_platform_type(workload_data, pods_data, application_to_task_map, window_size=60, until=None):
+
+def calculate_metrics_combined_by_platform_type(workload_data, pods_data, application_to_task_map, window_size=60,
+                                                until=None):
     """
     Calculates average throughput and pod count over time windows by processing workload and pods simultaneously,
     grouped by both task type and device type.
@@ -202,7 +208,8 @@ def calculate_metrics_combined_by_platform_type(workload_data, pods_data, applic
                 continue
             window_start = (timestamp // window_size) * window_size
 
-            if task_type in window_pods and platform_type in window_pods[task_type] and window_start in window_pods[task_type][platform_type]:
+            if task_type in window_pods and platform_type in window_pods[task_type] and window_start in \
+                    window_pods[task_type][platform_type]:
                 window_pods[task_type][platform_type][window_start].append(count)
                 window_queue_lengths[task_type][platform_type][window_start].append(pod['average_queue_length'])
             elif task_type in window_pods and platform_type in window_pods[task_type]:
@@ -622,9 +629,11 @@ def create_inputs_outputs_seperated_per_app_windowed(result, window_size, app_de
     print(outputs)
     return inputs, outputs
 
+
 from collections import defaultdict
 import numpy as np
 import math
+
 
 def create_inputs_outputs_seperated_per_app_windowed_per_device_type(result, window_size, app_definitions, until=None):
     """
@@ -641,7 +650,8 @@ def create_inputs_outputs_seperated_per_app_windowed_per_device_type(result, win
     A tuple of dictionaries (inputs, outputs) with NumPy arrays of workload and pod metrics,
     grouped by task type and device type.
     """
-    metrics = calculate_metrics_combined_by_platform_type(result['applicationResults'], result['systemEvents'], app_definitions,
+    metrics = calculate_metrics_combined_by_platform_type(result['applicationResults'], result['systemEvents'],
+                                                          app_definitions,
                                                           window_size, until)
     inputs = defaultdict(lambda: defaultdict(list))
     outputs = defaultdict(lambda: defaultdict(list))
@@ -723,7 +733,9 @@ def create_inputs_outputs_seperated_per_app_windowed_system_events(result, windo
 
     return inputs, outputs
 
-def create_inputs_outputs_seperated_per_app_windowed_system_events_per_device_type(result, window_size, app_definitions):
+
+def create_inputs_outputs_seperated_per_app_windowed_system_events_per_device_type(result, window_size,
+                                                                                   app_definitions):
     """
     Aggregates workload and pod data into time windows.
 
@@ -976,6 +988,61 @@ def train_xgboost_per_task(train_data, params=None):
     return models
 
 
+def train_gpr_per_task(train_data, params=None):
+    """Trains an XGBoost model for each task type.
+
+
+    Args:
+    train_data: Dictionary where keys are task types and values are lists of (timestamp, workload_count, pod_count) tuples.
+    params: XGBoost parameters (optional). If None, default parameters are used.
+
+
+    Returns:
+    A dictionary where keys are task types and values are trained XGBoost models.
+    """
+    models = {}
+    X_scalers = {}
+    y_scalers = {}
+    for task_type, data in train_data.items():
+        # Extract features (timestamp, workload_count) and target (pod_count)
+        X_train = [item[0] for item in data]  # Input
+        y_train = [item[1] for item in data]  # Pod count
+
+        # Convert lists to NumPy arrays
+        X_train = np.array(X_train)
+        y_train = np.array(y_train)
+
+        from sklearn.preprocessing import StandardScaler
+
+        # Create scalers
+        X_scaler = StandardScaler()
+        y_scaler = StandardScaler()
+
+        # Transform training data
+        X_train_scaled = X_train.copy()
+        # Scale only the first feature (column)
+        # Extract the first column, reshape it to 2D array, scale it, and flatten back
+        X_train_scaled[:, 0] = X_scaler.fit_transform(X_train[:, 0].reshape(-1, 1)).flatten()
+
+        y_train_scaled = y_scaler.fit_transform(y_train.reshape(-1, 1)).ravel()
+
+        X_scalers[task_type] = X_scaler
+        y_scalers[task_type] = y_scaler
+
+        # Define kernel (RBF kernel is good for smooth functions)
+        # kernel = ConstantKernel() * RBF()
+        from sklearn.gaussian_process.kernels import Matern
+        kernel = ConstantKernel() * Matern(length_scale=1.0, nu=1.5)
+
+        # Create and train the GP model
+        model = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10, alpha=1e-5 )
+
+        model.fit(X_train_scaled, y_train_scaled)
+        models[task_type] = model
+
+    return models, X_scalers, y_scalers
+
+
 def evaluate_xgboost_per_task(models, test_data):
     """Evaluates the trained XGBoost models on the test data.
 
@@ -1008,6 +1075,157 @@ def evaluate_xgboost_per_task(models, test_data):
 
     return mse_scores
 
+
+def evaluate_gpr_per_task(models, test_data, X_scalers, y_scalers):
+    """Evaluates the trained GPR models on the test data and analyzes uncertainty correlation with errors.
+
+    Args:
+    models: Dictionary where keys are task types and values are trained GPR models.
+    test_data: Dictionary where keys are task types and values are lists of (timestamp, workload_count, pod_count) tuples.
+    X_scalers: Dictionary of feature scalers per task type
+    y_scalers: Dictionary of target scalers per task type
+
+    Returns:
+    A dictionary with evaluation metrics including MSE and uncertainty correlation.
+    """
+    results = {}
+
+    for task_type, data in test_data.items():
+        if task_type in models:  # Make sure we have a model for this task type
+            # Extract features (workload_count) and target (pod_count)
+            X_test = np.array([item[0] for item in data])  # Only workload count
+            y_test = np.array([item[1] for item in data])  # Pod count
+
+            # Transform test data
+            X_test_scaled = X_test.copy()
+            X_test_scaled[:, 0] = X_scalers[task_type].fit_transform(X_test[:, 0].reshape(-1, 1)).flatten()
+
+            # Predict with uncertainty
+            mean_scaled, std_scaled = models[task_type].predict(X_test_scaled, return_std=True)
+
+            # Transform predictions back to original scale
+            mean_prediction = y_scalers[task_type].inverse_transform(mean_scaled.reshape(-1, 1)).ravel()
+            std_prediction = std_scaled * y_scalers[task_type].scale_
+
+            # Calculate absolute errors
+            abs_errors = np.abs(y_test - mean_prediction)
+
+            # Calculate RMSE
+            rmse = root_mean_squared_error(y_test, mean_prediction)
+
+            # Calculate correlation between uncertainty (std_prediction) and absolute errors
+            uncertainty_error_correlation = np.corrcoef(std_prediction, abs_errors)[0, 1]
+
+            # Calculate additional metrics for uncertainty evaluation
+            # 1. Calibration: percentage of true values within 2 std deviations (should be ~95%)
+            within_2std = np.mean((y_test >= mean_prediction - 2*std_prediction) &
+                                  (y_test <= mean_prediction + 2*std_prediction))
+
+            # 2. Average uncertainty
+            avg_uncertainty = np.mean(std_prediction)
+
+            # 3. Uncertainty vs. distance from training data
+            # This assumes X_train is available - you might need to store it during training
+            # or pass it as an argument
+
+            # Store all metrics
+            results[task_type] = {
+                'rmse': rmse,
+                'uncertainty_error_correlation': uncertainty_error_correlation,
+                'calibration_2std': within_2std,
+                'avg_uncertainty': avg_uncertainty,
+                'std_prediction': std_prediction,  # Store for further analysis
+                'abs_errors': abs_errors,  # Store for further analysis
+                'mean_prediction': mean_prediction,
+                'y_test': y_test,
+                'X_test': X_test
+            }
+
+            # Print summary
+            print(f"Task: {task_type}")
+            print(f"  RMSE: {rmse:.4f}")
+            print(f"  Uncertainty-Error Correlation: {uncertainty_error_correlation:.4f}")
+            print(f"  Calibration (% within 2σ): {within_2std*100:.2f}%")
+            print(f"  Average Uncertainty: {avg_uncertainty:.4f}")
+            print(f"  Uncertainty Range: {np.min(std_prediction):.4f} - {np.max(std_prediction):.4f}")
+            plot_uncertainty_error_correlation(results, task_type)
+        else:
+            results[task_type] = None  # Or some other indicator that there's no model
+
+
+    return results
+
+# Add a function to visualize the uncertainty-error relationship
+def plot_uncertainty_error_correlation(evaluation_results, task_type):
+    """
+    Visualizes the relationship between prediction uncertainty and actual errors.
+
+    text
+    Args:
+    evaluation_results: Results dictionary from evaluate_gpr_per_task
+    task_type: The specific task to visualize
+    """
+    if task_type not in evaluation_results or evaluation_results[task_type] is None:
+        print(f"No evaluation results for task type: {task_type}")
+        return
+
+    results = evaluation_results[task_type]
+
+    # Create figure with two subplots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+
+    # Plot 1: Scatter plot of uncertainty vs absolute error
+    ax1.scatter(results['std_prediction'], results['abs_errors'], alpha=0.6)
+    ax1.set_xlabel('Predicted Uncertainty (σ)')
+    ax1.set_ylabel('Absolute Error')
+    ax1.set_title(f'Uncertainty vs Error (r = {results["uncertainty_error_correlation"]:.4f})')
+
+    # Add a trend line
+    z = np.polyfit(results['std_prediction'], results['abs_errors'], 1)
+    p = np.poly1d(z)
+    ax1.plot(sorted(results['std_prediction']), p(sorted(results['std_prediction'])),
+             "r--", linewidth=2)
+
+    # Plot 2: Predictions with uncertainty bands
+    # Sort by X for better visualization - extract only first element from each X instance
+    X_first_element = np.array([x[0] for x in results['X_test']])  # Extract first element from each X
+    sort_idx = np.argsort(X_first_element)
+
+    # Apply sorting to all arrays
+    X_first_sorted = X_first_element[sort_idx]
+    y_sorted = results['y_test'][sort_idx]
+    mean_sorted = results['mean_prediction'][sort_idx]
+    std_sorted = results['std_prediction'][sort_idx]
+
+    ax2.scatter(X_first_sorted, y_sorted, alpha=0.6, label='Actual')
+    ax2.plot(X_first_sorted, mean_sorted, 'r-', label='Prediction')
+    ax2.fill_between(X_first_sorted,
+                     mean_sorted - 2*std_sorted,
+                     mean_sorted + 2*std_sorted,
+                     alpha=0.2, color='r', label='95% confidence')
+    ax2.set_xlabel('Workload Count (First Feature)')
+    ax2.set_ylabel('Pod Count')
+    ax2.set_title(f'Predictions with Uncertainty Bands (Calibration: {results["calibration_2std"]*100:.2f}%)')
+    ax2.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+    # Additional plot: Histogram of standardized errors
+    plt.figure(figsize=(8, 6))
+    standardized_errors = (results['y_test'] - results['mean_prediction']) / results['std_prediction']
+    plt.hist(standardized_errors, bins=20, alpha=0.7, density=True)
+
+    # Add normal distribution curve for comparison
+    x = np.linspace(-4, 4, 100)
+    plt.plot(x, stats.norm.pdf(x, 0, 1), 'r-', linewidth=2)
+
+    plt.xlabel('Standardized Error ((y_true - y_pred) / σ)')
+    plt.ylabel('Density')
+    plt.title('Standardized Error Distribution\n(Should follow standard normal if well-calibrated)')
+    plt.grid(True, alpha=0.3)
+    plt.show()
+    plt.close()
 
 def main():
     with open('./result/20250219-123131-522218.json', 'r') as f:

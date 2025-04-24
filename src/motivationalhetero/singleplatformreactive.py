@@ -13,12 +13,15 @@ import seaborn as sns
 
 from src.executeinitial import load_simulation_inputs, setup_logging
 from src.motivational.constants import KEEP_ALIVE, QUEUE_LENGTH, REACTIVE_RECONCILE_INTERVAL
+from src.motivational.proactive import get_model_locations_direct
+from src.motivational.proactiveparalleldiffworkloads import execute_proactive, save_single_stats
 from src.motivationalhetero.encoders import get_platform_type_encoder, PLATFORM_TYPES
 from src.placement.executor import execute_sim
 from src.placement.model import SimulationData, DataclassJSONEncoder
-from src.preprocessing import calculate_metrics_combined_by_platform_type
-from src.train import save_models, \
-    train_xgboost_model_reactive_then_proactive_per_device_type
+from src.preprocessing import create_inputs_outputs_seperated_per_app_windowed_per_device_type, \
+    calculate_metrics_combined_by_platform_type
+from src.train import train_model, train_model_reactive_then_proactive, save_models, \
+    train_model_reactive_then_proactive_per_device_type
 
 
 def save_results(results_folder, stats):
@@ -47,7 +50,7 @@ def save_results(results_folder, stats):
     plt.savefig(os.path.join(results_folder, "system_events.pdf"))
     plt.close()
     melted_df = system_events_df.melt(id_vars=['timestamp'], value_vars=[x for  x in PLATFORM_TYPES if x in system_events_df.columns],
-                        var_name='platform', value_name='pods_count')
+                                      var_name='platform', value_name='pods_count')
 
     # Plot
     plt.figure(figsize=(10, 6))
@@ -107,10 +110,8 @@ def save_stats(output_dir, rps, stats, infra, results_postfix):
     return results_folder
 
 
-def execute_reactive(base_dir, infra, workload_config, sim_input_path):
+def execute_reactive(base_dir, infrastructure, workload_config, sim_input_path):
     sim_inputs = load_simulation_inputs(sim_input_path)
-    with open(base_dir / f'motivational-infrastructures/{infra}.json', 'r') as fd:
-        infrastructure = json.load(fd)
 
     with open(workload_config, 'r') as fd:
         workload = json.load(fd)
@@ -136,7 +137,10 @@ def execute_reactive(base_dir, infra, workload_config, sim_input_path):
 
 
 def reactive_worker_function(args):
-    rep_idx, workload_config, config_idx, base_dir, infra, sim_input_path, output_dir, start_time = args
+    rep_idx, workload_config, config_idx, base_dir, platform, sim_input_path, output_dir, start_time, no_devices, platforms_per_device = args
+
+    infrastructure = create_homogeneous_infrastructure(platform, no_devices, platforms_per_device)
+
     stats = execute_reactive(base_dir, infra, workload_config, sim_input_path)
     return save_stats(output_dir, workload_config, stats, infra,
                       f'hetero-reactive/{start_time}/{str(rep_idx)}/{str(config_idx)}')
@@ -145,12 +149,14 @@ def reactive_worker_function(args):
 def main():
 
     output_dir = sys.argv[1]
-    infra = sys.argv[2]
+    platform = sys.argv[2]
     workload_config_file = sys.argv[3]
     repetitions = int(sys.argv[4])
     num_cores = int(sys.argv[5])
     region = sys.argv[6]
     fn = sys.argv[7]
+    no_devices = sys.argv[8]
+    platforms_per_device = sys.argv[9]
     os.makedirs(output_dir, exist_ok=True)
 
     with open(workload_config_file, 'r') as fd:
@@ -163,12 +169,12 @@ def main():
     base_dir = Path("data/nofs-ids")
     sim_input_path = Path("data/nofs-ids")
 
-    print(f'Loading infra {infra}, executing with {workload_config_file} using {num_cores} cores')
+    print(f'Creating infra with {platforms_per_device} {platform} per device {no_devices} in total, executing with {workload_config_file} using {num_cores} cores')
     start_time = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
 
     # Create all combinations of repetitions and RPS values
     work_items = [
-        (rep_idx, config, config_idx, base_dir, infra, sim_input_path, output_dir, start_time)
+        (rep_idx, config, config_idx, base_dir, platform, sim_input_path, output_dir, start_time, no_devices, platforms_per_device)
         for rep_idx in range(repetitions)
         for config_idx, config in enumerate(workload_configs)
     ]
@@ -188,7 +194,7 @@ def main():
 
     one_day_until = 172
     result_files = [f'{x}/peak-config.json' for x in result_folders[:1]]
-    models = train_xgboost_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, until=one_day_until, encoder=encoder)
+    models = train_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, until=one_day_until, encoder=encoder)
     dir_first_second = pathlib.Path(output_dir) / 'one_day'
     os.makedirs(dir_first_second, exist_ok=True)
     print('here')
@@ -196,21 +202,21 @@ def main():
 
     # first week training
     result_files = [f'{x}/peak-config.json' for x in result_folders[:1]]
-    models = train_xgboost_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
+    models = train_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
     dir_first_second = pathlib.Path(output_dir) / 'first'
     os.makedirs(dir_first_second, exist_ok=True)
     model_paths = save_models(models, dir_first_second)
 
     # first & second week training
     result_files = [f'{x}/peak-config.json' for x in result_folders[:2]]
-    models = train_xgboost_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
+    models = train_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
     dir_first_second = pathlib.Path(output_dir) / 'first_second'
     os.makedirs(dir_first_second, exist_ok=True)
     model_paths = save_models(models, dir_first_second)
 
     # first & second & third week training
     result_files = [f'{x}/peak-config.json' for x in result_folders[:3]]
-    models = train_xgboost_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
+    models = train_model_reactive_then_proactive_per_device_type(result_files, include_queue_length=False, test_size=test_size, encoder=encoder)
     dir_all = pathlib.Path(output_dir) / 'first_second_third'
     os.makedirs(dir_all, exist_ok=True)
     model_paths = save_models(models, dir_all)

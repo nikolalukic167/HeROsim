@@ -64,6 +64,12 @@ def save_results(results_folder, stats):
         app_definitions[task['applicationType']['name']] = list(task['applicationType']['dag'].keys())
 
     metrics = calculate_metrics_combined_by_platform_type(stats['applicationResults'], stats['systemEvents'], window_size=5, application_to_task_map=app_definitions)
+    with open(os.path.join(results_folder, "metrics.json"), "w") as outfile:
+        json.dump(metrics, outfile, indent=2, cls=DataclassJSONEncoder)
+
+    with open(os.path.join(results_folder, "app_definitions.json"), "w") as outfile:
+        json.dump(app_definitions, outfile, indent=2, cls=DataclassJSONEncoder)
+
     rows = []
     for function, platforms in metrics.items():
         for platform, windows in platforms.items():

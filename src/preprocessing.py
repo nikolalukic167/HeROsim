@@ -880,13 +880,13 @@ def create_train_test_split_per_windowed_per_device_type(inputs_outputs, test_si
         first = True
         # Process each device type for this task type
         for device_type, workload_counts in inputs_outputs[0][task_type].items():
-            if not first and device_type != 'xavierGpu':
-                continue
-            if first and device_type != 'xavierGpu':
-                # pod_counts = inputs_outputs[1][task_type][device_type][:2]
-                continue
-            else:
-                pod_counts = inputs_outputs[1][task_type][device_type]
+            # if not first and device_type != 'xavierGpu':
+            #     continue
+            # if first and device_type != 'xavierGpu':
+            #     pod_counts = inputs_outputs[1][task_type][device_type][:2]
+                # continue
+            # else:
+            pod_counts = inputs_outputs[1][task_type][device_type]
             first = False
 
 
@@ -1047,10 +1047,10 @@ def train_gpr_per_task(train_data, params=None):
         # Define kernel (RBF kernel is good for smooth functions)
         # kernel = ConstantKernel() * RBF()
         from sklearn.gaussian_process.kernels import Matern
-        kernel = ConstantKernel() * Matern(length_scale=1.0, nu=1.5)
+        kernel = ConstantKernel() * Matern(length_scale=1.0, nu=2)
 
         # Create and train the GP model
-        model = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10, alpha=1e-1 )
+        model = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=20, alpha=1e-1 )
 
         model.fit(X_train_scaled, y_train_scaled)
         models[task_type] = model

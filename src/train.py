@@ -123,6 +123,7 @@ def train_gpr_model_reactive_then_proactive_per_device_type(output_files, includ
                 train_data_sample, test_data_sample, encoder = create_train_test_split_per_windowed_per_device_type(
                     create_inputs_outputs_seperated_per_app_windowed_per_device_type(obj, window_size, app_definitions,
                                                                                      until), test_size, encoder=encoder)
+                pass
             else:
                 assert False
                 train_data_sample, test_data_sample = create_train_test_split_per_windowed_per_device_type(

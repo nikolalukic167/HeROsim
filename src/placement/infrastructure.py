@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import math
 
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple, Optional, TypedDict, Any
 
 from simpy.core import Environment, SimTime
 from simpy.resources.store import FilterStore, Store
@@ -45,6 +45,7 @@ from src.placement.model import (
     StorageType,
     TaskType,
     TaskResult,
+    IOVector,
 )
 
 
@@ -76,28 +77,15 @@ class Application:
         return f"Application {self.id} ({self.type['name']})"
 
     def result(self) -> ApplicationResult:
+        if not self.type or not self.tasks or not self.tasks[0].platform or not self.tasks[0].platform.type:
+            raise ValueError(f"Application {self.id} is missing required attributes")
+            
         # Application total time
         self.elapsed_time = sum(task.elapsed_time for task in self.tasks)
         self.pull_time = sum(task.pull_time for task in self.tasks)
         self.cold_start_time = sum(task.cold_start_time for task in self.tasks)
         self.execution_time = sum(task.execution_time for task in self.tasks)
         self.communications_time = sum(task.communications_time for task in self.tasks)
-
-        """
-        # FIXME: Store retrieval duration to avoid re-computing it
-        for task in self.tasks:
-            if task.node is None or task.platform is None:
-                raise KeyError(f"{task} has no Node or Platform")
-
-            retrieval_size: SizeGigabyte = task.type["imageSize"][
-                task.platform.type["shortName"]
-            ]
-            # retrieval_speed: SizeGigabyte = 1.25  # Gigabit link (10 Gbps = 1250 MB/s)
-            retrieval_speed: SpeedMBps = task.node.network["bandwidth"]
-            retrieval_duration = retrieval_size / (retrieval_speed / 1024)
-
-            self.pull_time += retrieval_duration if not task.cache_hit else 0.0
-        """
 
         # Penalty is True if application finished later than worst case response time
         # Application response time is the sum of the response time of its tasks
@@ -107,14 +95,8 @@ class Application:
             for task in self.tasks
         )
 
-        """
-        logging.error(f"Application elapsed time: {self.elapsed_time}")
-        logging.error(f"Application WCET: {tasks_wcet}")
-        logging.error(f"Penalty delta: {self.elapsed_time - tasks_wcet}")
-        """
-
         self.penalty = self.elapsed_time > tasks_wcet
-
+            
         return {
             "applicationId": self.id,
             "dispatchedTime": self.dispatched_time,
@@ -124,8 +106,8 @@ class Application:
             "executionTime": self.execution_time,
             "communicationsTime": self.communications_time,
             "penalty": self.penalty,
-            "type": self.type['name'],
-            "platform_type": self.tasks[0].platform.type['shortName']
+            "type": self.type["name"],
+            "platform_type": self.tasks[0].platform.type["shortName"]
         }
 
 
@@ -138,12 +120,39 @@ class Task:
         application: Application,
         dependencies: List[Task],
         policy: SimulationPolicy,
+        node_name: str
     ):
-        self.id = task_id
-        self.type = task_type
-        self.policy = policy
-
         self.env = env
+        self.id = task_id
+        self.type: TaskType = task_type
+        self.application = application
+        self.dependencies = dependencies
+        self.policy = policy
+        self.node_name = node_name
+        self.finished = False
+
+        # Timing metrics - using Optional for fields that start as None
+        self.dispatched_time: Optional[SimTime] = None
+        self.scheduled_time: Optional[SimTime] = None
+        self.arrived_time: Optional[SimTime] = None
+        self.started_time: Optional[SimTime] = None
+        self.done_time: Optional[SimTime] = None
+        self.pull_time: DurationSecond = 0.0
+        self.cold_start_time: DurationSecond = 0.0
+        self.execution_time: DurationSecond = 0.0
+        self.wait_time: DurationSecond = 0.0
+        self.queue_time: DurationSecond = 0.0
+        self.initialization_time: DurationSecond = 0.0
+        self.compute_time: DurationSecond = 0.0
+        self.communications_time: DurationSecond = 0.0
+        self.gnn_decision_time: DurationSecond = 0.0
+        self.construction_time: DurationSecond = 0.0
+
+        self.network_latency: DurationSecond = 0.0
+        self.source_node: str = node_name
+        self.execution_node: str = ""
+        self.execution_platform: str = ""
+
         self.run = env.process(self.task_process())
 
         self.node: Node | None = None
@@ -159,16 +168,6 @@ class Task:
         self.started = env.event()
         self.done = env.event()
 
-        self.application = application
-        self.dependencies = dependencies
-        self.finished = False
-
-        self.dispatched_time: SimTime
-        self.scheduled_time: SimTime
-        self.arrived_time: SimTime
-        self.started_time: SimTime
-        self.done_time: SimTime
-
         self.energy: EnergykWh = 0.0
         self.cold_started = False
         self.penalty = False
@@ -178,12 +177,7 @@ class Task:
 
         self.postponed_count: int = 0
 
-        self.wait_time: DurationSecond = 0.0
-        self.queue_time: DurationSecond = 0.0
-        self.initialization_time: DurationSecond = 0.0
-
         self.elapsed_time: DurationSecond = 0.0
-        self.pull_time: DurationSecond = 0.0
         self.cold_start_time: DurationSecond = 0.0
         self.execution_time: DurationSecond = 0.0
         self.compute_time: DurationSecond = 0.0
@@ -193,6 +187,9 @@ class Task:
         return f"Task {self.id} ({self.type['name']})"
 
     def __lt__(self, other: Task) -> bool:
+        if not self.type or not other.type or not self.application or not other.application:
+            return False
+
         policies: Dict[str, Callable[[], bool]] = {
             # First In, First Out
             "fifo": lambda: self.application.id < other.application.id,
@@ -202,15 +199,19 @@ class Task:
                 * self.application.qos["maxDurationDeviation"]
                 < max(other.type["executionTime"].values())
                 * other.application.qos["maxDurationDeviation"]
-                or self.dispatched_time < other.dispatched_time
-            ),
-            # Naive least penalty policy
-            "naive_least_penalty": lambda: (
-                self.dispatched_time < other.dispatched_time
+                if self.dispatched_time is not None and other.dispatched_time is not None
+                else self.dispatched_time is not None
             ),
         }
 
-        return policies[self.policy.priority.tasks]()
+        if not isinstance(self.policy, dict) or "name" not in self.policy:
+            return False
+            
+        policy_name = self.policy["name"]
+        if policy_name not in policies:
+            return False
+            
+        return policies[policy_name]()
 
     def task_process(self):
         yield self.dispatched
@@ -287,8 +288,17 @@ class Task:
 
     def result(self) -> TaskResult:
         # Null check
-        if self.node is None or self.platform is None:
-            raise KeyError(f"[ {self.env.now} ] {self} has no Node or Platform")
+        if (
+            self.dispatched_time is None
+            or self.scheduled_time is None
+            or self.arrived_time is None
+            or self.started_time is None
+            or self.done_time is None
+            or self.platform is None
+            or self.type is None
+            or self.application is None
+        ):
+            raise ValueError(f"Task {self.id} has not completed or is missing required attributes")
 
         return {
             "taskId": self.id,
@@ -300,7 +310,7 @@ class Task:
             "applicationType": self.application.type,
             "taskType": self.type,
             "platform": self.platform.type,
-            "elapsedTime": self.elapsed_time,
+            "elapsedTime": self.done_time - self.dispatched_time,
             "pullTime": self.pull_time,
             "coldStartTime": self.cold_start_time,
             "executionTime": self.execution_time,
@@ -314,6 +324,11 @@ class Task:
             "localDependencies": self.local_dependencies,
             "localCommunications": self.local_communications,
             "energy": self.energy,
+            "networkLatency": self.network_latency,
+            "sourceNode": self.node_name,
+            "executionNode": self.execution_node,
+            "executionPlatform": self.execution_platform,
+            "gnn_decision_time": self.gnn_decision_time,
         }
 
 
@@ -552,7 +567,7 @@ class Platform:
         self.cache_hits: int = 0
 
     def __repr__(self):
-        return f"Platform {self.id} ({self.type['name']})"
+        return f"Platform {self.id} ({self.type['name']}) on node {self.node.node_name}"
 
     def result(self) -> PlatformResult:
         idle_time = self.env.now - self.load_time
@@ -585,6 +600,18 @@ class Platform:
 
             # FIFO task selection in platform queue
             task: Task = yield self.queue.get()
+
+            if task.node_name != self.node.node_name and task.node and task.node.network_map:
+                # print("network map:", task.node.network_map)
+                network_time = self.node.network_map[task.node_name]
+                task.network_latency = network_time
+                # print("network_time: ", network_time)
+                yield self.env.timeout(network_time)
+
+            # todo: questionable if this should be here
+            # if task.gnn_decision_time:
+            #    yield self.env.timeout(task.gnn_decision_time)
+            #    print(f"task timeout in queue: GNN decision time for {task} is {task.gnn_decision_time} seconds")
 
             # Statistics (Task)
             task.cache_hit = after_initialize == before_initialize
@@ -790,19 +817,23 @@ class Node:
         memory: float,
         platforms: FilterStore,
         storage: FilterStore,
+        network_map: Dict[str, SpeedMBps],
         network: NetworkDescription,
         policy: SimulationPolicy,
         data: SimulationData,
-        node_type: str
+        node_type: str,
+        node_name: str
     ):
         self.id = node_id
         self.memory = memory
         self.platforms = platforms
         self.storage = storage
+        self.network_map = network_map
         self.network = network
         self.policy = policy
         self.data = data
         self.node_type = node_type
+        self.node_name = node_name
 
         self.env = env
 

@@ -1,0 +1,125 @@
+{
+  "pci": {
+    "rpi": {
+      "min": 0.3,
+      "max": 0.3,
+      "step": 0.1,
+      "specs": {
+        "node_name": "",
+        "network_map": {},
+        "memory": 8,
+        "platforms": [
+          "rpiCpu",
+          "rpiCpu",
+          "rpiCpu",
+          "rpiCpu"
+        ],
+        "storage": [
+          "flashCard",
+          "someRemote"
+        ]
+      }
+    },
+    "xavier": {
+      "min": 0.5,
+      "max": 0.5,
+      "step": 0.1,
+      "specs": {
+        "node_name": "",
+        "network_map": {},
+        "memory": 32,
+        "platforms": [
+          "xavierCpu",
+          "xavierCpu",
+          "xavierCpu",
+          "xavierCpu",
+          "xavierCpu",
+          "xavierCpu",
+          "xavierCpu",
+          "xavierCpu",
+          "xavierGpu",
+          "xavierDla"
+        ],
+        "storage": [
+          "eMMC",
+          "someRemote"
+        ]
+      }
+    },
+    "pyngFpga": {
+      "min": 0.2,
+      "max": 0.2,
+      "step": 0.1,
+      "specs": {
+        "node_name": "",
+        "network_map": {},
+        "memory": 0.5,
+        "platforms": [
+          "pynqFpga"
+        ],
+        "storage": [
+          "flashCard",
+          "someRemote"
+        ]
+      }
+    }
+  },
+  "wsc": {
+    "nofs-dnn1": {
+      "average": 125,
+      "min": 0.2,
+      "max": 3,
+      "step": 0.1
+    },
+    "nofs-dnn2": {
+      "average": 125,
+      "min": 0.2,
+      "max": 3,
+      "step": 0.1
+    }
+  },
+  "nodes": {
+    "client_nodes": {
+      "count": 30
+    },
+    "server_nodes": {
+      "count": 20
+    }
+  },
+  "nwc": {
+    "average": 100,
+    "min": 100,
+    "max": 100,
+    "step": 50
+  },
+  "network": {
+    "average": 100,
+    "min": 50,
+    "max": 150,
+    "step": 50,
+    "latency": {
+      "base_latency": 0.1,
+      "device_latencies": {
+        "rpi": {
+          "rpi": {"min": 0.05, "max": 0.15},
+          "xavier": {"min": 0.08, "max": 0.12},
+          "pyngFpga": {"min": 0.06, "max": 0.14}
+        },
+        "xavier": {
+          "rpi": {"min": 0.08, "max": 0.12},
+          "xavier": {"min": 0.03, "max": 0.07},
+          "pyngFpga": {"min": 0.08, "max": 0.12}
+        },
+        "pyngFpga": {
+          "rpi": {"min": 0.06, "max": 0.14},
+          "xavier": {"min": 0.08, "max": 0.12},
+          "pyngFpga": {"min": 0.05, "max": 0.15}
+        }
+      }
+    },
+    "topology": {
+      "type": "sparse",
+      "connection_probability": 0.85
+    }
+  }
+}

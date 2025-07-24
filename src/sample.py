@@ -73,7 +73,7 @@ def main():
     # Configuration
     input_prefix = "simulation_data/combinations_simple"
     output_prefix = "simulation_data/lhs_samples_simple"
-    n_samples = 8
+    n_samples = 1
     seed = 42
 
     try:

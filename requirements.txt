@@ -72,7 +72,7 @@ nest-asyncio==1.6.0
 notebook==7.3.2
 notebook_shim==0.2.4
 numpy==1.26.2
-nvidia-nccl-cu12==2.25.1
+nvidia-nccl-cu1
 overrides==7.7.0
 packaging==23.2
 pandas==2.2.3
@@ -133,3 +133,9 @@ websocket-client==1.8.0
 widgetsnbextension==4.0.13
 xgboost==2.1.4
 yarg==0.1.9
+skopt
+xgboost
+GPyOpt
+bayes_opt
+torch
+torch_geometric

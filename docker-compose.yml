@@ -4,9 +4,9 @@ services:
   herosim:
     build: .
     volumes:
-      - herosim_chart:/home/app/chart
-      - herosim_log:/home/app/log
-      - herosim_result:/home/app/result
+      - ./herosim_chart:/home/app/chart
+      - ./herosim_log:/home/app/log
+      - ./herosim_result:/home/app/result
 
 volumes:
   herosim_chart:

@@ -16,9 +16,11 @@ limitations under the License.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import statistics
 from abc import abstractmethod
+from collections import defaultdict
 from graphlib import TopologicalSorter
 from typing import Dict, Generator, List, Tuple, Type
 
@@ -40,10 +42,28 @@ from src.placement.model import (
     SimulationStats,
     TimeSeries,
     WorkloadEvent,
+    SystemStateResult,
 )
 from src.placement.scheduler import Scheduler
 
 
+def check_serializable(obj, path=""):
+    """Recursively check if an object is JSON serializable and log any issues."""
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if not isinstance(key, (str, int, float, bool, type(None))):
+                logging.error(f"Non-serializable key at {path}.{key}: {type(key)}")
+            check_serializable(value, f"{path}.{key}")
+    elif isinstance(obj, (list, tuple)):
+        for i, item in enumerate(obj):
+            check_serializable(item, f"{path}[{i}]")
+    elif isinstance(obj, (str, int, float, bool, type(None))):
+        pass  # These are serializable
+    else:
+        logging.error(f"Non-serializable value at {path}: {type(obj)} = {obj}")
+
+
+# todo: add network latency statistics
 class Orchestrator:
     def __init__(
             self,
@@ -86,6 +106,7 @@ class Orchestrator:
         self.application_archive: List[Application] = []
         self.task_archive: List[Task] = []
         self.trace_file = trace_file
+        self.system_state_results: List[SystemStateResult] = []  # Store system state snapshots
 
     def stats(self) -> SimulationStats:
         try:
@@ -234,8 +255,31 @@ class Orchestrator:
                     )
                 )
 
-        return {
-            "policy": self.policy,
+        # Calculate network statistics
+        average_network_latency = sum(
+            task_result["networkLatency"] for task_result in task_results
+        ) / len(task_results)
+
+        # Calculate per-node-pair latencies
+        node_pair_latencies = defaultdict(list)
+        for task_result in task_results:
+            if task_result["sourceNode"] != task_result["executionNode"]:
+                pair = (task_result["sourceNode"], task_result["executionNode"])
+                node_pair_latencies[pair].append(task_result["networkLatency"])
+
+        # don't touch this, this works and is used in the notebook
+        average_node_pair_latencies = {
+            f"{pair[0]}->{pair[1]}": sum(latencies)/len(latencies)
+            for pair, latencies in node_pair_latencies.items()
+        }
+
+        # Extract network topology from nodes
+        network_topology = {}
+        for node in self.nodes.items:
+            network_topology[node.node_name] = node.network_map
+
+        result = {
+            "policy": dataclasses.asdict(self.policy),
             "endTime": self.end_time,
             'traceFile': self.trace_file,
             "unusedPlatforms": unused_platforms * 100,
@@ -265,8 +309,22 @@ class Orchestrator:
             "nodeResults": node_results,
             "taskResults": task_results,
             "scaleEvents": self.autoscaler.scale_events,
-            "systemEvents": self.autoscaler.system_status_events
+            "systemEvents": self.autoscaler.system_status_events,
+            "averageNetworkLatency": average_network_latency,
+            "nodePairLatencies": average_node_pair_latencies,
+            "networkTopology": network_topology,
+            "offloadingRate": len([
+                task for task in task_results
+                if task["sourceNode"] != task["executionNode"]
+            ]) / len(task_results) * 100,
+            "systemStateResults": self.system_state_results,
         }
+        
+        # Debug: Check for non-serializable types
+        logging.info("Checking for non-serializable types in stats...")
+        check_serializable(result, "stats")
+        
+        return result
 
     def create_application(
             self, env: Environment, app_id: int, task_id: int, event: WorkloadEvent
@@ -302,6 +360,7 @@ class Orchestrator:
                 application=application,
                 dependencies=dependencies[function_name],
                 policy=self.policy,
+                node_name=event["node_name"]
             )
 
             task_id += 1
@@ -426,5 +485,9 @@ class Orchestrator:
         yield self.env.all_of([task.done for task in self.task_archive])
 
         # End simulation
+        # Capture final system state
+        system_state = yield self.mutex.get()
+        self.system_state_results.append(system_state.result(self.env.now))
+        yield self.mutex.put(system_state)
         self.end_time = self.env.now
         yield self.end_event.succeed()

@@ -1,0 +1,103 @@
+{
+  "nodes": [
+    {
+      "node_name": "node0",
+      "type": "rpi",
+      "network_map": {
+        "node1": 0.11536559524485109,
+        "node2": 0.12229151810575857,
+        "node3": 0.11554812591471934,
+        "node4": 0.10440930036713125
+      },
+      "memory": 8,
+      "platforms": [
+        "rpiCpu",
+        "rpiCpu",
+        "rpiCpu",
+        "rpiCpu"
+      ]
+    },
+    {
+      "node_name": "node1",
+      "type": "rpi",
+      "network_map": {
+        "node2": 0.09206144777492503
+      },
+      "memory": 8,
+      "platforms": [
+        "rpiCpu",
+        "rpiCpu",
+        "rpiCpu",
+        "rpiCpu"
+      ]
+    },
+    {
+      "node_name": "node2",
+      "type": "rpi",
+      "network_map": {
+        "node0": 0.07346724295756399,
+        "node4": 0.0914985118087414
+      },
+      "memory": 8,
+      "platforms": [
+        "rpiCpu",
+        "rpiCpu",
+        "rpiCpu",
+        "rpiCpu"
+      ]
+    },
+    {
+      "node_name": "node3",
+      "type": "xavier",
+      "network_map": {
+        "node2": 0.11713752152422667,
+        "node4": 0.03147320529995169,
+        "node5": 0.10886102824892982
+      },
+      "memory": 32,
+      "platforms": [
+        "xavierCpu",
+        "xavierCpu",
+        "xavierCpu",
+        "xavierCpu",
+        "xavierCpu",
+        "xavierCpu",
+        "xavierCpu",
+        "xavierCpu",
+        "xavierGpu",
+        "xavierDla"
+      ]
+    },
+    {
+      "node_name": "node4",
+      "type": "xavier",
+      "network_map": {
+        "node5": 0.08592179917886442
+      },
+      "memory": 32,
+      "platforms": [
+        "xavierCpu",
+        "xavierCpu",
+        "xavierCpu",
+        "xavierCpu",
+        "xavierCpu",
+        "xavierCpu",
+        "xavierCpu",
+        "xavierCpu",
+        "xavierGpu",
+        "xavierDla"
+      ]
+    },
+    {
+      "node_name": "node5",
+      "type": "pyngFpga",
+      "network_map": {
+        "node4": 0.09101130289808851
+      },
+      "memory": 0.5,
+      "platforms": [
+        "pynqFpga"
+      ]
+    }
+  ]
+}

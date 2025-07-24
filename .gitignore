@@ -173,3 +173,6 @@ cython_debug/
 # Workload traces
 /data/*/traces/*
 !/data/ids/traces/workload-83-600.json
+
+# Analysis with ipynb
+/analysis/

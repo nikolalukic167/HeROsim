@@ -450,6 +450,10 @@ class ProactiveParallelOptimizer:
         print(param_bounds)
         return param_bounds
 
+    # todo: nikola
+    # Convert the new reactive trace into graphs & labels.
+    # Fine-tune your GNN online (one or a few gradient steps).
+    # Plug the updated GNN back into the “proactive” simulation as above.
     def evaluate_parameters(self, state, models, **params):
         # We want to avoid parameters which sum is higher than 1
         total_prop = 0
@@ -514,6 +518,8 @@ class ProactiveParallelOptimizer:
         )
         return model
 
+    # todo: nikola
+    # next to .npy files, save any new graph-based datasets/updated GNN weights
     def save_optimization_results(self, output_dir: Path):
         """Save models and their improvement datasets."""
         output_dir.mkdir(parents=True, exist_ok=True)

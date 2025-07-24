@@ -2,6 +2,7 @@ import time
 
 import numpy as np
 
+from optimizer import run_proactive_simulation
 
 def optimize_parameters_pygopt(
         # def optimize_parameters(

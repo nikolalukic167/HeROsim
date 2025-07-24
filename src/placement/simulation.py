@@ -41,6 +41,9 @@ from src.placement.orchestrator import Orchestrator
 
 from src.placement.autoscaler import Autoscaler
 from src.placement.scheduler import Scheduler
+from src.policy.gnn.autoscaler import GNNAutoscaler
+from src.policy.gnn.orchestrator import GNNOrchestrator
+from src.policy.gnn.scheduler import GNNScheduler
 
 from src.policy.herofake.orchestrator import HROOrchestrator
 from src.policy.herofake.autoscaler import HROAutoscaler
@@ -88,10 +91,12 @@ def create_nodes(
             memory=node["memory"],
             platforms=platforms_store,
             storage=storage_store,
+            network_map=node["network_map"],
             network=infrastructure["network"],
             policy=simulation_policy,
             data=simulation_data,
-            node_type=node["type"]
+            node_type=node["type"],
+            node_name=node["node_name"]
         )
         nodes_store.put(current_node)
 
@@ -180,7 +185,8 @@ def start_simulation(
         "kn_rp": (KnativeOrchestrator, KnativeAutoscaler, RandomScheduler),
         "kn_bpff": (KnativeOrchestrator, KnativeAutoscaler, BPFFScheduler),
         "prokn_prokn": (ProactiveKnativeOrchestrator, ProactiveKnativeAutoscaler, ProactiveKnativeScheduler),
-        "prohetkn_prohetkn": (HeteroProactiveKnativeOrchestrator, HeteroProactiveKnativeAutoscaler, HeteroProactiveKnativeScheduler)
+        "prohetkn_prohetkn": (HeteroProactiveKnativeOrchestrator, HeteroProactiveKnativeAutoscaler, HeteroProactiveKnativeScheduler),
+        "gnn_gnn": (GNNOrchestrator, GNNAutoscaler, GNNScheduler)
     }
 
     # Retrieve relevant Autoscaler and Scheduler classes

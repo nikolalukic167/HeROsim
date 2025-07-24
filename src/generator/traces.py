@@ -15,7 +15,7 @@ limitations under the License.
 """
 import datetime
 import random
-from typing import List
+from typing import List, Dict
 
 import pandas as pd
 import seaborn as sns
@@ -128,8 +128,15 @@ def uniform_arrivals(min_rate: float, max_rate: float, duration: int) -> List[fl
 
 
 def generate_time_series(
-        data: SimulationData, rps: int, duration_time: int, pattern: str, app: str, pdf_path: str, peaks: List
+        data: SimulationData, rps: int, duration_time: int, pattern: str, apps: [], pdf_path: str, peaks: List, config: Dict = None
 ) -> TimeSeries:
+    # Load client count from config if provided, otherwise use default
+    if config and 'nodes' in config and 'client_nodes' in config['nodes']:
+        n_clients = config['nodes']['client_nodes']['count']
+    else:
+        n_clients = 30  # Default fallback
+    
+    client_ids = []
     # Generate Poisson process arrivals
     if peaks is not None:
         arrivals = generate_diurnal_pattern(requests_per_hour=60 * 60 * rps, peaks=peaks)
@@ -151,14 +158,27 @@ def generate_time_series(
         plot_pattern(arrival_times_datetime, 60, pdf_path)
 
     else:
-        arrivals = poisson_process(rps, duration_time)
+        # todo: nikola map arrival time to clients
+        arrivals_with_clients = []
+        for n in range(n_clients):
+            client_arrivals = poisson_process(rps + random.randint(-5, 5), duration_time)
+            offset = 0
+            if n != 0:
+                offset = random.uniform(0, 20)
+            arrivals_with_clients.extend((ts + offset, n) for ts in client_arrivals)
+
+        # Sort by arrival times
+        arrivals_with_clients.sort()
+        arrivals = [item[0] for item in arrivals_with_clients]
+        client_ids = [item[1] for item in arrivals_with_clients]
+
         arrival_times_datetime = [datetime.datetime.fromtimestamp(ts) for ts in arrivals]
         plot_pattern(arrival_times_datetime, 60, pdf_path)
 
     events: List[WorkloadEvent] = []
     qos_levels_per_app = {}
-    if app is not None:
-        app_types = [app]
+    if apps is not None:
+        app_types = apps
     else:
         app_types = data.application_types.keys()
 
@@ -169,27 +189,39 @@ def generate_time_series(
         qos_type: QoSType = data.qos_types[qos_type_name]
         qos_levels_per_app[str(application_type)] = qos_type
 
-    for timestamp in arrivals:
+    for i, timestamp in enumerate(arrivals):
         application_type_count: int = len(data.application_types)
+        """
         if app is not None:
 
             application_type_name: str = app
             application_type: ApplicationType = data.application_types[
                 application_type_name
             ]
+        """
+        # else:
+        application_type_index: int = random.randint(0, application_type_count - 1)
+        application_type_name: str = list(data.application_types)[
+            application_type_index
+        ]
+        application_type: ApplicationType = data.application_types[
+            application_type_name
+        ]
+        """
+        application_type_count: int = len(apps)
+        app_index = random.randint(0, application_type_count - 1)
+        application_type_name: str = apps[app_index]
+        application_type: ApplicationType = data.application_types[application_type_name]
+        """
+        if len(client_ids) > 0:
+            node_name = f"client_node{client_ids[i] % n_clients}"
         else:
-            application_type_index: int = random.randint(0, application_type_count - 1)
-            application_type_name: str = list(data.application_types)[
-                application_type_index
-            ]
-            application_type: ApplicationType = data.application_types[
-                application_type_name
-            ]
-
+            node_name = f"client_node{random.randint(0, n_clients - 1)}"
         workload_event: WorkloadEvent = {
             "timestamp": timestamp,
             "application": application_type,
             "qos": qos_levels_per_app[application_type_name],
+            "node_name": node_name
         }
 
         events.append(workload_event)
@@ -522,7 +554,7 @@ def plot_pattern(arrival_times_datetime, average_rolling_window_duration, pdf_pa
 
     # Count events per second by grouping
     events_per_second = pd.Series(arrival_times_series)
-    events_per_second = events_per_second.groupby(events_per_second.dt.floor('1S')).size()
+    events_per_second = events_per_second.groupby(events_per_second.dt.floor('1s')).size()
     # Calculate rolling average
     rolling_avg = events_per_second.rolling(window=average_rolling_window_duration, center=False).mean()
     # Plot both the events per second and the rolling average

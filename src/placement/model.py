@@ -171,6 +171,8 @@ class NodeDescription(TypedDict):
     platforms: List[str]
     storage: List[str]
     type: str
+    node_name: str
+    network_map: Dict[str, SpeedMBps]
 
 
 @final
@@ -255,6 +257,11 @@ class TaskResult(TypedDict):
     localDependencies: bool
     localCommunications: bool
     energy: EnergykWh
+    networkLatency: DurationSecond
+    sourceNode: str
+    executionNode: str
+    executionPlatform: str
+    gnn_decision_time: DurationSecond
 
 
 @final
@@ -293,6 +300,7 @@ class WorkloadEvent(TypedDict):
     timestamp: MomentSecond
     application: ApplicationType
     qos: QoSType
+    node_name: str
     # data: SizeByte
 
 
@@ -307,10 +315,11 @@ class TimeSeries(DataClassJsonMixin):
 @final
 class ScaleEvent(TypedDict):
     name: str
-    timestamp: MomentSecond
-    action: Literal["up"] | Literal["down"]
+    timestamp: SimTime
+    action: str
     count: int
     average_queue_length: float
+    platform_type: str
 
 @final
 class SystemEvent(TypedDict):
@@ -333,16 +342,67 @@ class SchedulerState:
     target_concurrencies: Dict[str, PlatformVector]
 
 
+@final
+class SystemStateResult(TypedDict):
+    timestamp: MomentSecond
+    scheduler_state: dict
+    available_resources: Dict[str, List[int]]  # node_name -> list of platform ids
+    replicas: Dict[str, List[List[str, int]]]  # task_type -> list of [node_name, platform_id]
+
+
 @dataclass
 class SystemState:
     scheduler_state: SchedulerState
     available_resources: Dict["Node", Set["Platform"]]
     replicas: Dict[str, Set[Tuple["Node", "Platform"]]]
 
+    def result(self, timestamp: MomentSecond = 0.0) -> SystemStateResult:
+        # Serialize scheduler_state as dict, converting tuple keys to strings
+        scheduler_state_dict = dataclasses.asdict(self.scheduler_state)
+        
+        # Convert tuple keys to strings in average_contention and panic_contention
+        if "average_contention" in scheduler_state_dict:
+            scheduler_state_dict["average_contention"] = {
+                task_type: {
+                    f"{node_id}_{platform_id}": value
+                    for (node_id, platform_id), value in contention_dict.items()
+                }
+                for task_type, contention_dict in scheduler_state_dict["average_contention"].items()
+            }
+        
+        if "panic_contention" in scheduler_state_dict:
+            scheduler_state_dict["panic_contention"] = {
+                task_type: {
+                    f"{node_id}_{platform_id}": value
+                    for (node_id, platform_id), value in contention_dict.items()
+                }
+                for task_type, contention_dict in scheduler_state_dict["panic_contention"].items()
+            }
+        
+        # Serialize available_resources: node_name -> [platform_id, ...]
+        available_resources_dict = {
+            node.node_name: [platform.id for platform in platforms]
+            for node, platforms in self.available_resources.items()
+        }
+        # Serialize replicas: task_type -> [[node_name, platform_id], ...] (lists, not tuples)
+        replicas_dict = {
+            task_type: [
+                [node.node_name, platform.id]
+                for node, platform in replica_set
+            ]
+            for task_type, replica_set in self.replicas.items()
+        }
+        return {
+            "timestamp": timestamp,
+            "scheduler_state": scheduler_state_dict,
+            "available_resources": available_resources_dict,
+            "replicas": replicas_dict,
+        }
+
 
 @final
 class SimulationStats(TypedDict):
-    policy: SimulationPolicy
+    policy: Dict[str, any]
     endTime: MomentSecond
     unusedPlatforms: float
     unusedNodes: float
@@ -356,6 +416,7 @@ class SimulationStats(TypedDict):
     averageInitializationTime: DurationSecond
     averageComputeTime: DurationSecond
     averageCommunicationsTime: DurationSecond
+    averageGNNDecisionTime: DurationSecond
     penaltyProportion: float
     coldStartProportion: float
     localDependenciesProportion: float
@@ -373,6 +434,11 @@ class SimulationStats(TypedDict):
     scaleEvents: List[ScaleEvent]
     traceFile: str
     systemEvents: List[SystemEvent]
+    averageNetworkLatency: DurationSecond
+    nodePairLatencies: Dict[str, DurationSecond]
+    networkTopology: Dict[str, Dict[str, DurationSecond]]  # node_name -> {other_node_name -> latency}
+    offloadingRate: float
+    systemStateResults: List[SystemStateResult]
 
 
 @final
@@ -453,7 +519,8 @@ scheduling_strategies: Dict[str, str] = {
     "kn_rp": "KN-RP",
     "kn_bpff": "KN-BPFF",
     "prokn_prokn": "PROKN-PROKN",
-    "prohetkn_prohetkn": "PROHETKN-PROHETKN"
+    "prohetkn_prohetkn": "PROHETKN-PROHETKN",
+    "gnn_gnn": "GNN-GNN"
 }
 
 cache_policies: Set[str] = {

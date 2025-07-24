@@ -20,7 +20,7 @@ import logging
 import math
 from abc import abstractmethod
 from collections import defaultdict
-from typing import Dict, Generator, List, Set, Tuple, TYPE_CHECKING
+from typing import Dict, Generator, List, Set, Tuple, TYPE_CHECKING, Optional, Union, Any
 
 from simpy.core import Environment, SimTime
 from simpy.events import Process
@@ -270,7 +270,8 @@ class Autoscaler:
             system_state: SystemState,
             function_name: str,
             hardware_target: str,
-    ):
+    ) -> Generator[Any, Any, Optional[Union[StopIteration, Tuple[Node, Platform]]]]:
+        """Scale down replicas for a given function"""
         # Get current function replicas
         function_replicas = system_state.replicas[function_name]
 
@@ -285,7 +286,22 @@ class Autoscaler:
         # Scale down
         for _ in range(count):
             replicas_count = len(function_replicas)
-            print('scale down')
+            print(f"[ {self.env.now} ] Attempting to scale down {function_name} (currently {replicas_count} replicas)")
+
+            """
+            # Check if we need to scale down based on queue length
+            avg_queue_length = sum(len(replica[1].queue.items) for replica in function_replicas) / len(function_replicas)
+            if avg_queue_length > self.policy.queue_length * 0.5:  # Only scale down if queue is less than 50% full
+                print(f"Cannot scale down {function_name} due to high queue utilization ({avg_queue_length:.2f})")
+                # return None
+
+            # Check if any tasks are currently running on replicas
+            tasks_running = any(len(replica[1].queue.items) > 0 for replica in function_replicas)
+            if tasks_running:
+                print(f"Cannot scale down {function_name} while tasks are running")
+                # return None
+            """
+
             removed_replica: Tuple[Node, Platform]
             removed_replica = yield self.env.process(
                 self.remove_replica(
@@ -294,12 +310,9 @@ class Autoscaler:
             )
 
             # Could not scale down (tasks in queue on all replicas)
-            if not removed_replica:
-                # Next step
-                return StopIteration(
-                    f"Autoscaler could not scale down {function_name} (currently"
-                    f" {replicas_count})"
-                )
+            # if not removed_replica:
+                # print(f"Autoscaler could not scale down {function_name} (currently {replicas_count})")
+                # return None
 
             logging.info(
                 f"[ {self.env.now} ] Autoscaler scaling down {function_name} (currently"
@@ -307,6 +320,7 @@ class Autoscaler:
             )
 
             logging.info(f"[ {self.env.now} ] {removed_replica}")
+            print(f"[ {self.env.now} ] removed: {removed_replica}")
 
             try:
                 # Remove replica from function replicas
@@ -349,40 +363,32 @@ class Autoscaler:
                         if function_replicas
                         else 0.0
                     ),
+                    "platform_type": removed_replica[1].type["shortName"]
                 }
                 self.scale_events.append(event)
+                return removed_replica
             except KeyError:
-                """
-                logging.error(
-                    f"[ {self.env.now} ] Autoscaler tried to scale down "
-                    f"{function_name}, but {removed_replica} was already removed"
+                logging.debug(
+                    f"[ {self.env.now} ] Replica {removed_replica} was already removed"
                 )
-
-                logging.error(
-                    f"[ {self.env.now} ] Last allocation time: "
-                    f"{removed_replica[1].last_allocated} "
-                    " -- Last removal time: "
-                    f"{removed_replica[1].last_removed}"
-                )
-
-                logging.error(
-                    f"[ {self.env.now} ] {system_state.available_resources}"
-                )
-                logging.error(
-                    f"{removed_replica[1].initialized} // {removed_replica[0].available_platforms}"
-                )
-                """
-                pass
+                return None
 
     @abstractmethod
     def scaling_level(
             self, system_state: SystemState, task_type: TaskType
-    ) -> Generator:
+    ) -> Generator[Any, Any, PlatformVector[float]]:
+        """Determine the scaling level for a task type"""
         pass
 
     @abstractmethod
     def create_first_replica(
             self, system_state: SystemState, task_type: TaskType
+    ) -> Generator:
+        pass
+
+    @abstractmethod
+    def create_first_replica_on_node(
+            self, system_state: SystemState, task_type: TaskType, node_name: str
     ) -> Generator:
         pass
 

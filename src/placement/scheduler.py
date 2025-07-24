@@ -24,7 +24,7 @@ from simpy.core import Environment
 from simpy.events import Process
 from simpy.resources.store import Store, FilterStore
 
-from typing import Dict, Generator, Set, Tuple, TYPE_CHECKING
+from typing import Dict, Generator, Set, Tuple, TYPE_CHECKING, List, Any, Optional
 
 if TYPE_CHECKING:
     from src.placement.infrastructure import Node, Platform, Task
@@ -54,6 +54,10 @@ class Scheduler:
 
         self.nodes = nodes
         self.tasks = PriorityFilterStore(env)
+        
+        # Optional GNN metrics tracking
+        self.gnn_metrics: Optional[Dict[str, Any]] = None
+        self.placement_decisions: Optional[List[Dict[str, Any]]] = None
 
     def scheduler_process(self):
         logging.info(
@@ -137,6 +141,8 @@ class Scheduler:
 
             # TODO: Node cache management?
 
+            # todo: nikola
+            # implement the network delay in the platform queue
             yield platform.queue.put(task)
             yield task.scheduled.succeed()
 

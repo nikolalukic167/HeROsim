@@ -1,0 +1,168 @@
+SystemState Structure Visualization
+====================================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              SystemState                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐  │
+│  │  scheduler_state│    │ available_resources │    │     replicas        │  │
+│  │                 │    │                     │    │                     │  │
+│  │ SchedulerState  │    │ Dict[Node, Set[     │    │ Dict[str, Set[      │  │
+│  │ {               │    │ Platform]]          │    │ Tuple[Node,         │  │
+│  │   target_concur-│    │                     │    │ Platform]]]         │  │
+│  │   rencies: {    │    │ Node1 → {P1, P2}    │    │                     │  │
+│  │     'dnn1': {   │    │ Node2 → {P3}        │    │ 'dnn1' → {          │  │
+│  │       'rpiCpu': │    │ client_node_1 → {P4}│    │   (Node1, P1),      │  │
+│  │       2,        │    │                     │    │   (Node1, P2),      │  │
+│  │       'xavierCpu│    │                     │    │   (Node2, P3)       │  │
+│  │       ': 3      │    │                     │    │ },                  │  │
+│  │     }           │    │                     │    │ 'dnn2' → {          │  │
+│  │   }             │    │                     │    │   (Node2, P3),      │  │
+│  │ }               │    │                     │    │   (client_node_1,   │  │
+│  └─────────────────┘    └─────────────────────┘    │   P4)               │  │
+│                                                     │ }                   │  │
+│                                                     └─────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Data Flow in GNN Scheduler:
+===========================
+
+Task Arrives
+    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 1. Get replicas for task type                                               │
+│    replicas[task.type["name"]] → Set[Tuple[Node, Platform]]                │
+└─────────────────────────────────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 2. Filter by network connectivity                                           │
+│    _filter_replicas_by_connectivity()                                       │
+│    Uses: node.network_map for connectivity                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 3. Extract features for each physical node                                  │
+│    _extract_physical_node_features_from_system()                           │
+│    Creates: 25 features per node                                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 4. Run GNN inference                                                        │
+│    gnn_model(x, edge_index, edge_attr)                                     │
+│    Output: composite scores for each node                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 5. Convert scores to weights                                                │
+│    _update_gnn_weights()                                                    │
+│    Creates: replica_weights[node_name] = weight                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 6. Weighted Round-Robin selection                                           │
+│    _select_replica_weighted_round_robin()                                   │
+│    Returns: (Node, Platform) tuple                                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 7. Place task on selected replica                                           │
+│    task.execution_node = selected_node.node_name                           │
+│    task.execution_platform = str(selected_platform.id)                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Node Structure Details:
+======================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Node {                                                                      │
+│   node_name: str                    # "node_1", "client_node_1"            │
+│   memory: SizeGigabyte             # Available memory (e.g., 8.0)          │
+│   platforms: List[Platform]        # All platforms on this node            │
+│   network_map: Dict[str, SpeedMBps] # Connectivity to other nodes          │
+│   storage: List[Storage]           # Storage resources                      │
+│ }                                                                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Platform Structure Details:
+==========================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ Platform {                                                                  │
+│   id: int                          # Unique platform ID (e.g., 1, 2, 3)    │
+│   type: PlatformType              # "rpiCpu", "xavierGpu", "xavierDla"     │
+│   queue: Queue[Task]              # Current task queue                     │
+│   current_task: Optional[Task]    # Currently executing task               │
+│   energy_consumption: EnergykWh   # Energy usage                           │
+│ }                                                                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+GNN Feature Extraction (25 features per node):
+==============================================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 1. Memory characteristics (2 features)                                      │
+│    - node_memory: float                                                     │
+│    - node_memory_tier: int (0, 1, or 2)                                    │
+│                                                                             │
+│ 2. Platform counts (5 features)                                             │
+│    - rpi_cpu_count: int                                                     │
+│    - xavier_cpu_count: int                                                  │
+│    - xavier_gpu_count: int                                                  │
+│    - xavier_dla_count: int                                                  │
+│    - pynq_fpga_count: int                                                   │
+│                                                                             │
+│ 3. Task execution performance (6 features)                                  │
+│    - min_execution_time: float                                              │
+│    - max_execution_time: float                                              │
+│    - avg_execution_time: float                                              │
+│    - min_cold_start: float                                                  │
+│    - max_cold_start: float                                                  │
+│    - avg_cold_start: float                                                  │
+│                                                                             │
+│ 4. I/O characteristics (4 features)                                         │
+│    - task_input_size: float (KB)                                            │
+│    - task_output_size: float (KB)                                           │
+│    - storage_read_speed: float                                              │
+│    - storage_write_speed: float                                             │
+│                                                                             │
+│ 5. Memory compatibility (2 features)                                        │
+│    - min_memory_required: float                                             │
+│    - max_memory_required: float                                             │
+│                                                                             │
+│ 6. Categorical encodings (6 features)                                       │
+│    - task_type_dnn1: int (0 or 1)                                           │
+│    - task_type_dnn2: int (0 or 1)                                           │
+│    - node_type_rpi: int (0 or 1)                                            │
+│    - node_type_xavier: int (0 or 1)                                         │
+│    - node_type_pynq: int (0 or 1)                                           │
+│    - is_client_node: int (0 or 1)                                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Network Topology Creation:
+==========================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ For each node pair (i, j):                                                  │
+│   if node_i.network_map contains node_j_name:                              │
+│     Create edge: [i, j]                                                     │
+│     Edge features: [network_latency, locality_indicator]                    │
+│                                                                             │
+│ Example network_map:                                                        │
+│   node_1.network_map = {                                                    │
+│     "node_2": 100.0,      # 100 MBps connection                            │
+│     "client_node_1": 50.0 # 50 MBps connection                             │
+│   }                                                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Key Insights:
+=============
+
+1. replicas contains all available (Node, Platform) pairs for each task type
+2. available_resources shows which platforms are currently free on each node
+3. GNN operates on physical nodes, not individual platforms
+4. Network topology comes from node.network_map for connectivity filtering
+5. Client nodes have special handling (no client-to-client offloading)
+6. Feature extraction happens at the node level, not platform level
+7. The scheduler uses cached weights for efficiency (updated every 10 seconds)
+8. Weighted Round-Robin provides load balancing with GNN intelligence 

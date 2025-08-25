@@ -686,7 +686,8 @@ def process_sample(args):
         task_priority = 'fifo'
         keep_alive = KEEP_ALIVE
         queue_length = QUEUE_LENGTH
-        scheduling_strategy = 'gnn_gnn'
+        # todo: change to gnn_gnn
+        scheduling_strategy = 'multiloop_multiloop'
         print("started simulation")
         result = execute_simulation(full_config, sim_inputs, scheduling_strategy,
                                     cache_policy=cache_policy, task_priority=task_priority, keep_alive=keep_alive, queue_length=queue_length)
@@ -772,7 +773,7 @@ def process_sample_proactive(args):
         }
 
         # Convert tuple keys to string
-        result = convert_tuple_keys_to_str(result)
+        # result = convert_tuple_keys_to_str(result)
 
         # Save result
         result_file = output_dir / f"simulation_{i + 1}.json"

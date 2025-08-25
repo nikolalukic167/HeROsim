@@ -67,6 +67,10 @@ from src.policy.random.scheduler import RandomScheduler
 
 from src.policy.bpff.scheduler import BPFFScheduler
 
+from src.policy.multiloop.orchestrator import MultiLoopOrchestrator
+from src.policy.multiloop.autoscaler import MultiLoopAutoscaler
+from src.policy.multiloop.scheduler import MultiLoopScheduler
+
 
 def create_nodes(
         env: Environment,
@@ -186,7 +190,8 @@ def start_simulation(
         "kn_bpff": (KnativeOrchestrator, KnativeAutoscaler, BPFFScheduler),
         "prokn_prokn": (ProactiveKnativeOrchestrator, ProactiveKnativeAutoscaler, ProactiveKnativeScheduler),
         "prohetkn_prohetkn": (HeteroProactiveKnativeOrchestrator, HeteroProactiveKnativeAutoscaler, HeteroProactiveKnativeScheduler),
-        "gnn_gnn": (GNNOrchestrator, GNNAutoscaler, GNNScheduler)
+        "gnn_gnn": (GNNOrchestrator, GNNAutoscaler, GNNScheduler),
+        "multiloop_multiloop": (MultiLoopOrchestrator, MultiLoopAutoscaler, MultiLoopScheduler)
     }
 
     # Retrieve relevant Autoscaler and Scheduler classes

@@ -299,49 +299,6 @@ class GNNScheduler(Scheduler):
     def _is_client_node(self, node_name: str) -> bool:
         """Check if a node is a client node based on its name."""
         return node_name.startswith('client_node')
-    
-    def _filter_replicas_by_connectivity(self, replicas: Set[Tuple[Node, Platform]], task: Task, 
-                                       network_topology: Dict[str, Dict[str, float]]) -> Set[Tuple[Node, Platform]]:
-        """
-        Filter replicas based on network connectivity.
-        
-        Args:
-            replicas: Set of available replicas
-            task: Task to be placed
-            network_topology: Network topology from infrastructure
-            
-        Returns:
-            Filtered set of replicas that are reachable from the source node
-        """
-        print("filter")
-        if not replicas:
-            return set()
-        
-        source_node = task.node_name
-        reachable_replicas = set()
-        
-        for node, platform in replicas:
-            target_node = node.node_name
-            
-            # Skip if same node (local execution)
-            if source_node == target_node:
-                reachable_replicas.add((node, platform))
-                continue
-            
-            # Prevent offloading between client nodes
-            if self._is_client_node(source_node) and self._is_client_node(target_node):
-                print(f"[R] Skipping replica on {target_node} - client nodes cannot offload to other client nodes")
-                continue
-            
-            # Check if there's a network path from source to target
-            if source_node in network_topology and target_node in network_topology[source_node]:
-                # Network connection exists
-                reachable_replicas.add((node, platform))
-            else:
-                # No network connection - skip this replica
-                print(f"[R] Skipping replica on {target_node} - no network path from {source_node}")
-
-        return reachable_replicas
 
     def _extract_wrr_gnn_features(self, system_state: SystemState, task: Task) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List, float]:
         """Extract features for WRR GNN using physical node approach with sparse connectivity"""
@@ -540,6 +497,40 @@ class GNNScheduler(Scheduler):
             print(f"[FALLBACK] Task {task.id} placed on node {task.execution_node} (shortest queue)")
             return best_replica
         # return None
+    
+    def _filter_replicas_by_connectivity(self, replicas: Set[Tuple[Node, Platform]], task: Task, 
+                                       network_topology: Dict[str, Dict[str, float]]) -> Set[Tuple[Node, Platform]]:
+        if not replicas:
+            return set()
+
+        source_node = task.node_name
+        reachable_replicas = set()
+
+        source_node = task.node_name
+        reachable_replicas = set()
+
+        for node, platform in replicas:
+            target_node = node.node_name
+            
+            # Skip if same node (local execution)
+            if source_node == target_node:
+                reachable_replicas.add((node, platform))
+                continue
+            
+            # Prevent offloading between client nodes
+            if self._is_client_node(source_node) and self._is_client_node(target_node):
+                # print(f"[R] Skipping replica on {target_node} - client nodes cannot offload to other client nodes")
+                continue
+            
+            # Check if there's a network path from source to target
+            if source_node in network_topology and target_node in network_topology[source_node]:
+                # Network connection exists
+                reachable_replicas.add((node, platform))
+            # else:
+                # No network connection - skip this replica
+                # print(f"[R] Skipping replica on {target_node} - no network path from {source_node}")
+
+        return reachable_replicas
 
     def placement(self, system_state: SystemState, task: Task) -> Generator[Any, Any, Optional[Tuple[Node, Platform]]]:
         """Place a task on a suitable platform using the specified experiment mode"""
@@ -554,10 +545,10 @@ class GNNScheduler(Scheduler):
         
         if task_type in self.current_replicas and self.current_replicas[task_type] != current_replica_set:
             # Replicas changed
-            time_since_change = self.env.now - self.last_replica_change_time
-            print(f"[REPLICA-CHANGE] {task_type} replicas changed after {time_since_change:.2f}s")
+            time_since_change = time.time() - self.last_replica_change_time
+            print(f"[REPLICA-CHANGE] {task_type} replicas changed after {time_since_change:.4f}s")
             print(f"[REPLICA-CHANGE] Old: {len(self.current_replicas[task_type])} replicas, New: {len(current_replica_set)} replicas")
-            self.last_replica_change_time = self.env.now
+            self.last_replica_change_time = time.time()
         
         self.current_replicas[task_type] = current_replica_set
         
@@ -567,7 +558,9 @@ class GNNScheduler(Scheduler):
             network_topology[node.node_name] = node.network_map
         
         # Filter replicas based on network connectivity and disallow client-to-client offloading
+        time_now = time.time()
         reachable_replicas = self._filter_replicas_by_connectivity(replicas, task, network_topology)
+        print("time needed to filter replicas: ", time.time() - time_now)
         
         if not reachable_replicas:
             print(f"[R] No reachable replicas for task {task.id} from {task.node_name}")

@@ -520,7 +520,8 @@ scheduling_strategies: Dict[str, str] = {
     "kn_bpff": "KN-BPFF",
     "prokn_prokn": "PROKN-PROKN",
     "prohetkn_prohetkn": "PROHETKN-PROHETKN",
-    "gnn_gnn": "GNN-GNN"
+    "gnn_gnn": "GNN-GNN",
+    "multiloop_multiloop": "MULTILOOP-MULTILOOP"
 }
 
 cache_policies: Set[str] = {

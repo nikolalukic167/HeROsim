@@ -176,3 +176,6 @@ cython_debug/
 
 # Analysis with ipynb
 /analysis/
+src/notebooks/data/results_sim/150-250-30-20-knative-3gb/simulation_1.json
+src/notebooks/data/results_sim/150-250-30-20-multiloop-3gb/simulation_1.json
+.gitignore

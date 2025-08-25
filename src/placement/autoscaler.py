@@ -286,7 +286,7 @@ class Autoscaler:
         # Scale down
         for _ in range(count):
             replicas_count = len(function_replicas)
-            print(f"[ {self.env.now} ] Attempting to scale down {function_name} (currently {replicas_count} replicas)")
+            # print(f"[ {self.env.now} ] Attempting to scale down {function_name} (currently {replicas_count} replicas)")
 
             """
             # Check if we need to scale down based on queue length
@@ -320,7 +320,8 @@ class Autoscaler:
             )
 
             logging.info(f"[ {self.env.now} ] {removed_replica}")
-            print(f"[ {self.env.now} ] removed: {removed_replica}")
+            if removed_replica:
+                print(f"[ {self.env.now} ] removed: {removed_replica}")
 
             try:
                 # Remove replica from function replicas

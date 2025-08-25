@@ -41,4 +41,7 @@ class KnativeScheduler(Scheduler):
             replicas, key=lambda couple: len(couple[1].queue.items)
         )
 
+        print(f"task: {task.id}")
+        print(f"bounded_concurrency: {bounded_concurrency}")
+
         return bounded_concurrency

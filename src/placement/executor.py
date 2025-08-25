@@ -24,7 +24,7 @@ def execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, polic
     #    models = load_models(model_locations)
     # Read time series
     time_series: TimeSeries = TimeSeries.from_dict(workload_trace)
-    print(f"Number of events in time series: {len(time_series.events)}")
+    print(f"Number of events in time series (tasks): {len(time_series.events)}")
     # Run simulation
     stats = start_simulation(simulation_data, simulation_policy, infrastructure, time_series, workload_trace_name, models)
     return stats

@@ -443,6 +443,7 @@ class Orchestrator:
         app_id = 0
         task_id = 0
 
+        # TODO: maybe pop more tasks at once here?
         while self.time_series.events:
             # Process workload events (FIFO)
             workload_event: WorkloadEvent = self.time_series.events.pop(0)

@@ -601,12 +601,19 @@ class Platform:
             # FIFO task selection in platform queue
             task: Task = yield self.queue.get()
 
-            # if task.node_name != self.node.node_name and task.node and task.node.network_map:
+            if task.node_name != self.node.node_name and task.node and task.node.network_map:
                 # print("network map:", task.node.network_map)
-            #    network_time = self.node.network_map[task.node_name]
-            #    task.network_latency = network_time
-            #    # print("network_time: ", network_time)
-            #    yield self.env.timeout(network_time)
+                print("node name:", task.node_name)
+                print("platform node name:", self.node.node_name)
+                if task.node_name in self.node.network_map:
+                    network_time = self.node.network_map[task.node_name]
+                    task.network_latency = network_time
+                    print(f"network_time for {task}: {network_time}")
+                    yield self.env.timeout(network_time)
+                else:
+                    print(f"no direct connection from {self.node.node_name} to {task.node_name}")
+                    import sys
+                    sys.exit(1)
 
             # todo: questionable if this should be here
             # if task.gnn_decision_time:

@@ -18,7 +18,9 @@ def execute_sim(simulation_data, infrastructure, cache_policy, keep_alive, polic
         keep_alive=keep_alive,
         queue_length=queue_length,
         short_name=scheduling_strategies[strategy],
-        reconcile_interval=reconcile_interval
+        reconcile_interval=reconcile_interval,
+        forced_placements=infrastructure.get('forced_placements') if isinstance(infrastructure, dict) else None,
+        forced_placements_sequence=infrastructure.get('forced_placements_sequence') if isinstance(infrastructure, dict) else None
     )
     # if models is None and model_locations is not None:
     #    models = load_models(model_locations)

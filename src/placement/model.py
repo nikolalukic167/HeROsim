@@ -190,6 +190,7 @@ class MinMax(TypedDict):
 class Infrastructure(TypedDict):
     network: NetworkDescription
     nodes: List[NodeDescription]
+    preinitialize_platforms: bool
 
 
 @final
@@ -288,6 +289,10 @@ class SimulationPolicy(DataClassJsonMixin):
     queue_length: int
     short_name: str
     reconcile_interval: int
+    # Optional forced placements: task_id -> (node_id, platform_id)
+    forced_placements: Dict[int, Tuple[int, int]] | None = None
+    # Optional sequential placements to use if IDs don't align
+    forced_placements_sequence: List[Tuple[int, int]] | None = None
 
     def __lt__(self, other: SimulationPolicy):
         return str(self) < str(other)
@@ -521,7 +526,8 @@ scheduling_strategies: Dict[str, str] = {
     "prokn_prokn": "PROKN-PROKN",
     "prohetkn_prohetkn": "PROHETKN-PROHETKN",
     "gnn_gnn": "GNN-GNN",
-    "multiloop_multiloop": "MULTILOOP-MULTILOOP"
+    "multiloop_multiloop": "MULTILOOP-MULTILOOP",
+    "determined_determined": "DETERMINED-DETERMINED"
 }
 
 cache_policies: Set[str] = {

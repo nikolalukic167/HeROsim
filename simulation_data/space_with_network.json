@@ -80,10 +80,10 @@
   },
   "nodes": {
     "client_nodes": {
-      "count": 30
+      "count": 10
     },
     "server_nodes": {
-      "count": 20
+      "count": 10
     }
   },
   "nwc": {
@@ -119,7 +119,35 @@
     },
     "topology": {
       "type": "sparse",
-      "connection_probability": 0.85
+      "connection_probability": 0.4,
+      "edges": [],
+      "seed": 42
     }
+  },
+  "preinit": {
+    "client_percentage": 0.4,
+    "server_percentage": 0.8,
+    "task_types": ["dnn1", "dnn2"],
+    "prioritize_workload_clients": true,
+    "prioritize_compatible_servers": true
+  },
+  "replicas": {
+    "dnn1": {
+      "per_server": 1,
+      "per_client": 1,
+      "min_connected_servers_per_client": 1
+    },
+    "dnn2": {
+      "per_server": 1,
+      "per_client": 1,
+      "min_connected_servers_per_client": 1
+    }
+  },
+  "startup_simulation": {
+    "simulate_contention": true,
+    "contention_threshold": 0.8,
+    "memory_fragmentation": 0.3,
+    "platform_utilization": 0.4,
+    "background_tasks": 5
   }
 }

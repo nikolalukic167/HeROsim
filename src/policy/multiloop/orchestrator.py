@@ -50,6 +50,31 @@ class MultiLoopOrchestrator(Orchestrator):
         replicas: Dict[str, Set[Tuple[Node, Platform]]] = {
             task_type: set() for task_type in self.data.task_types
         }
+        
+        # Todo: remove this after testing
+        # Seed initial replicas if provided
+        if self.initial_replicas:
+            print(f"\n=== Using {len(self.initial_replicas)} pre-seeded replica sets ===")
+            for task_type, replica_set in self.initial_replicas.items():
+                if task_type in replicas:
+                    replicas[task_type] = replica_set.copy()
+                    print(f"  {task_type}: {len(replica_set)} replicas")
+                    
+                    # Remove these platforms from available resources since they're now allocated
+                    for node, platform in replica_set:
+                        if node in available_resources and platform in available_resources[node]:
+                            available_resources[node].remove(platform)
+                            node.available_platforms -= 1
+                            # Allocate memory for this replica
+                            memory_required = self.data.task_types[task_type]["memoryRequirements"][platform.type["shortName"]]
+                            node.available_memory -= memory_required
+                            print(f"    Allocated {node.node_name}:{platform.id} for {task_type} (memory: {memory_required}GB)")
+                            
+                            # Initialize average_contention for this replica to prevent KeyError
+                            scheduler_state.average_contention[task_type][(node.id, platform.id)] = 0.0
+                            # print(f"    Initialized contention tracking for {node.node_name}:{platform.id}")
+            print("=== Initial replicas integrated ===\n")
+        
         system_state = MultiLoopSystemState(
             scheduler_state=scheduler_state,
             available_resources=available_resources,

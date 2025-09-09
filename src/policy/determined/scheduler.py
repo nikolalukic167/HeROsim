@@ -27,12 +27,19 @@ from src.placement.model import SystemState
 from src.placement.scheduler import Scheduler
 
 
-class MultiLoopScheduler(Scheduler):
+class DeterminedScheduler(Scheduler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Get batch size from policy or use default
-        self.batch_size = getattr(self.policy, 'batch_size', 5)  # Process 5 tasks at once by default
+        self.batch_size = getattr(self.policy, 'batch_size', 5)  # Process 10tasks at once by default
         self.batch_timeout = getattr(self.policy, 'batch_timeout', 0.1)  # Wait up to 0.1 seconds to fill batch
+        
+        # Get forced placements from infrastructure config if available
+        self.forced_placements = getattr(self.policy, 'forced_placements', None)
+        self.forced_placements_sequence = getattr(self.policy, 'forced_placements_sequence', None)
+        self._forced_index = 0
+        if self.forced_placements:
+            print(f"[ {self.env.now} ] DeterminedScheduler initialized with {len(self.forced_placements)} forced placements")
 
     def scheduler_process(self) -> Generator:
         # keep this for the simpy generator 
@@ -41,7 +48,7 @@ class MultiLoopScheduler(Scheduler):
 
         """Override to process multiple tasks simultaneously in batches"""
         print(
-            f"[ {self.env.now} ] MultiLoop Scheduler started with policy"
+            f"[ {self.env.now} ] Determined Scheduler started with policy"
             f" {self.policy} (batch_size={self.batch_size})"
         )
 
@@ -177,12 +184,36 @@ class MultiLoopScheduler(Scheduler):
 
 
 
-
     def placement(self, system_state: SystemState, task: Task) -> Generator[Any, Any, Optional[Tuple[Node, Platform]]]:
         # Scheduling functions called in a Simpy Process must be Generators
         # No-op as per https://stackoverflow.com/a/68628599/9568489
         if False:
             yield
+
+        # Check for forced placements first
+        if self.forced_placements and task.id in self.forced_placements:
+            forced_node_id, forced_platform_id = self.forced_placements[task.id]
+            print(f"[ {self.env.now} ] DEBUG: Using forced placement for task {task.id}: node {forced_node_id}, platform {forced_platform_id}")
+            
+            # Find the node and platform by ID
+            target_node = None
+            target_platform = None
+            
+            for node in self.nodes.items:
+                if node.id == forced_node_id:
+                    target_node = node
+                    for platform in node.platforms.items:
+                        if platform.id == forced_platform_id:
+                            target_platform = platform
+                            break
+                    break
+            
+            if target_node is not None and target_platform is not None:
+                print(f"[ {self.env.now} ] DEBUG: Found forced placement: {target_node.node_name}:{target_platform.id}")
+                return (target_node, target_platform)
+            else:
+                print(f"[ {self.env.now} ] ERROR: Forced placement not found: node {forced_node_id}, platform {forced_platform_id}")
+                # Fall back to normal placement
 
         replicas: Set[Tuple[Node, Platform]] = system_state.replicas[task.type["name"]]
 

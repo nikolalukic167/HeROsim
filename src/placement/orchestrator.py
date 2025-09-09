@@ -77,7 +77,8 @@ class Orchestrator:
             end_event: Event,
             trace_file: str,
             models=None,
-            device_type_mapping=None
+            device_type_mapping=None,
+            initial_replicas=None
     ):
         self.env = env
         self.mutex = Store(env, capacity=1)
@@ -86,10 +87,11 @@ class Orchestrator:
 
         self.time_series = time_series
         self.nodes = nodes
+        self.initial_replicas = initial_replicas or {}
 
         self.gateway: Process
         self.monitor: Process
-        if models is not None:
+        if models is not None and isinstance(models, dict) and len(models) > 0:
             self.autoscaler = autoscaler(self.env, self.mutex, self.data, self.policy, models)
         elif models is not None and device_type_mapping is not None:
             self.autoscaler = autoscaler(self.env, self.mutex, self.data, self.policy, models, device_type_mapping)

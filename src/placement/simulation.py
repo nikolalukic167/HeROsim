@@ -34,7 +34,8 @@ from src.placement.model import (
     Infrastructure,
     SimulationData,
     SimulationPolicy,
-    TimeSeries, SimulationStats,
+    TimeSeries,
+    SimulationStats,
 )
 
 from src.placement.orchestrator import Orchestrator
@@ -141,32 +142,24 @@ def create_nodes(
 def precreate_replicas(
         nodes: FilterStore,
         simulation_data: SimulationData,
-        infrastructure: Infrastructure,
         replica_plan: Dict[str, Any] | None = None
 ) -> Dict[str, Set[Tuple["Node", "Platform"]]]:
     """
-    CONFIGURATION-DRIVEN REPLICA CREATION:
-    Pre-create replicas for each task type based on configuration settings.
-    This ensures the scheduler has usable platforms and prevents crashes.
+    EXECUTE REPLICA CREATION:
+    Create replicas for each task type based on the provided replica plan.
+    This function focuses on execution, not decision-making.
     
     Args:
         nodes: All nodes in the simulation
         simulation_data: Task type and platform information
-        infrastructure: Infrastructure configuration
-        replica_plan: Replica placement plan from executeinitial.py (optional, falls back to infrastructure config)
-    
-    Configuration keys (if replica_plan not provided):
-    - preinit.clients: List of client nodes to preinitialize (or "all" or [])
-    - preinit.servers: List of server nodes to preinitialize (or "all" or [])
-    - preinit.task_types: List of task types to mark as warm (or "all")
-    - replicas: Per-task-type replica configuration
+        replica_plan: Replica placement plan from executecosimulation.py (preferred)
     
     PURPOSE:
+    - Executes the replica creation plan determined by executecosimulation.py
     - Ensures immediate task execution without waiting for autoscaling
-    - Configurable node selection for preinitialization
-    - Creates replicas according to configuration specifications
+    - Creates replicas according to the provided specifications
     """
-    print("\n=== Configuration-driven replica creation ===")
+    print("\n=== Executing replica creation ===")
     
     # Use replica_plan if provided, otherwise fall back to infrastructure config
     if replica_plan:
@@ -174,49 +167,24 @@ def precreate_replicas(
         preinit_servers = replica_plan['preinit_servers']
         preinit_task_types = replica_plan['preinit_task_types']
         replicas_config = replica_plan['replicas_config']
-        print("Using replica placement plan from executeinitial.py")
+        print("Using replica placement plan from executecosimulation.py")
     else:
-        # Get configuration from infrastructure (fallback)
-        preinit_config = infrastructure.get('preinit', {})
-        replicas_config = infrastructure.get('replicas', {})
-        
-        # Parse preinit configuration
-        preinit_clients = preinit_config.get('clients', [])
-        preinit_servers = preinit_config.get('servers', [])
-        preinit_task_types = preinit_config.get('task_types', [])
-
-        # If schema uses percentages, translate to lists
-        if not preinit_clients and 'client_percentage' in preinit_config:
-            all_clients = [node for node in infrastructure.get('nodes', []) if node.get('node_name', '').startswith('client_node')]
-            k = max(1, int(len(all_clients) * float(preinit_config.get('client_percentage', 0))))
-            preinit_clients = [n['node_name'] for n in all_clients[:k]]
-        if not preinit_servers and 'server_percentage' in preinit_config:
-            all_servers = [node for node in infrastructure.get('nodes', []) if not node.get('node_name', '').startswith('client_node')]
-            k = max(1, int(len(all_servers) * float(preinit_config.get('server_percentage', 0))))
-            preinit_servers = [n['node_name'] for n in all_servers[:k]]
-        
-        # Handle "all" values
-        if preinit_clients == "all":
-            preinit_clients = [f"client_node{i}" for i in range(10)]  # Default to 10 clients
-        if preinit_servers == "all":
-            preinit_servers = [f"node{i}" for i in range(10)]  # Default to 10 servers
-        if preinit_task_types == "all":
-            preinit_task_types = list(simulation_data.task_types.keys())
-        print("Using infrastructure configuration (fallback)")
-    
-    print(f"Preinit configuration:")
-    print(f"  Clients: {preinit_clients}")
-    print(f"  Servers: {preinit_servers}")
-    print(f"  Task types: {preinit_task_types}")
+        print("this should not happen in simulation.py")
+        sys.exit(1)
     
     # Get all nodes and their platforms
     all_nodes = list(nodes.items)
     server_nodes = [node for node in all_nodes if not node.node_name.startswith('client_node')]
     client_nodes = [node for node in all_nodes if node.node_name.startswith('client_node')]
     
+    """
     print(f"Available nodes:")
     print(f"  Server nodes: {[n.node_name for n in server_nodes]}")
     print(f"  Client nodes: {[n.node_name for n in client_nodes]}")
+    print(f"Replica plan:")
+    print(f"  preinit_servers: {preinit_servers}")
+    print(f"  preinit_clients: {preinit_clients}")
+    """
     
     # Track which platforms have been assigned to avoid double-booking
     assigned_platforms = set()
@@ -264,7 +232,7 @@ def precreate_replicas(
                         platform.initialized.succeed()
                         platform.previous_task = type('Task', (), {'type': {'name': task_type_name}})()
                         
-                        print(f"    Created replica on {node.node_name} ({platform.type['shortName']}) - Platform {platform.id}")
+                        # print(f"    Created replica on {node.node_name} ({platform.type['shortName']}) - Platform {platform.id}")
                         replicas_created += 1
         
         # Create client replicas (if requested)
@@ -296,105 +264,20 @@ def precreate_replicas(
                         platform.initialized.succeed()
                         platform.previous_task = type('Task', (), {'type': {'name': task_type_name}})()
                         
-                        print(f"    Created replica on {node.node_name} ({platform.type['shortName']}) - Platform {platform.id}")
+                        # print(f"    Created replica on {node.node_name} ({platform.type['shortName']}) - Platform {platform.id}")
                         replicas_created += 1
         
-        print(f"  Total replicas created: {len(initial_replicas[task_type_name])}")
+        # print(f"  Total replicas created: {len(initial_replicas[task_type_name])}")
     
     print(f"\n=== Replica creation complete ===")
     for task_type, replicas in initial_replicas.items():
         print(f"{task_type}: {len(replicas)} replicas")
+        # for replica in replicas:
+        #     node, platform = replica
+        #     print(f"  - {node.node_name}:{platform.id} ({platform.type['shortName']})")
     print(f"Total unique platforms assigned: {len(assigned_platforms)}")
     
     return initial_replicas
-
-
-def preflight_validation(
-        nodes: FilterStore,
-        simulation_data: SimulationData,
-        infrastructure: Infrastructure,
-        initial_replicas: Dict[str, Set[Tuple["Node", "Platform"]]]
-) -> bool:
-    """
-    PREFLIGHT VALIDATION:
-    Validate that the simulation configuration will not cause crashes.
-    
-    Checks:
-    1. Each task type has at least one replica
-    2. Each client with workload has connectivity to eligible replicas
-    3. Replica placement respects platform type constraints
-    
-    Returns:
-        True if validation passes, False if validation fails (with detailed error messages)
-    """
-    print("\n=== Preflight validation ===")
-    
-    # Get configuration
-    replicas_config = infrastructure.get('replicas', {})
-    
-    # Check 1: Each task type has at least one replica
-    print(f"\n1. Checking replica availability:")
-    for task_type_name in simulation_data.task_types:
-        replica_count = len(initial_replicas.get(task_type_name, set()))
-        print(f"  {task_type_name}: {replica_count} replicas")
-        
-        if replica_count == 0:
-            print(f"    ❌ ERROR: No replicas for {task_type_name} - simulation will crash!")
-            return False
-        else:
-            print(f"    ✅ OK: {replica_count} replicas available")
-    
-    # Check 2: Connectivity validation
-    print(f"\n2. Checking connectivity:")
-    all_nodes = list(nodes.items)
-    client_nodes = [node for node in all_nodes if node.node_name.startswith('client_node')]
-    
-    for task_type_name, replica_set in initial_replicas.items():
-        print(f"  Task type: {task_type_name}")
-        
-        # Get minimum required connected servers per client
-        min_connected = replicas_config.get(task_type_name, {}).get('min_connected_servers_per_client', 1)
-        print(f"    Minimum connected servers per client: {min_connected}")
-        
-        # Check each client's connectivity to eligible replicas
-        for client_node in client_nodes:
-            client_name = client_node.node_name
-            
-            # Count how many server replicas this client can reach
-            reachable_replicas = 0
-            for node, platform in replica_set:
-                if not node.node_name.startswith('client_node'):  # Server replica
-                    if client_name in node.network_map:
-                        reachable_replicas += 1
-            
-            print(f"    {client_name} -> {reachable_replicas} reachable server replicas")
-            
-            if reachable_replicas < min_connected:
-                print(f"      ❌ ERROR: Below minimum ({reachable_replicas} < {min_connected}) - simulation may fail!")
-    
-    # Check 3: Platform type constraints
-    print(f"\n3. Checking platform type constraints:")
-    for task_type_name, replica_set in initial_replicas.items():
-        task_type = simulation_data.task_types[task_type_name]
-        supported_platforms = set(task_type["platforms"])
-        
-        print(f"  {task_type_name}:")
-        print(f"    Supported platforms: {supported_platforms}")
-        
-        # Check each replica's platform type
-        for node, platform in replica_set:
-            platform_type = platform.type["shortName"]
-            if platform_type in supported_platforms:
-                print(f"      ✅ {node.node_name}:{platform.id} ({platform_type}) - compatible")
-            else:
-                print(f"      ❌ ERROR: {node.node_name}:{platform.id} ({platform_type}) - incompatible!")
-                return False
-    
-    print(f"\n=== Preflight validation PASSED ===")
-    return True
-
-
- 
 
 
 def start_simulation(
@@ -406,10 +289,6 @@ def start_simulation(
         models = None
 ) -> SimulationStats | None:
     # Logger
-    simulation_time = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-
-    # file_handler = logging.FileHandler(f"log/{simulation_time}.log")
-    # file_handler.setLevel(logging.DEBUG)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.ERROR)
 
@@ -436,20 +315,8 @@ def start_simulation(
     if infrastructure.get("preinitialize_platforms", False):
         # Accept optional replica plan embedded by executeinitial.py
         replica_plan = infrastructure.get('replica_plan')
-        initial_replicas = precreate_replicas(nodes, simulation_data, infrastructure, replica_plan)
-        
-        # Run preflight validation to ensure simulation won't crash
-        # if not preflight_validation(nodes, simulation_data, infrastructure, initial_replicas):
-        #    print("❌ Preflight validation failed! Simulation aborted.")
-        #    print("Please check your configuration and ensure:")
-        #    print("1. Each task type has at least one replica")
-        #    print("2. Clients have sufficient connectivity to server replicas")
-        #    print("3. Replica platforms are compatible with task types")
-        #    return None
+        initial_replicas = precreate_replicas(nodes, simulation_data, replica_plan)
 
-    # Validation of forced placements is handled in executecosimulation.py prior to execution
-
-    # TODO: Could be discovered at runtime
     policies: Dict[
         str, Tuple[Type[Orchestrator], Type[Autoscaler], Type[Scheduler]]
     ] = {

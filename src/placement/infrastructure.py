@@ -603,12 +603,12 @@ class Platform:
 
             if task.node_name != self.node.node_name and task.node and task.node.network_map:
                 # print("network map:", task.node.network_map)
-                print("node name:", task.node_name)
-                print("platform node name:", self.node.node_name)
+                # print("node name:", task.node_name)
+                # print("platform node name:", self.node.node_name)
                 if task.node_name in self.node.network_map:
                     network_time = self.node.network_map[task.node_name]
                     task.network_latency = network_time
-                    print(f"network_time for {task}: {network_time}")
+                    # print(f"network_time for {task}: {network_time}")
                     yield self.env.timeout(network_time)
                 else:
                     print(f"no direct connection from {self.node.node_name} to {task.node_name}")

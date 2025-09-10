@@ -16,6 +16,7 @@ limitations under the License.
 
 import logging
 import math
+import sys
 from typing import TYPE_CHECKING, Dict, Set, Tuple
 
 from src.policy.determined.model import DeterminedSchedulerState, DeterminedSystemState
@@ -35,7 +36,10 @@ class DeterminedOrchestrator(Orchestrator):
         # Pass forced placements to scheduler if available
         if self.infrastructure and 'forced_placements' in self.infrastructure:
             self.scheduler.forced_placements = self.infrastructure['forced_placements']
-            print(f"[ {self.env.now} ] DeterminedOrchestrator: Passed {len(self.infrastructure['forced_placements'])} forced placements to scheduler")
+            # print(f"[ {self.env.now} ] DeterminedOrchestrator: Passed {len(self.infrastructure['forced_placements'])} forced placements to scheduler")
+        else:
+            print(f"[ {self.env.now} ] DeterminedOrchestrator: No forced placements found in infrastructure")
+            sys.exit(1)
     
     def initialize_state(self) -> DeterminedSystemState:
         # Initialize scheduler state

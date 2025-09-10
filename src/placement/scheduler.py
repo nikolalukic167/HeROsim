@@ -58,6 +58,10 @@ class Scheduler:
         # Optional GNN metrics tracking
         self.gnn_metrics: Optional[Dict[str, Any]] = None
         self.placement_decisions: Optional[List[Dict[str, Any]]] = None
+        
+        # Forced placements (set by orchestrator for determined scheduling)
+        self.forced_placements: Optional[Dict[int, Tuple[int, int]]] = None
+        self.forced_placements_sequence: Optional[List[Tuple[int, int]]] = None
 
     def scheduler_process(self):
         logging.info(

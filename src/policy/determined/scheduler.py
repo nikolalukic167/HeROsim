@@ -33,13 +33,6 @@ class DeterminedScheduler(Scheduler):
         # Get batch size from policy or use default
         self.batch_size = getattr(self.policy, 'batch_size', 5)  # Process 10tasks at once by default
         self.batch_timeout = getattr(self.policy, 'batch_timeout', 0.1)  # Wait up to 0.1 seconds to fill batch
-        
-        # Get forced placements from infrastructure config if available
-        self.forced_placements = getattr(self.policy, 'forced_placements', None)
-        self.forced_placements_sequence = getattr(self.policy, 'forced_placements_sequence', None)
-        self._forced_index = 0
-        if self.forced_placements:
-            print(f"[ {self.env.now} ] DeterminedScheduler initialized with {len(self.forced_placements)} forced placements")
 
     def scheduler_process(self) -> Generator:
         # keep this for the simpy generator 
@@ -174,7 +167,7 @@ class DeterminedScheduler(Scheduler):
             # Node is released
             yield self.nodes.put(node)
             
-            print(f"[ {self.env.now} ] DEBUG: Completed task {task.id} in batch")
+            # print(f"[ {self.env.now} ] DEBUG: Completed task {task.id} in batch")
 
         # Release mutex after processing entire batch
         yield self.mutex.put(system_state)
@@ -209,11 +202,14 @@ class DeterminedScheduler(Scheduler):
                     break
             
             if target_node is not None and target_platform is not None:
-                print(f"[ {self.env.now} ] DEBUG: Found forced placement: {target_node.node_name}:{target_platform.id}")
+                # print(f"[ {self.env.now} ] DEBUG: Found forced placement: {target_node.node_name}:{target_platform.id}")
                 return (target_node, target_platform)
             else:
                 print(f"[ {self.env.now} ] ERROR: Forced placement not found: node {forced_node_id}, platform {forced_platform_id}")
-                # Fall back to normal placement
+                # CRITICAL: Do not fall back to normal placement - this would bypass the brute-force optimization
+                # Instead, return None to indicate placement failure, which should trigger proper error handling
+                print(f"[ {self.env.now} ] ERROR: Forced placement failed - simulation should abort to prevent invalid results")
+                return None
 
         replicas: Set[Tuple[Node, Platform]] = system_state.replicas[task.type["name"]]
 

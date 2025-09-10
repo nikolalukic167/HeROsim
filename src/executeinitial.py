@@ -506,7 +506,6 @@ def execute_simulation(
         task_types=sim_inputs['task_types'],
     )
 
-    print("execute_simulation")
     stats = execute_sim(simulation_data, config['infrastructure'], cache_policy, keep_alive, task_priority,
                         queue_length,
                         scheduling_strategy, config['workload'], 'workload-mine',

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from timeit import default_timer
-from typing import Generator, Set, Tuple, TYPE_CHECKING, List, Dict, Any, Optional
+from typing import Generator, Set, Tuple, TYPE_CHECKING, List, Dict, Any, Optional, cast
 
 if TYPE_CHECKING:
     from src.placement.infrastructure import Node, Platform, Task

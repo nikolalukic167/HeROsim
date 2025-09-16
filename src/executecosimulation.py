@@ -759,6 +759,8 @@ def generate_brute_force_placement_combinations(
     # Extract tasks from workload events and apply filtering rules
     tasks = []
     task_id = 0
+    # Determinism: count how many tasks the workload requires
+    expected_task_count = 0
     
     for event in workload_events:
         application = event['application']
@@ -772,6 +774,8 @@ def generate_brute_force_placement_combinations(
         else:
             task_type_names = []
         
+        expected_task_count += len(task_type_names)
+
         for task_type_name in task_type_names:
             if task_type_name not in task_types:
                 print(f"Warning: Task type {task_type_name} not found in task types")
@@ -824,8 +828,15 @@ def generate_brute_force_placement_combinations(
                 })
                 task_id += 1
             else:
-                print(f"Warning: No feasible platforms found for task {task_id} ({task_type_name})")
+                # Abort-on-infeasible-task: skip entire sample to keep runs fully determined
+                print(f"❌ Abort: No feasible platforms for workload task index {task_id} ({task_type_name}). Skipping this sample.")
+                return []
     
+    # Determinism check: ensure we have a placement decision for every workload task
+    if len(tasks) != expected_task_count:
+        print(f"this is shit and should not happen ❌ Abort: Determinism check failed. Expected {expected_task_count} tasks, built {len(tasks)} tasks. Skipping this sample.")
+        return []
+
     print(f"Found {len(tasks)} tasks with feasible placements")
     for task in tasks:
         print(f"  Task {task['task_id']} ({task['task_type']}): {len(task['feasible_platforms'])} feasible platforms")

@@ -179,3 +179,10 @@ cython_debug/
 src/notebooks/data/results_sim/150-250-30-20-knative-3gb/simulation_1.json
 src/notebooks/data/results_sim/150-250-30-20-multiloop-3gb/simulation_1.json
 .gitignore
+
+# logs
+logs/
+
+# gnn datasets
+simulation_data/gnn_datasets/
+simulation_data/initial_results_simple/

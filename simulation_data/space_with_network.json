@@ -131,19 +131,38 @@
   },
   "replicas": {
     "dnn1": {
-      "per_server": 1,
-      "per_client": 1
+      "per_server": 4,
+      "per_client": 4
     },
     "dnn2": {
-      "per_server": 1,
-      "per_client": 1
+      "per_server": 4,
+      "per_client": 4
     }
   },
   "startup_simulation": {
-    "simulate_contention": false,
+    "simulate_contention": true,
     "contention_threshold": 0.8,
     "memory_fragmentation": 0.3,
     "platform_utilization": 0.4,
-    "background_tasks": 5
+    "background_tasks": 5,
+    "runtime": {
+      "mode": "ou",
+      "tick": 0.5,
+      "duration_hint": 60,
+      "ou": {
+        "theta": 1.2,
+        "mu": 0.35,
+        "sigma": 0.20,
+        "x0": 0.25
+      },
+      "per_platform_type": {
+        "rpiCpu": { "slowdown": 1.25, "cold_start_boost": 1.30 },
+        "xavierCpu": { "slowdown": 1.00, "cold_start_boost": 1.10 },
+        "xavierGpu": { "slowdown": 0.85, "cold_start_boost": 1.05 },
+        "xavierDla": { "slowdown": 0.95, "cold_start_boost": 1.05 },
+        "pynqFpga": { "slowdown": 1.10, "cold_start_boost": 1.15 }
+      },
+      "burst": { "q_len": 3, "penalty": 0.15 }
+    }
   }
 }

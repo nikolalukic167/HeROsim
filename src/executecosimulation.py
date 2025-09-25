@@ -446,6 +446,12 @@ def prepare_simulation_config(
     if replica_plan is not None:
         infrastructure_config['replica_plan'] = replica_plan
 
+    # --- NEW: attach contention traces for runtime slowdowns ---
+    startup_cfg = original_config.get('startup_simulation', {})
+    # length hint: workload stats if available else fallback
+    sim_duration_hint = float(startup_cfg.get('runtime', {}).get('duration_hint', 60))
+    infrastructure_config['contention_traces'] = build_contention_traces(infrastructure_config['nodes'], startup_cfg, sim_duration_hint)
+
     return infrastructure_config
 
 
@@ -598,6 +604,77 @@ def calculate_resource_contention(
     
     # Ensure score is between 0.0 and 1.0
     return min(max(contention_score, 0.0), 1.0)
+
+
+def _gen_ou_trace(n_steps: int, x0: float, mu: float, theta: float, sigma: float) -> List[float]:
+    """Generate Ornstein-Uhlenbeck process trace for time-varying contention."""
+    import random
+    x = x0
+    out = []
+    for _ in range(n_steps):
+        # Euler-Maruyama discretization of OU: dx = theta*(mu-x)*dt + sigma*sqrt(dt)*N(0,1)
+        z = random.gauss(0, 1)
+        x = x + theta * (mu - x) + sigma * z
+        out.append(max(0.0, min(1.0, x)))
+    return out
+
+
+def build_contention_traces(nodes: List[Dict[str, Any]], startup_cfg: Dict[str, Any], sim_duration: float) -> Dict[str, Dict[int, List[float]]]:
+    """
+    Build time-varying contention traces for all platforms.
+    
+    Returns: { node_name: { platform_id: [score_t0, score_t1, ...] } }
+    score in [0..1]. tick size defined by startup_cfg['runtime']['tick'] (default 0.5s)
+    """
+    if not startup_cfg.get('simulate_contention', False):
+        return {}
+
+    rt = startup_cfg.get('runtime', {})
+    tick = float(rt.get('tick', 0.5))
+    n_steps = max(1, int(sim_duration / tick))
+    mode = rt.get('mode', 'static')
+    ou = rt.get('ou', {})
+    per_ptype = rt.get('per_platform_type', {})
+    base_mem = float(startup_cfg.get('memory_fragmentation', 0.0))
+    base_util = float(startup_cfg.get('platform_utilization', 0.0))
+    base_bg = float(startup_cfg.get('background_tasks', 0))
+
+    traces: Dict[str, Dict[int, List[float]]] = {}
+    pid = 0
+    import random
+
+    for n in nodes:
+        node_name = n['node_name']
+        traces[node_name] = {}
+        for ptype in n.get('platforms', []):
+            # baseline from static knobs (reuse existing weighting)
+            baseline = min(max(0.4*base_mem + 0.4*base_util + min(0.05*base_bg, 0.2), 0.0), 1.0)
+            if mode == 'static':
+                series = [baseline] * n_steps
+            elif mode == 'step':
+                # step up mid-sim to mimic bursts
+                series = [baseline]* (n_steps//2) + [min(1.0, baseline+0.25)]*(n_steps - n_steps//2)
+            else:
+                # 'ou' – mean-reverting noise around mu; weight baseline a bit
+                theta = float(ou.get('theta', 1.2))
+                mu = float(ou.get('mu', 0.35))
+                sigma = float(ou.get('sigma', 0.2))
+                x0 = float(ou.get('x0', 0.25))
+                series = _gen_ou_trace(n_steps, x0, mu, theta, sigma)
+                # blend with baseline mildly
+                series = [min(1.0, max(0.0, 0.7*s + 0.3*baseline)) for s in series]
+
+            traces[node_name][pid] = series
+            pid += 1
+
+    # carry through the tick & per_platform_type so runtime knows how to read/scale
+    traces['meta'] = {'tick': tick, 'per_platform_type': per_ptype, 'burst': rt.get('burst', {'q_len':3,'penalty':0.15})}
+    
+    # Debug: log trace generation
+    total_platforms = sum(len(node_traces) for node_traces in traces.values() if isinstance(node_traces, dict))
+    print(f"[CONTENTION] Generated traces for {total_platforms} platforms, mode={mode}, tick={tick}s")
+    
+    return traces
 
 
 def is_platform_feasible_with_contention(
@@ -1053,6 +1130,7 @@ def execute_brute_force_placement_optimization(
     print(f"Number of samples: {len(samples)}")
     print(f"Max workers: {max_workers}")
 
+    time_started = time.time()
     result_paths = []
     
     # Process each sample with multiple placement combinations
@@ -1122,25 +1200,67 @@ def execute_brute_force_placement_optimization(
                             apps,
                         )
                     )
-                
+
                 # Submit all tasks
                 future_to_placement = {
                     executor.submit(process_sample_with_placement, placement_tuple): placement_tuple 
                     for placement_tuple in placement_tuples
                 }
-                
-                # Collect results
+
+                # Keep only the best (by total RTT) per sample to save storage
+                last_saved_file: Optional[str] = None
+
+                def _total_rtt(path: str) -> float:
+                    try:
+                        with open(path, 'r') as f:
+                            data = json.load(f)
+                        stats = data.get('stats', {})
+                        task_results = stats.get('taskResults', [])
+                        if not task_results:
+                            return float('inf')
+                        return float(sum(tr.get('elapsedTime', 0) for tr in task_results))
+                    except Exception:
+                        return float('inf')
+
+                # Collect results: compare with last saved and delete worse
                 for future in concurrent.futures.as_completed(future_to_placement):
                     result_file = future.result()
-                    if result_file is not None:
-                        result_paths.append(str(result_file))
-            
-            print(f"Completed {len(placement_combinations)} simulations for sample {sample_idx + 1}")
+                    if result_file is None:
+                        continue
+
+                    current_path = str(result_file)
+                    if last_saved_file is None:
+                        last_saved_file = current_path
+                        continue
+
+                    cur_rtt = _total_rtt(current_path)
+                    prev_rtt = _total_rtt(last_saved_file)
+
+                    # Keep the better one; delete the worse to control storage
+                    if cur_rtt < prev_rtt:
+                        try:
+                            os.remove(last_saved_file)
+                        except Exception:
+                            pass
+                        last_saved_file = current_path
+                    else:
+                        try:
+                            os.remove(current_path)
+                        except Exception:
+                            pass
+
+                # Record the surviving best file for this sample
+                if last_saved_file is not None:
+                    result_paths.append(last_saved_file)
+
+            print(f"Completed {len(placement_combinations)} simulations for sample {sample_idx + 1} (kept 1 best file)")
             
         except Exception as e:
             print(f"Error processing sample {sample_idx + 1}: {str(e)}")
             continue
     
+    print(f"Elapsed time: {time.time() - time_started:.2f} seconds")
+
     print(f"\n=== Brute Force Placement Optimization Complete ===")
     print(f"Total result files generated: {len(result_paths)}")
     

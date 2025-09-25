@@ -109,15 +109,19 @@ def create_nodes(
         nodes_store.put(current_node)
 
         for name in node["platforms"]:
-            platforms_store.put(
-                Platform(
-                    env=env,
-                    platform_id=platform_id,
-                    platform_type=simulation_data.platform_types[name],
-                    node=current_node,
-                )
+            plat = Platform(
+                env=env,
+                platform_id=platform_id,
+                platform_type=simulation_data.platform_types[name],
+                node=current_node,
             )
-
+            # --- NEW: annotate for runtime contention ---
+            # A: slot for trace series & meta (populated later in start_simulation via infrastructure)
+            setattr(plat, "_contention_trace", None)
+            setattr(plat, "_contention_tick", 0.5)
+            setattr(plat, "_contention_scalars", {"slowdown": 1.0, "cold_start_boost": 1.0})
+            setattr(plat, "_burst_cfg", {"q_len": 3, "penalty": 0.15})
+            platforms_store.put(plat)
             platform_id += 1
 
         current_node.available_platforms = len(platforms_store.items)
@@ -309,6 +313,36 @@ def start_simulation(
         simulation_policy=simulation_policy,
         infrastructure=infrastructure,
     )
+
+    # --- NEW: bind contention traces from infra to platforms ---
+    ctraces = infrastructure.get("contention_traces", {}) or {}
+    meta = ctraces.get("_meta", {})
+    tick = float(meta.get("tick", 0.5))
+    per_ptype = meta.get("per_platform_type", {})
+    burst_cfg = meta.get("burst", {"q_len":3,"penalty":0.15})
+
+    # map node_name -> {platform_id -> series}
+    by_node = {k:v for k,v in ctraces.items() if k != "meta"}
+
+    # Debug: log trace binding
+    bound_count = 0
+    for node in list(nodes.items):
+        node_map = by_node.get(node.node_name, {})
+        for plat in node.platforms.items:
+            series = node_map.get(plat.id)
+            if series is not None:
+                plat._contention_trace = series
+                bound_count += 1
+            plat._contention_tick = tick
+            # scale factors by shortName (e.g., rpiCpu)
+            short = plat.type["shortName"]
+            scal = per_ptype.get(short, {"slowdown":1.0,"cold_start_boost":1.0})
+            plat._contention_scalars = {"slowdown": float(scal.get("slowdown",1.0)),
+                                        "cold_start_boost": float(scal.get("cold_start_boost",1.0))}
+            plat._burst_cfg = burst_cfg
+    
+    if bound_count > 0:
+        print(f"[CONTENTION] Bound traces to {bound_count} platforms")
 
     # Pre-create replicas for each task type based on configuration
     initial_replicas = {}

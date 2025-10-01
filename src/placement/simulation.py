@@ -316,7 +316,7 @@ def start_simulation(
 
     # --- NEW: bind contention traces from infra to platforms ---
     ctraces = infrastructure.get("contention_traces", {}) or {}
-    meta = ctraces.get("_meta", {})
+    meta = ctraces.get("meta", {})
     tick = float(meta.get("tick", 0.5))
     per_ptype = meta.get("per_platform_type", {})
     burst_cfg = meta.get("burst", {"q_len":3,"penalty":0.15})

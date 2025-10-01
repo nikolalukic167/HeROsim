@@ -539,26 +539,6 @@ def flatten_workloads(workloads: Dict[str, Dict]) -> Dict[str, Any]:
         "events": sorted_events
     }
 
-
-def validate_workload_nodes(workload_events: List[Dict], infrastructure_nodes: List[Dict]) -> None:
-    """Validate that all workload events reference valid infrastructure nodes."""
-    infrastructure_node_names = {node['node_name'] for node in infrastructure_nodes}
-    
-    invalid_nodes = set()
-    for event in workload_events:
-        node_name = event.get('node_name')
-        if node_name and node_name not in infrastructure_node_names:
-            invalid_nodes.add(node_name)
-    
-    if invalid_nodes:
-        print(f"Warning: Workload references non-existent nodes: {invalid_nodes}")
-        print(f"Available infrastructure nodes: {sorted(infrastructure_node_names)}")
-        workload_node_names = {event.get('node_name') for event in workload_events if event.get('node_name') is not None}
-        # Filter out None values before sorting
-        workload_node_names_filtered = {name for name in workload_node_names if name is not None}
-        print(f"Workload node names: {sorted(workload_node_names_filtered)}")
-
-
 def calculate_resource_contention(
         platform_info: Dict[str, Any],
         contention_config: Dict[str, Any]
@@ -1035,9 +1015,6 @@ def process_sample_with_placement(args):
             replica_plan=replica_plan,
             base_nodes=base_nodes,
         )
-
-        # Validate that workload nodes exist in infrastructure
-        validate_workload_nodes(flattened_workloads['events'], sim_config['nodes'])
 
         # Combine infrastructure and workload configurations
         full_config = {

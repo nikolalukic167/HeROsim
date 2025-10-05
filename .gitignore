@@ -183,6 +183,9 @@ src/notebooks/data/results_sim/150-250-30-20-multiloop-3gb/simulation_1.json
 # logs
 logs/
 
+# wandb
+src/wandb
+
 # gnn datasets
 simulation_data/gnn_datasets/
 simulation_data/initial_results_simple/

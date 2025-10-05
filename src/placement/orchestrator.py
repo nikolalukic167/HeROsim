@@ -114,9 +114,11 @@ class Orchestrator:
         try:
             application_results: List[ApplicationResult] = [
                 application.result() for application in self.application_archive
+                if not all(getattr(task, 'is_internal', False) for task in application.tasks)
             ]
             task_results: List[TaskResult] = [
                 task.result() for task in self.task_archive
+                # if not getattr(task, 'is_internal', False)
             ]
             node_results: List[NodeResult] = [
                 node.result() for node in self.nodes.items
@@ -386,6 +388,20 @@ class Orchestrator:
         system_state: SystemState = self.initialize_state()
         # Putting it all together...
         yield self.mutex.put(system_state)
+
+        # Register any precreated warmup tasks so they can appear in logs/stats
+        try:
+            for node in self.nodes.items:
+                for plat in node.platforms.items:
+                    if hasattr(plat, '_warmup_tasks'):
+                        for t in plat._warmup_tasks:
+                            # Archive task and its pseudo-application
+                            if t.application not in self.application_archive:
+                                self.application_archive.append(t.application)
+                            if t not in self.task_archive:
+                                self.task_archive.append(t)
+        except Exception:
+            pass
 
         # Begin orchestration
         self.gateway = self.env.process(self.gateway_process())

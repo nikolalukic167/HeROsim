@@ -87,16 +87,6 @@ class DeterminedScheduler(Scheduler):
     def _process_task_batch(self, batch_tasks: List[Task]) -> Generator:
         """Process multiple tasks simultaneously in a single operation"""
         print(f"[ {self.env.now} ] DEBUG: Processing {len(batch_tasks)} tasks in batch")
-        # DEBUG: dump current per-platform queue status including internal (prewarm) tasks
-        try:
-            for node in self.nodes.items:
-                for plat in node.platforms.items:
-                    q_len = len(plat.queue.items)
-                    if q_len > 0:
-                        internal = sum(1 for t in plat.queue.items if getattr(t, 'is_internal', False))
-                        print(f"[ {self.env.now} ] DEBUG: Platform {plat.id}@{node.node_name} q_len={q_len} internal={internal}")
-        except Exception:
-            pass
         
         # Get system state once for all tasks
         system_state: SystemState = yield self.mutex.get()
@@ -162,7 +152,54 @@ class DeterminedScheduler(Scheduler):
             )
             task.platform = platform
 
-            # contention-based pre-exec delay removed; rely on queues and warmth only
+            # --- NEW: contention-based pre-exec delay shim ---
+            # Read time-varying contention score s(t) in [0..1]
+            def _score_from_trace(plat, now):
+                series = getattr(plat, "_contention_trace", None)
+                tick = getattr(plat, "_contention_tick", 0.5)
+                if not series:
+                    return 0.0
+                idx = int(now // tick)
+                if idx < 0:
+                    idx = 0
+                if idx >= len(series):
+                    idx = len(series) - 1
+                return float(series[idx])
+
+            s = _score_from_trace(platform, self.env.now)
+
+            # scale factors (per platform type)
+            scal = getattr(platform, "_contention_scalars", {"slowdown":1.0,"cold_start_boost":1.0})
+            burst_cfg = getattr(platform, "_burst_cfg", {"q_len":3,"penalty":0.15})
+            base_slow = float(scal.get("slowdown", 1.0))
+            base_cold = float(scal.get("cold_start_boost", 1.0))
+
+            # heuristic: translate s into slowdown multiplier
+            # - cold starts cost more under contention
+            # - steady compute also slows (slightly less)
+            cold_mult = 1.0 + s * (base_cold - 1.0 + 0.6)   # ensures effect even if base=1.0
+            comp_mult = 1.0 + s * (base_slow - 1.0 + 0.4)
+
+            # optional burst penalty: extra delay if queue already long and s high
+            q_len = len(platform.queue.items)
+            q_thr = int(burst_cfg.get("q_len", 3))
+            burst_pen = float(burst_cfg.get("penalty", 0.15))
+            burst_mult = 1.0 + (max(0, q_len - q_thr) * burst_pen * s)
+
+            # convert multipliers to a pre-enqueue delay (seconds)
+            # note: we can't modify Platform's internal service time, so we inject a realistic staging delay
+            # choose scale so 0.5 contention yields modest slowdowns
+            pre_delay = 0.0
+            # cold-start hint: if platform not warm for this task type, use higher delay
+            is_warm = hasattr(platform, "previous_task") and getattr(platform.previous_task, "type", {}).get("name") == task.type["name"]
+            if not is_warm:
+                pre_delay += 0.015 * cold_mult * (1.0 + 0.5 * s)
+            # steady compute staging delay (e.g., throttling / background interrupts)
+            pre_delay += 0.008 * comp_mult * burst_mult
+
+            if pre_delay > 0:
+                # print(f"[CONTENTION] Task {task.id} delay: {pre_delay:.3f}s (s={s:.2f}, warm={is_warm}, q={q_len})")
+                yield self.env.timeout(pre_delay)
 
             # End wall-clock time measurement
             end = default_timer()
@@ -222,10 +259,7 @@ class DeterminedScheduler(Scheduler):
                 # Instead, return None to indicate placement failure, which should trigger proper error handling
                 print(f"[ {self.env.now} ] ERROR: Forced placement failed - simulation should abort to prevent invalid results")
                 return None
-        import sys
-        print(f"[ {self.env.now} ] DEBUG: Exiting because no forced placement found")
-        sys.exit(1)
-        """
+
         replicas: Set[Tuple[Node, Platform]] = system_state.replicas[task.type["name"]]
 
         # Get valid replicas: task's source node + server nodes
@@ -247,7 +281,6 @@ class DeterminedScheduler(Scheduler):
         print(f"bounded_concurrency: {bounded_concurrency}")
 
         return bounded_concurrency
-        """
 
     def _get_valid_replicas(self, replicas: Set[Tuple[Node, Platform]], task: Task) -> List[Tuple[Node, Platform]]:
         """Get valid replicas: task's source node + server nodes with network connectivity"""

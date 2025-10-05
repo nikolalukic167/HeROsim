@@ -36,6 +36,16 @@ class KnativeScheduler(Scheduler):
 
         replicas: Set[Tuple[Node, Platform]] = system_state.replicas[task.type["name"]]
 
+        # DEBUG: dump current per-platform queue status including internal (prewarm) tasks
+        try:
+            for node, plat in replicas:
+                q_len = len(plat.queue.items)
+                if q_len > 0:
+                    internal = sum(1 for t in plat.queue.items if getattr(t, 'is_internal', False))
+                    print(f"[ {self.env.now} ] DEBUG: Platform {plat.id}@{node.node_name} q_len={q_len} internal={internal}")
+        except Exception:
+            pass
+
         # Least Connected
         bounded_concurrency = min(
             replicas, key=lambda couple: len(couple[1].queue.items)

@@ -24,7 +24,7 @@ import sys
 from datetime import datetime
 from typing import Dict, Tuple, Type, Set, Any, List
 
-from src.placement.infrastructure import Node, Platform, Storage
+from src.placement.infrastructure import Node, Platform, Storage, Application, Task
 
 from simpy.core import Environment
 from simpy.resources.store import FilterStore
@@ -36,6 +36,8 @@ from src.placement.model import (
     SimulationPolicy,
     TimeSeries,
     SimulationStats,
+    ApplicationType,
+    QoSType,
 )
 
 from src.placement.orchestrator import Orchestrator
@@ -146,7 +148,9 @@ def create_nodes(
 def precreate_replicas(
         nodes: FilterStore,
         simulation_data: SimulationData,
-        replica_plan: Dict[str, Any] | None = None
+        replica_plan: Dict[str, Any] | None = None,
+        env: Environment | None = None,
+        simulation_policy: SimulationPolicy | None = None
 ) -> Dict[str, Set[Tuple["Node", "Platform"]]]:
     """
     EXECUTE REPLICA CREATION:
@@ -171,6 +175,7 @@ def precreate_replicas(
         preinit_servers = replica_plan['preinit_servers']
         preinit_task_types = replica_plan['preinit_task_types']
         replicas_config = replica_plan['replicas_config']
+        prewarm_config = replica_plan.get('prewarm_config', {})
         print("Using replica placement plan from executecosimulation.py")
     else:
         print("this should not happen in simulation.py")
@@ -236,6 +241,20 @@ def precreate_replicas(
                         platform.initialized.succeed()
                         platform.previous_task = type('Task', (), {'type': {'name': task_type_name}})()
                         
+                        # Create warmup tasks if configured and environment/policy available
+                        if env and simulation_policy and prewarm_config:
+                            task_prewarm = prewarm_config.get(task_type_name, {})
+                            initial_queue = task_prewarm.get('initial_queue', 0)
+                            if initial_queue > 0:
+                                warmup_tasks = create_warmup_tasks(
+                                    env, platform, task_type_name, simulation_data, 
+                                    simulation_policy, initial_queue
+                                )
+                                # Enqueue warmup tasks to the platform
+                                for warmup_task in warmup_tasks:
+                                    platform.queue.put(warmup_task)
+                                print(f"    Enqueued {len(warmup_tasks)} warmup tasks to {node.node_name}:{platform.id}")
+                        
                         # print(f"    Created replica on {node.node_name} ({platform.type['shortName']}) - Platform {platform.id}")
                         replicas_created += 1
         
@@ -268,6 +287,20 @@ def precreate_replicas(
                         platform.initialized.succeed()
                         platform.previous_task = type('Task', (), {'type': {'name': task_type_name}})()
                         
+                        # Create warmup tasks if configured and environment/policy available
+                        if env and simulation_policy and prewarm_config:
+                            task_prewarm = prewarm_config.get(task_type_name, {})
+                            initial_queue = task_prewarm.get('initial_queue', 0)
+                            if initial_queue > 0:
+                                warmup_tasks = create_warmup_tasks(
+                                    env, platform, task_type_name, simulation_data, 
+                                    simulation_policy, initial_queue
+                                )
+                                # Enqueue warmup tasks to the platform
+                                for warmup_task in warmup_tasks:
+                                    platform.queue.put(warmup_task)
+                                print(f"    Enqueued {len(warmup_tasks)} warmup tasks to {node.node_name}:{platform.id}")
+                        
                         # print(f"    Created replica on {node.node_name} ({platform.type['shortName']}) - Platform {platform.id}")
                         replicas_created += 1
         
@@ -282,6 +315,93 @@ def precreate_replicas(
     print(f"Total unique platforms assigned: {len(assigned_platforms)}")
     
     return initial_replicas
+
+
+def create_warmup_tasks(
+        env: Environment,
+        platform: Platform,
+        task_type_name: str,
+        simulation_data: SimulationData,
+        simulation_policy: SimulationPolicy,
+        count: int
+) -> List[Task]:
+    """
+    Create warmup tasks for a platform to prefill its queue.
+    
+    Args:
+        env: SimPy environment
+        platform: Platform to create warmup tasks for
+        task_type_name: Name of the task type
+        simulation_data: Simulation data containing task types, application types, QoS types
+        simulation_policy: Simulation policy
+        count: Number of warmup tasks to create
+    
+    Returns:
+        List of created warmup tasks
+    """
+    if count <= 0:
+        return []
+    
+    warmup_tasks = []
+    task_type = simulation_data.task_types[task_type_name]
+    
+    # Find an application type that uses this task type
+    application_type = None
+    for app_type in simulation_data.application_types.values():
+        if task_type_name in app_type.get('dag', {}):
+            application_type = app_type
+            break
+    
+    if not application_type:
+        # Fallback to first application type if none found
+        application_type = list(simulation_data.application_types.values())[0]
+    
+    # Use medium QoS as default
+    qos_type = simulation_data.qos_types.get('medium', list(simulation_data.qos_types.values())[0])
+    
+    for i in range(count):
+        # Create a lightweight application for the warmup task
+        warmup_app = Application(
+            id=-1000 - i,  # Negative ID to distinguish from real applications
+            dispatched_time=0.0,
+            application_type=application_type,
+            qos_type=qos_type,
+            tasks=[]  # Will be set after task creation
+        )
+        
+        # Create the warmup task
+        warmup_task = Task(
+            env=env,
+            task_id=-1000 - i,  # Negative ID to distinguish from real tasks
+            task_type=task_type,
+            application=warmup_app,
+            dependencies=[],
+            policy=simulation_policy,
+            node_name=platform.node.node_name
+        )
+        
+        # Mark as internal warmup task
+        setattr(warmup_task, 'is_internal', True)
+        
+        # Set up the task for execution
+        warmup_task.node = platform.node
+        warmup_task.platform = platform
+        
+        # Trigger events to allow task_process to advance
+        warmup_task.dispatched.succeed()
+        warmup_task.scheduled.succeed()
+        
+        # Add to application's task list
+        warmup_app.tasks = [warmup_task]
+        
+        # Attach to platform for orchestrator to discover later
+        if not hasattr(platform, '_warmup_tasks'):
+            setattr(platform, '_warmup_tasks', [])
+        platform._warmup_tasks.append(warmup_task)
+
+        warmup_tasks.append(warmup_task)
+    
+    return warmup_tasks
 
 
 def start_simulation(
@@ -349,7 +469,7 @@ def start_simulation(
     if infrastructure.get("preinitialize_platforms", False):
         # Accept optional replica plan embedded by executeinitial.py
         replica_plan = infrastructure.get('replica_plan')
-        initial_replicas = precreate_replicas(nodes, simulation_data, replica_plan)
+        initial_replicas = precreate_replicas(nodes, simulation_data, replica_plan, env, simulation_policy)
 
     policies: Dict[
         str, Tuple[Type[Orchestrator], Type[Autoscaler], Type[Scheduler]]

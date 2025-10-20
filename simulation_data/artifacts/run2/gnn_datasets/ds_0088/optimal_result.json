@@ -1,0 +1,6577 @@
+{
+  "status": "success",
+  "config": {
+    "infrastructure": {
+      "network": {
+        "bandwidth": 100.0
+      },
+      "nodes": [
+        {
+          "node_name": "client_node0",
+          "network_map": {
+            "node1": 0.09100117273476477,
+            "node2": 0.118917697133121,
+            "node5": 0.09375374557482163,
+            "node6": 0.07186379748036034,
+            "node8": 0.07590701205493189
+          },
+          "memory": 8,
+          "platforms": [
+            "rpiCpu",
+            "rpiCpu",
+            "rpiCpu",
+            "rpiCpu"
+          ],
+          "storage": [
+            "flashCard",
+            "someRemote"
+          ],
+          "type": "rpi"
+        },
+        {
+          "node_name": "client_node1",
+          "network_map": {
+            "node1": 0.05357062735503636,
+            "node3": 0.11223277007331231,
+            "node6": 0.11828852288827124,
+            "node8": 0.08386865507333856
+          },
+          "memory": 32,
+          "platforms": [
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierGpu",
+            "xavierDla"
+          ],
+          "storage": [
+            "eMMC",
+            "someRemote"
+          ],
+          "type": "xavier"
+        },
+        {
+          "node_name": "client_node2",
+          "network_map": {
+            "node4": 0.08957809241352235
+          },
+          "memory": 0.5,
+          "platforms": [
+            "pynqFpga"
+          ],
+          "storage": [
+            "flashCard",
+            "someRemote"
+          ],
+          "type": "pyngFpga"
+        },
+        {
+          "node_name": "client_node3",
+          "network_map": {
+            "node2": 0.07823186205212375,
+            "node4": 0.08931163545444121,
+            "node5": 0.08223788824880737,
+            "node9": 0.07669778220491133
+          },
+          "memory": 8,
+          "platforms": [
+            "rpiCpu",
+            "rpiCpu",
+            "rpiCpu",
+            "rpiCpu"
+          ],
+          "storage": [
+            "flashCard",
+            "someRemote"
+          ],
+          "type": "rpi"
+        },
+        {
+          "node_name": "client_node4",
+          "network_map": {
+            "node3": 0.10916507191801397,
+            "node4": 0.045178217670305915
+          },
+          "memory": 32,
+          "platforms": [
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierGpu",
+            "xavierDla"
+          ],
+          "storage": [
+            "eMMC",
+            "someRemote"
+          ],
+          "type": "xavier"
+        },
+        {
+          "node_name": "client_node5",
+          "network_map": {
+            "node1": 0.08128400975616151,
+            "node4": 0.11771638857340216
+          },
+          "memory": 0.5,
+          "platforms": [
+            "pynqFpga"
+          ],
+          "storage": [
+            "flashCard",
+            "someRemote"
+          ],
+          "type": "pyngFpga"
+        },
+        {
+          "node_name": "client_node6",
+          "network_map": {
+            "node2": 0.10490945073305208,
+            "node7": 0.1199015042598044,
+            "node9": 0.05471163754247346
+          },
+          "memory": 8,
+          "platforms": [
+            "rpiCpu",
+            "rpiCpu",
+            "rpiCpu",
+            "rpiCpu"
+          ],
+          "storage": [
+            "flashCard",
+            "someRemote"
+          ],
+          "type": "rpi"
+        },
+        {
+          "node_name": "client_node7",
+          "network_map": {
+            "node0": 0.1050978416681236,
+            "node3": 0.09526477146026147,
+            "node8": 0.10882887277440778
+          },
+          "memory": 32,
+          "platforms": [
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierGpu",
+            "xavierDla"
+          ],
+          "storage": [
+            "eMMC",
+            "someRemote"
+          ],
+          "type": "xavier"
+        },
+        {
+          "node_name": "client_node8",
+          "network_map": {
+            "node3": 0.0947812200535284,
+            "node9": 0.13301022714758565
+          },
+          "memory": 0.5,
+          "platforms": [
+            "pynqFpga"
+          ],
+          "storage": [
+            "flashCard",
+            "someRemote"
+          ],
+          "type": "pyngFpga"
+        },
+        {
+          "node_name": "client_node9",
+          "network_map": {
+            "node4": 0.11050043200300605,
+            "node8": 0.08593248456037385,
+            "node9": 0.1429098616264617
+          },
+          "memory": 8,
+          "platforms": [
+            "rpiCpu",
+            "rpiCpu",
+            "rpiCpu",
+            "rpiCpu"
+          ],
+          "storage": [
+            "flashCard",
+            "someRemote"
+          ],
+          "type": "rpi"
+        },
+        {
+          "node_name": "node0",
+          "network_map": {
+            "client_node7": 0.1050978416681236
+          },
+          "memory": 8,
+          "platforms": [
+            "rpiCpu",
+            "rpiCpu",
+            "rpiCpu",
+            "rpiCpu"
+          ],
+          "storage": [
+            "flashCard",
+            "someRemote"
+          ],
+          "type": "rpi"
+        },
+        {
+          "node_name": "node1",
+          "network_map": {
+            "client_node0": 0.09100117273476477,
+            "client_node1": 0.05357062735503636,
+            "client_node5": 0.08128400975616151
+          },
+          "memory": 32,
+          "platforms": [
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierGpu",
+            "xavierDla"
+          ],
+          "storage": [
+            "eMMC",
+            "someRemote"
+          ],
+          "type": "xavier"
+        },
+        {
+          "node_name": "node2",
+          "network_map": {
+            "client_node0": 0.118917697133121,
+            "client_node3": 0.07823186205212375,
+            "client_node6": 0.10490945073305208
+          },
+          "memory": 0.5,
+          "platforms": [
+            "pynqFpga"
+          ],
+          "storage": [
+            "flashCard",
+            "someRemote"
+          ],
+          "type": "pyngFpga"
+        },
+        {
+          "node_name": "node3",
+          "network_map": {
+            "client_node1": 0.11223277007331231,
+            "client_node4": 0.10916507191801397,
+            "client_node7": 0.09526477146026147,
+            "client_node8": 0.0947812200535284
+          },
+          "memory": 8,
+          "platforms": [
+            "rpiCpu",
+            "rpiCpu",
+            "rpiCpu",
+            "rpiCpu"
+          ],
+          "storage": [
+            "flashCard",
+            "someRemote"
+          ],
+          "type": "rpi"
+        },
+        {
+          "node_name": "node4",
+          "network_map": {
+            "client_node3": 0.08931163545444121,
+            "client_node4": 0.045178217670305915,
+            "client_node5": 0.11771638857340216,
+            "client_node9": 0.11050043200300605,
+            "client_node2": 0.08957809241352235
+          },
+          "memory": 32,
+          "platforms": [
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierGpu",
+            "xavierDla"
+          ],
+          "storage": [
+            "eMMC",
+            "someRemote"
+          ],
+          "type": "xavier"
+        },
+        {
+          "node_name": "node5",
+          "network_map": {
+            "client_node0": 0.09375374557482163,
+            "client_node3": 0.08223788824880737
+          },
+          "memory": 0.5,
+          "platforms": [
+            "pynqFpga"
+          ],
+          "storage": [
+            "flashCard",
+            "someRemote"
+          ],
+          "type": "pyngFpga"
+        },
+        {
+          "node_name": "node6",
+          "network_map": {
+            "client_node0": 0.07186379748036034,
+            "client_node1": 0.11828852288827124
+          },
+          "memory": 8,
+          "platforms": [
+            "rpiCpu",
+            "rpiCpu",
+            "rpiCpu",
+            "rpiCpu"
+          ],
+          "storage": [
+            "flashCard",
+            "someRemote"
+          ],
+          "type": "rpi"
+        },
+        {
+          "node_name": "node7",
+          "network_map": {
+            "client_node6": 0.1199015042598044
+          },
+          "memory": 32,
+          "platforms": [
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierCpu",
+            "xavierGpu",
+            "xavierDla"
+          ],
+          "storage": [
+            "eMMC",
+            "someRemote"
+          ],
+          "type": "xavier"
+        },
+        {
+          "node_name": "node8",
+          "network_map": {
+            "client_node0": 0.07590701205493189,
+            "client_node1": 0.08386865507333856,
+            "client_node7": 0.10882887277440778,
+            "client_node9": 0.08593248456037385
+          },
+          "memory": 0.5,
+          "platforms": [
+            "pynqFpga"
+          ],
+          "storage": [
+            "flashCard",
+            "someRemote"
+          ],
+          "type": "pyngFpga"
+        },
+        {
+          "node_name": "node9",
+          "network_map": {
+            "client_node3": 0.07669778220491133,
+            "client_node6": 0.05471163754247346,
+            "client_node8": 0.13301022714758565,
+            "client_node9": 0.1429098616264617
+          },
+          "memory": 8,
+          "platforms": [
+            "rpiCpu",
+            "rpiCpu",
+            "rpiCpu",
+            "rpiCpu"
+          ],
+          "storage": [
+            "flashCard",
+            "someRemote"
+          ],
+          "type": "rpi"
+        }
+      ],
+      "preinitialize_platforms": true,
+      "preinit": {
+        "client_percentage": 0.2,
+        "server_percentage": 0.5,
+        "task_types": [
+          "dnn1",
+          "dnn2"
+        ]
+      },
+      "replicas": {
+        "dnn1": {
+          "per_server": 2,
+          "per_client": 1
+        },
+        "dnn2": {
+          "per_server": 2,
+          "per_client": 1
+        }
+      },
+      "scheduler": {},
+      "forced_placements": {
+        "0": [
+          14,
+          68
+        ],
+        "1": [
+          14,
+          69
+        ],
+        "2": [
+          14,
+          69
+        ],
+        "3": [
+          11,
+          53
+        ],
+        "4": [
+          1,
+          4
+        ]
+      },
+      "replica_plan": {
+        "preinit_clients": [
+          "client_node0",
+          "client_node1"
+        ],
+        "preinit_servers": [
+          "node0",
+          "node1",
+          "node2",
+          "node3",
+          "node4"
+        ],
+        "preinit_task_types": [
+          "dnn1",
+          "dnn2"
+        ],
+        "replicas_config": {
+          "dnn1": {
+            "per_server": 2,
+            "per_client": 1
+          },
+          "dnn2": {
+            "per_server": 2,
+            "per_client": 1
+          }
+        },
+        "prewarm_config": {
+          "dnn1": {
+            "per_server": 2,
+            "per_client": 1,
+            "initial_queue": 1
+          },
+          "dnn2": {
+            "per_server": 1,
+            "per_client": 0,
+            "initial_queue": 1
+          }
+        }
+      },
+      "prewarm": {
+        "dnn1": {
+          "per_server": 2,
+          "per_client": 1,
+          "initial_queue": 1
+        },
+        "dnn2": {
+          "per_server": 1,
+          "per_client": 0,
+          "initial_queue": 1
+        }
+      }
+    },
+    "workload": {
+      "rps": 5.0,
+      "duration": 1,
+      "events": [
+        {
+          "timestamp": 0.018070740248957592,
+          "application": {
+            "name": "nofs-dnn1",
+            "dag": {
+              "dnn1": []
+            }
+          },
+          "qos": {
+            "name": "medium",
+            "maxDurationDeviation": 15
+          },
+          "node_name": "client_node2"
+        },
+        {
+          "timestamp": 0.035107144387050704,
+          "application": {
+            "name": "nofs-dnn2",
+            "dag": {
+              "dnn2": []
+            }
+          },
+          "qos": {
+            "name": "medium",
+            "maxDurationDeviation": 15
+          },
+          "node_name": "client_node4"
+        },
+        {
+          "timestamp": 0.03536224672704006,
+          "application": {
+            "name": "nofs-dnn2",
+            "dag": {
+              "dnn2": []
+            }
+          },
+          "qos": {
+            "name": "medium",
+            "maxDurationDeviation": 15
+          },
+          "node_name": "client_node4"
+        },
+        {
+          "timestamp": 0.05028982618739224,
+          "application": {
+            "name": "nofs-dnn2",
+            "dag": {
+              "dnn2": []
+            }
+          },
+          "qos": {
+            "name": "medium",
+            "maxDurationDeviation": 15
+          },
+          "node_name": "client_node0"
+        },
+        {
+          "timestamp": 0.055112114513260826,
+          "application": {
+            "name": "nofs-dnn1",
+            "dag": {
+              "dnn1": []
+            }
+          },
+          "qos": {
+            "name": "medium",
+            "maxDurationDeviation": 15
+          },
+          "node_name": "client_node1"
+        }
+      ]
+    }
+  },
+  "sim_inputs": {
+    "application_types": {
+      "nofs-dnn1": {
+        "name": "nofs-dnn1",
+        "dag": {
+          "dnn1": []
+        }
+      },
+      "nofs-dnn2": {
+        "name": "nofs-dnn2",
+        "dag": {
+          "dnn2": []
+        }
+      }
+    },
+    "platform_types": {
+      "rpiCpu": {
+        "shortName": "rpiCpu",
+        "name": "Raspberry Pi 4 Broadcom BCM2711",
+        "hardware": "cpu",
+        "price": 60,
+        "idleEnergy": 0.000663305
+      },
+      "xavierCpu": {
+        "shortName": "xavierCpu",
+        "name": "Nvidia Xavier Carmel Arm v8.2",
+        "hardware": "cpu",
+        "price": 3399,
+        "idleEnergy": 0.00078539
+      },
+      "xavierGpu": {
+        "shortName": "xavierGpu",
+        "name": "Nvidia Xavier Volta",
+        "hardware": "gpu",
+        "price": 3399,
+        "idleEnergy": 0.00150075
+      },
+      "xavierDla": {
+        "shortName": "xavierDla",
+        "name": "Nvidia Xavier DLA",
+        "hardware": "dla",
+        "price": 3399,
+        "idleEnergy": 5e-06
+      },
+      "pynqFpga": {
+        "shortName": "pynqFpga",
+        "name": "Xilinx Artix-7",
+        "hardware": "fpga",
+        "price": 170,
+        "idleEnergy": 0.002688664
+      }
+    },
+    "qos_types": {
+      "medium": {
+        "name": "medium",
+        "maxDurationDeviation": 15
+      }
+    },
+    "storage_types": {
+      "eMMC": {
+        "name": "eMMC",
+        "hardware": "mmc",
+        "remote": false,
+        "price": 32,
+        "idleEnergy": 0,
+        "capacity": 32,
+        "iops": {
+          "read": 1820,
+          "write": 606
+        },
+        "throughput": {
+          "read": 294,
+          "write": 82
+        },
+        "latency": {
+          "read": 0.00452,
+          "write": 0.00452
+        }
+      },
+      "flashCard": {
+        "name": "Flash Card",
+        "hardware": "flash",
+        "remote": false,
+        "price": 16,
+        "idleEnergy": 0,
+        "capacity": 64,
+        "iops": {
+          "read": 2977,
+          "write": 987
+        },
+        "throughput": {
+          "read": 100,
+          "write": 40
+        },
+        "latency": {
+          "read": 0.00122,
+          "write": 0.00122
+        }
+      },
+      "someRemote": {
+        "name": "Some Remote Storage",
+        "hardware": "ssd",
+        "remote": true,
+        "price": 8,
+        "idleEnergy": 0,
+        "capacity": 99999999999999999999999999999999999999999999999999,
+        "iops": {
+          "read": 92500,
+          "write": 60170
+        },
+        "throughput": {
+          "read": 108,
+          "write": 108
+        },
+        "latency": {
+          "read": 0.015,
+          "write": 0.015
+        }
+      }
+    },
+    "task_types": {
+      "dnn1": {
+        "name": "dnn1",
+        "platforms": [
+          "rpiCpu",
+          "xavierGpu",
+          "xavierCpu"
+        ],
+        "memoryRequirements": {
+          "rpiCpu": 0.069229126,
+          "xavierGpu": 0.9,
+          "xavierCpu": 0.068973541
+        },
+        "coldStartDuration": {
+          "rpiCpu": 0.636,
+          "xavierGpu": 6.14,
+          "xavierCpu": 0.096
+        },
+        "executionTime": {
+          "rpiCpu": 0.16842,
+          "xavierGpu": 0.0362488,
+          "xavierCpu": 0.0239175
+        },
+        "energy": {
+          "rpiCpu": 1.35764e-07,
+          "xavierGpu": 1.41667e-07,
+          "xavierCpu": 8.19445e-08
+        },
+        "imageSize": {
+          "rpiCpu": 3.057,
+          "xavierGpu": 2.99,
+          "xavierCpu": 2.987
+        },
+        "stateSize": {
+          "ae-dnn2": {
+            "input": 20000,
+            "output": 8000
+          },
+          "es-dnn2": {
+            "input": 12800,
+            "output": 8000
+          },
+          "nofs-dnn1": {
+            "input": 153600,
+            "output": 8000
+          }
+        }
+      },
+      "dnn2": {
+        "name": "dnn2",
+        "platforms": [
+          "rpiCpu",
+          "xavierGpu",
+          "xavierCpu"
+        ],
+        "memoryRequirements": {
+          "rpiCpu": 0.069229126,
+          "xavierGpu": 0.9,
+          "xavierCpu": 0.068973541
+        },
+        "coldStartDuration": {
+          "rpiCpu": 0.636,
+          "xavierGpu": 6.14,
+          "xavierCpu": 0.096
+        },
+        "executionTime": {
+          "rpiCpu": 0.16842,
+          "xavierGpu": 0.0362488,
+          "xavierCpu": 0.0239175
+        },
+        "energy": {
+          "rpiCpu": 1.35764e-07,
+          "xavierGpu": 1.41667e-07,
+          "xavierCpu": 8.19445e-08
+        },
+        "imageSize": {
+          "rpiCpu": 3.057,
+          "xavierGpu": 2.99,
+          "xavierCpu": 2.987
+        },
+        "stateSize": {
+          "ae-dnn2": {
+            "input": 20000,
+            "output": 8000
+          },
+          "es-dnn2": {
+            "input": 12800,
+            "output": 8000
+          },
+          "nofs-dnn2": {
+            "input": 153600,
+            "output": 8000
+          }
+        }
+      }
+    }
+  },
+  "stats": {
+    "policy": {
+      "priority": {
+        "tasks": "fifo"
+      },
+      "scheduling": "determined_determined",
+      "cache": "fifo",
+      "keep_alive": 30,
+      "queue_length": 30,
+      "short_name": "DETERMINED-DETERMINED",
+      "reconcile_interval": 1,
+      "forced_placements": {
+        "0": [
+          14,
+          68
+        ],
+        "1": [
+          14,
+          69
+        ],
+        "2": [
+          14,
+          69
+        ],
+        "3": [
+          11,
+          53
+        ],
+        "4": [
+          1,
+          4
+        ]
+      },
+      "forced_placements_sequence": null
+    },
+    "endTime": 0.33145932014731777,
+    "traceFile": "workload-mine",
+    "unusedPlatforms": 79.59183673469387,
+    "unusedNodes": 85.0,
+    "averageOccupation": 6.880403841346898,
+    "averageElapsedTime": 0.13074457468568723,
+    "averagePullTime": 0.0,
+    "averageColdStartTime": 0.00768,
+    "averageExecutionTime": 0.08171849999999999,
+    "averageWaitTime": 0.0032647400201041084,
+    "averageQueueTime": 0.018284372132237096,
+    "averageInitializationTime": 0.00768,
+    "averageComputeTime": 0.10151546253334603,
+    "averageCommunicationsTime": 0.019796962533346035,
+    "penaltyProportion": 0.0,
+    "localDependenciesProportion": 100.0,
+    "localCommunicationsProportion": 0.0,
+    "nodeCacheHitsProportion": 0.0,
+    "taskCacheHitsProportion": 100.0,
+    "coldStartProportion": 8.0,
+    "taskResponseTimeDistribution": [
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.044995385146722564,
+      0.06778688914873117,
+      0.10070795048496584,
+      0.1336290118212005,
+      0.16655007315743514,
+      0.17484461171806942,
+      0.17866160068314002,
+      0.18247858964821062,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.1862955786132812,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.1862955786132812,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.1862955786132812,
+      0.1862955786132812,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.1862955786132812,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.1862955786132812,
+      0.1862955786132812,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.1862955786132812,
+      0.1862955786132812,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.18629557861328125,
+      0.18828387804627694,
+      0.19345345657206586,
+      0.19862303509785476,
+      0.2037926136236437,
+      0.21046821120021503,
+      0.21843468224888554,
+      0.22640115329755603,
+      0.23436762434622652,
+      0.24748892710568182,
+      0.2629012661810415,
+      0.27831360525640114,
+      0.2937259443317608,
+      0.3091382834071205,
+      0.3245506224824802,
+      0.3399629615578398
+    ],
+    "applicationResponseTimeDistribution": [
+      -0.0740269135304335,
+      -0.06642974552976395,
+      -0.05883257752909444,
+      -0.0512354095284249,
+      -0.04363824152775535,
+      -0.036041073527085826,
+      -0.02844390552641629,
+      -0.02084673752574675,
+      -0.01324956952507721,
+      -0.0056524015244076775,
+      0.0019447664762618632,
+      0.009541934476931396,
+      0.017139102477600927,
+      0.02473627047827047,
+      0.03233343847894,
+      0.03993060647960954,
+      0.047527774480279075,
+      0.05512494248094861,
+      0.06272211048161815,
+      0.07031927848228768,
+      0.07791644648295722,
+      0.08551361448362675,
+      0.09311078248429629,
+      0.10070795048496584,
+      0.10830511848563537,
+      0.11590228648630489,
+      0.12349945448697444,
+      0.13109662248764398,
+      0.1386937904883135,
+      0.14629095848898305,
+      0.15388812648965255,
+      0.16148529449032212,
+      0.16908246249099165,
+      0.1729974006692958,
+      0.17507122393641722,
+      0.17714504720353866,
+      0.17921887047066004,
+      0.1812926937377815,
+      0.18336651700490292,
+      0.18544034027202436,
+      0.18751416353914574,
+      0.1895879868062672,
+      0.19166181007338864,
+      0.19373563334051006,
+      0.19580945660763147,
+      0.1978832798747529,
+      0.19995710314187434,
+      0.20203092640899578,
+      0.20410474967611716,
+      0.20617857294323863,
+      0.2080169893390856,
+      0.20985540573493267,
+      0.21169382213077972,
+      0.21353223852662673,
+      0.2153706549224738,
+      0.21720907131832082,
+      0.21904748771416785,
+      0.2208859041100149,
+      0.22272432050586194,
+      0.22456273690170897,
+      0.22640115329755603,
+      0.228239569693403,
+      0.23007798608925006,
+      0.2319164024850971,
+      0.23375481888094415,
+      0.23559323527679119,
+      0.2380044107516143,
+      0.24156110438438966,
+      0.24511779801716493,
+      0.24867449164994024,
+      0.25223118528271554,
+      0.2557878789154909,
+      0.2593445725482662,
+      0.2629012661810415,
+      0.26645795981381676,
+      0.2700146534465921,
+      0.2735713470793674,
+      0.2771280407121427,
+      0.28068473434491803,
+      0.28424142797769336,
+      0.28779812161046864,
+      0.2913548152432439,
+      0.29491150887601925,
+      0.2984682025087945,
+      0.30202489614156985,
+      0.3055815897743452,
+      0.3091382834071205,
+      0.3126949770398958,
+      0.31625167067267107,
+      0.3198083643054464,
+      0.3233650579382218,
+      0.32692175157099707,
+      0.33047844520377234,
+      0.3340351388365477,
+      0.33759183246932295,
+      0.3411485261020983,
+      0.34470521973487356,
+      0.34826191336764895,
+      0.3518186070004242
+    ],
+    "penaltyDistributionOverTime": [],
+    "energy": 9.898760865860436e-06,
+    "reclaimableEnergy": 5.2806985589514045e-06,
+    "applicationResults": [
+      {
+        "applicationId": 0,
+        "dispatchedTime": 0.018070740248957592,
+        "elapsedTime": 0.17161485182454816,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.0239175,
+        "communicationsTime": 0.021077885146722562,
+        "penalty": false,
+        "type": "nofs-dnn1",
+        "platform_type": "xavierCpu"
+      },
+      {
+        "applicationId": 1,
+        "dispatchedTime": 0.035107144387050704,
+        "elapsedTime": 0.2061785729432386,
+        "pullTime": 0.0,
+        "coldStartTime": 0.096,
+        "executionTime": 0.0239175,
+        "communicationsTime": 0.021077885146722562,
+        "penalty": false,
+        "type": "nofs-dnn2",
+        "platform_type": "xavierCpu"
+      },
+      {
+        "applicationId": 2,
+        "dispatchedTime": 0.03536224672704006,
+        "elapsedTime": 0.2960970734202777,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.0239175,
+        "communicationsTime": 0.021077885146722562,
+        "penalty": false,
+        "type": "nofs-dnn2",
+        "platform_type": "xavierCpu"
+      },
+      {
+        "applicationId": 3,
+        "dispatchedTime": 0.05028982618739224,
+        "elapsedTime": 0.23681884620735588,
+        "pullTime": 0.0,
+        "coldStartTime": 0.096,
+        "executionTime": 0.0239175,
+        "communicationsTime": 0.021077885146722562,
+        "penalty": false,
+        "type": "nofs-dnn2",
+        "platform_type": "xavierCpu"
+      },
+      {
+        "applicationId": 4,
+        "dispatchedTime": 0.055112114513260826,
+        "elapsedTime": 0.044995385146722564,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.0239175,
+        "communicationsTime": 0.021077885146722562,
+        "penalty": false,
+        "type": "nofs-dnn1",
+        "platform_type": "xavierCpu"
+      }
+    ],
+    "nodeResults": [
+      {
+        "nodeId": 0,
+        "unused": true,
+        "energy": {
+          "rpiCpu": 2.442873603892407e-07
+        },
+        "energyIdle": {
+          "rpiCpu": 1.8222412255590735e-07
+        },
+        "idleTime": {
+          "rpiCpu": 0.988997280589271
+        },
+        "schedulingTime": 0,
+        "storageTime": 0.0357511572265625,
+        "localDependencies": 2,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 0,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 3.0040221180643505e-08,
+            "idleTime": 0.16303932014731778,
+            "idleProportion": 49.188334808281944,
+            "storageTime": 0.01787557861328125
+          },
+          {
+            "platformId": 1,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 3.0040221180643505e-08,
+            "idleTime": 0.16303932014731778,
+            "idleProportion": 49.188334808281944,
+            "storageTime": 0.01787557861328125
+          },
+          {
+            "platformId": 2,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 3,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 1,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 0,
+            "totalUsage": [
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ],
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ]
+            ],
+            "cacheUsage": [],
+            "dataUsage": [
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ],
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "nodeId": 2,
+        "unused": true,
+        "energy": {
+          "pynqFpga": 2.4755076154015775e-07
+        },
+        "energyIdle": {
+          "pynqFpga": 2.4755076154015775e-07
+        },
+        "idleTime": {
+          "pynqFpga": 0.33145932014731777
+        },
+        "schedulingTime": 0,
+        "storageTime": 0,
+        "localDependencies": 0,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 14,
+            "platformType": {
+              "shortName": "pynqFpga",
+              "name": "Xilinx Artix-7",
+              "hardware": "fpga",
+              "price": 170,
+              "idleEnergy": 0.002688664
+            },
+            "energy": 2.4755076154015775e-07,
+            "energyIdle": 2.4755076154015775e-07,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 4,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 5,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          }
+        ]
+      },
+      {
+        "nodeId": 3,
+        "unused": true,
+        "energy": {
+          "rpiCpu": 2.442873603892407e-07
+        },
+        "energyIdle": {
+          "rpiCpu": 2.442873603892407e-07
+        },
+        "idleTime": {
+          "rpiCpu": 1.325837280589271
+        },
+        "schedulingTime": 0,
+        "storageTime": 0,
+        "localDependencies": 0,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 15,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 16,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 17,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 18,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 6,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 7,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          }
+        ]
+      },
+      {
+        "nodeId": 4,
+        "unused": true,
+        "energy": {
+          "xavierCpu": 5.784996343344486e-07,
+          "xavierGpu": 1.3817710408641307e-07,
+          "xavierDla": 4.603601668712747e-10
+        },
+        "energyIdle": {
+          "xavierCpu": 5.784996343344486e-07,
+          "xavierGpu": 1.3817710408641307e-07,
+          "xavierDla": 4.603601668712747e-10
+        },
+        "idleTime": {
+          "xavierCpu": 2.651674561178542,
+          "xavierGpu": 0.33145932014731777,
+          "xavierDla": 0.33145932014731777
+        },
+        "schedulingTime": 0,
+        "storageTime": 0,
+        "localDependencies": 0,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 19,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 20,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 21,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 22,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 23,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 24,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 25,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 26,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 27,
+            "platformType": {
+              "shortName": "xavierGpu",
+              "name": "Nvidia Xavier Volta",
+              "hardware": "gpu",
+              "price": 3399,
+              "idleEnergy": 0.00150075
+            },
+            "energy": 1.3817710408641307e-07,
+            "energyIdle": 1.3817710408641307e-07,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 28,
+            "platformType": {
+              "shortName": "xavierDla",
+              "name": "Nvidia Xavier DLA",
+              "hardware": "dla",
+              "price": 3399,
+              "idleEnergy": 5e-06
+            },
+            "energy": 4.603601668712747e-10,
+            "energyIdle": 4.603601668712747e-10,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 8,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 9,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          }
+        ]
+      },
+      {
+        "nodeId": 5,
+        "unused": true,
+        "energy": {
+          "pynqFpga": 2.4755076154015775e-07
+        },
+        "energyIdle": {
+          "pynqFpga": 2.4755076154015775e-07
+        },
+        "idleTime": {
+          "pynqFpga": 0.33145932014731777
+        },
+        "schedulingTime": 0,
+        "storageTime": 0,
+        "localDependencies": 0,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 29,
+            "platformType": {
+              "shortName": "pynqFpga",
+              "name": "Xilinx Artix-7",
+              "hardware": "fpga",
+              "price": 170,
+              "idleEnergy": 0.002688664
+            },
+            "energy": 2.4755076154015775e-07,
+            "energyIdle": 2.4755076154015775e-07,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 10,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 11,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          }
+        ]
+      },
+      {
+        "nodeId": 6,
+        "unused": true,
+        "energy": {
+          "rpiCpu": 2.442873603892407e-07
+        },
+        "energyIdle": {
+          "rpiCpu": 2.442873603892407e-07
+        },
+        "idleTime": {
+          "rpiCpu": 1.325837280589271
+        },
+        "schedulingTime": 0,
+        "storageTime": 0,
+        "localDependencies": 0,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 30,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 31,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 32,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 33,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 12,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 13,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          }
+        ]
+      },
+      {
+        "nodeId": 7,
+        "unused": true,
+        "energy": {
+          "xavierCpu": 5.784996343344486e-07,
+          "xavierGpu": 1.3817710408641307e-07,
+          "xavierDla": 4.603601668712747e-10
+        },
+        "energyIdle": {
+          "xavierCpu": 5.784996343344486e-07,
+          "xavierGpu": 1.3817710408641307e-07,
+          "xavierDla": 4.603601668712747e-10
+        },
+        "idleTime": {
+          "xavierCpu": 2.651674561178542,
+          "xavierGpu": 0.33145932014731777,
+          "xavierDla": 0.33145932014731777
+        },
+        "schedulingTime": 0,
+        "storageTime": 0,
+        "localDependencies": 0,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 34,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 35,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 36,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 37,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 38,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 39,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 40,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 41,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 42,
+            "platformType": {
+              "shortName": "xavierGpu",
+              "name": "Nvidia Xavier Volta",
+              "hardware": "gpu",
+              "price": 3399,
+              "idleEnergy": 0.00150075
+            },
+            "energy": 1.3817710408641307e-07,
+            "energyIdle": 1.3817710408641307e-07,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 43,
+            "platformType": {
+              "shortName": "xavierDla",
+              "name": "Nvidia Xavier DLA",
+              "hardware": "dla",
+              "price": 3399,
+              "idleEnergy": 5e-06
+            },
+            "energy": 4.603601668712747e-10,
+            "energyIdle": 4.603601668712747e-10,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 14,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 15,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          }
+        ]
+      },
+      {
+        "nodeId": 8,
+        "unused": true,
+        "energy": {
+          "pynqFpga": 2.4755076154015775e-07
+        },
+        "energyIdle": {
+          "pynqFpga": 2.4755076154015775e-07
+        },
+        "idleTime": {
+          "pynqFpga": 0.33145932014731777
+        },
+        "schedulingTime": 0,
+        "storageTime": 0,
+        "localDependencies": 0,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 44,
+            "platformType": {
+              "shortName": "pynqFpga",
+              "name": "Xilinx Artix-7",
+              "hardware": "fpga",
+              "price": 170,
+              "idleEnergy": 0.002688664
+            },
+            "energy": 2.4755076154015775e-07,
+            "energyIdle": 2.4755076154015775e-07,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 16,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 17,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          }
+        ]
+      },
+      {
+        "nodeId": 9,
+        "unused": true,
+        "energy": {
+          "rpiCpu": 2.442873603892407e-07
+        },
+        "energyIdle": {
+          "rpiCpu": 2.442873603892407e-07
+        },
+        "idleTime": {
+          "rpiCpu": 1.325837280589271
+        },
+        "schedulingTime": 0,
+        "storageTime": 0,
+        "localDependencies": 0,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 45,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 46,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 47,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 48,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 18,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 19,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          }
+        ]
+      },
+      {
+        "nodeId": 10,
+        "unused": true,
+        "energy": {
+          "rpiCpu": 2.442873603892407e-07
+        },
+        "energyIdle": {
+          "rpiCpu": 1.2016088472257402e-07
+        },
+        "idleTime": {
+          "rpiCpu": 0.6521572805892711
+        },
+        "schedulingTime": 0,
+        "storageTime": 0.071502314453125,
+        "localDependencies": 4,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 49,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 3.0040221180643505e-08,
+            "idleTime": 0.16303932014731778,
+            "idleProportion": 49.188334808281944,
+            "storageTime": 0.01787557861328125
+          },
+          {
+            "platformId": 50,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 3.0040221180643505e-08,
+            "idleTime": 0.16303932014731778,
+            "idleProportion": 49.188334808281944,
+            "storageTime": 0.01787557861328125
+          },
+          {
+            "platformId": 51,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 3.0040221180643505e-08,
+            "idleTime": 0.16303932014731778,
+            "idleProportion": 49.188334808281944,
+            "storageTime": 0.01787557861328125
+          },
+          {
+            "platformId": 52,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 3.0040221180643505e-08,
+            "idleTime": 0.16303932014731778,
+            "idleProportion": 49.188334808281944,
+            "storageTime": 0.01787557861328125
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 21,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 20,
+            "totalUsage": [
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ],
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ],
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ],
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ]
+            ],
+            "cacheUsage": [],
+            "dataUsage": [
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ],
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ],
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ],
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "nodeId": 12,
+        "unused": true,
+        "energy": {
+          "pynqFpga": 2.4755076154015775e-07
+        },
+        "energyIdle": {
+          "pynqFpga": 2.4755076154015775e-07
+        },
+        "idleTime": {
+          "pynqFpga": 0.33145932014731777
+        },
+        "schedulingTime": 0,
+        "storageTime": 0,
+        "localDependencies": 0,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 63,
+            "platformType": {
+              "shortName": "pynqFpga",
+              "name": "Xilinx Artix-7",
+              "hardware": "fpga",
+              "price": 170,
+              "idleEnergy": 0.002688664
+            },
+            "energy": 2.4755076154015775e-07,
+            "energyIdle": 2.4755076154015775e-07,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 24,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 25,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          }
+        ]
+      },
+      {
+        "nodeId": 13,
+        "unused": true,
+        "energy": {
+          "rpiCpu": 2.442873603892407e-07
+        },
+        "energyIdle": {
+          "rpiCpu": 1.2016088472257402e-07
+        },
+        "idleTime": {
+          "rpiCpu": 0.6521572805892711
+        },
+        "schedulingTime": 0,
+        "storageTime": 0.071502314453125,
+        "localDependencies": 4,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 64,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 3.0040221180643505e-08,
+            "idleTime": 0.16303932014731778,
+            "idleProportion": 49.188334808281944,
+            "storageTime": 0.01787557861328125
+          },
+          {
+            "platformId": 65,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 3.0040221180643505e-08,
+            "idleTime": 0.16303932014731778,
+            "idleProportion": 49.188334808281944,
+            "storageTime": 0.01787557861328125
+          },
+          {
+            "platformId": 66,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 3.0040221180643505e-08,
+            "idleTime": 0.16303932014731778,
+            "idleProportion": 49.188334808281944,
+            "storageTime": 0.01787557861328125
+          },
+          {
+            "platformId": 67,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 3.0040221180643505e-08,
+            "idleTime": 0.16303932014731778,
+            "idleProportion": 49.188334808281944,
+            "storageTime": 0.01787557861328125
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 27,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 26,
+            "totalUsage": [
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ],
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ],
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ],
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ]
+            ],
+            "cacheUsage": [],
+            "dataUsage": [
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ],
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ],
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ],
+              [
+                0.18488484374999997,
+                1.2500000000000002e-05
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "nodeId": 15,
+        "unused": true,
+        "energy": {
+          "pynqFpga": 2.4755076154015775e-07
+        },
+        "energyIdle": {
+          "pynqFpga": 2.4755076154015775e-07
+        },
+        "idleTime": {
+          "pynqFpga": 0.33145932014731777
+        },
+        "schedulingTime": 0,
+        "storageTime": 0,
+        "localDependencies": 0,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 78,
+            "platformType": {
+              "shortName": "pynqFpga",
+              "name": "Xilinx Artix-7",
+              "hardware": "fpga",
+              "price": 170,
+              "idleEnergy": 0.002688664
+            },
+            "energy": 2.4755076154015775e-07,
+            "energyIdle": 2.4755076154015775e-07,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 30,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 31,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          }
+        ]
+      },
+      {
+        "nodeId": 16,
+        "unused": true,
+        "energy": {
+          "rpiCpu": 2.442873603892407e-07
+        },
+        "energyIdle": {
+          "rpiCpu": 2.442873603892407e-07
+        },
+        "idleTime": {
+          "rpiCpu": 1.325837280589271
+        },
+        "schedulingTime": 0,
+        "storageTime": 0,
+        "localDependencies": 0,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 79,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 80,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 81,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 82,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 32,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 33,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          }
+        ]
+      },
+      {
+        "nodeId": 17,
+        "unused": true,
+        "energy": {
+          "xavierCpu": 5.784996343344486e-07,
+          "xavierGpu": 1.3817710408641307e-07,
+          "xavierDla": 4.603601668712747e-10
+        },
+        "energyIdle": {
+          "xavierCpu": 5.784996343344486e-07,
+          "xavierGpu": 1.3817710408641307e-07,
+          "xavierDla": 4.603601668712747e-10
+        },
+        "idleTime": {
+          "xavierCpu": 2.651674561178542,
+          "xavierGpu": 0.33145932014731777,
+          "xavierDla": 0.33145932014731777
+        },
+        "schedulingTime": 0,
+        "storageTime": 0,
+        "localDependencies": 0,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 83,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 84,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 85,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 86,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 87,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 88,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 89,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 90,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 91,
+            "platformType": {
+              "shortName": "xavierGpu",
+              "name": "Nvidia Xavier Volta",
+              "hardware": "gpu",
+              "price": 3399,
+              "idleEnergy": 0.00150075
+            },
+            "energy": 1.3817710408641307e-07,
+            "energyIdle": 1.3817710408641307e-07,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 92,
+            "platformType": {
+              "shortName": "xavierDla",
+              "name": "Nvidia Xavier DLA",
+              "hardware": "dla",
+              "price": 3399,
+              "idleEnergy": 5e-06
+            },
+            "energy": 4.603601668712747e-10,
+            "energyIdle": 4.603601668712747e-10,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 34,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 35,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          }
+        ]
+      },
+      {
+        "nodeId": 18,
+        "unused": true,
+        "energy": {
+          "pynqFpga": 2.4755076154015775e-07
+        },
+        "energyIdle": {
+          "pynqFpga": 2.4755076154015775e-07
+        },
+        "idleTime": {
+          "pynqFpga": 0.33145932014731777
+        },
+        "schedulingTime": 0,
+        "storageTime": 0,
+        "localDependencies": 0,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 93,
+            "platformType": {
+              "shortName": "pynqFpga",
+              "name": "Xilinx Artix-7",
+              "hardware": "fpga",
+              "price": 170,
+              "idleEnergy": 0.002688664
+            },
+            "energy": 2.4755076154015775e-07,
+            "energyIdle": 2.4755076154015775e-07,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 36,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 37,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          }
+        ]
+      },
+      {
+        "nodeId": 19,
+        "unused": true,
+        "energy": {
+          "rpiCpu": 2.442873603892407e-07
+        },
+        "energyIdle": {
+          "rpiCpu": 2.442873603892407e-07
+        },
+        "idleTime": {
+          "rpiCpu": 1.325837280589271
+        },
+        "schedulingTime": 0,
+        "storageTime": 0,
+        "localDependencies": 0,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 94,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 95,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 96,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 97,
+            "platformType": {
+              "shortName": "rpiCpu",
+              "name": "Raspberry Pi 4 Broadcom BCM2711",
+              "hardware": "cpu",
+              "price": 60,
+              "idleEnergy": 0.000663305
+            },
+            "energy": 6.107184009731017e-08,
+            "energyIdle": 6.107184009731017e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 38,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 39,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          }
+        ]
+      },
+      {
+        "nodeId": 14,
+        "unused": false,
+        "energy": {
+          "xavierCpu": 5.784996343344486e-07,
+          "xavierGpu": 1.3817710408641307e-07,
+          "xavierDla": 4.603601668712747e-10
+        },
+        "energyIdle": {
+          "xavierCpu": 5.210303573136153e-07,
+          "xavierGpu": 1.3817710408641307e-07,
+          "xavierDla": 4.603601668712747e-10
+        },
+        "idleTime": {
+          "xavierCpu": 2.3882520611785423,
+          "xavierGpu": 0.33145932014731777,
+          "xavierDla": 0.33145932014731777
+        },
+        "schedulingTime": 5.145499017089605e-05,
+        "storageTime": 0.14754519602705793,
+        "localDependencies": 7,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 70,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 6.709451947930608e-08,
+            "idleTime": 0.3075418201473178,
+            "idleProportion": 92.78418238794136,
+            "storageTime": 0.021077885146722562
+          },
+          {
+            "platformId": 71,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 6.709451947930608e-08,
+            "idleTime": 0.3075418201473178,
+            "idleProportion": 92.78418238794136,
+            "storageTime": 0.021077885146722562
+          },
+          {
+            "platformId": 72,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 73,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 74,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 75,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 76,
+            "platformType": {
+              "shortName": "xavierGpu",
+              "name": "Nvidia Xavier Volta",
+              "hardware": "gpu",
+              "price": 3399,
+              "idleEnergy": 0.00150075
+            },
+            "energy": 1.3817710408641307e-07,
+            "energyIdle": 1.3817710408641307e-07,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 77,
+            "platformType": {
+              "shortName": "xavierDla",
+              "name": "Nvidia Xavier DLA",
+              "hardware": "dla",
+              "price": 3399,
+              "idleEnergy": 5e-06
+            },
+            "energy": 4.603601668712747e-10,
+            "energyIdle": 4.603601668712747e-10,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 68,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 6.187658466680607e-08,
+            "idleTime": 0.28362432014731775,
+            "idleProportion": 85.56836477588271,
+            "storageTime": 0.042155770293445124
+          },
+          {
+            "platformId": 69,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 3.571491652097274e-08,
+            "idleTime": 0.16370682014731774,
+            "idleProportion": 49.38971698685616,
+            "storageTime": 0.06323365544016768
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 29,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 28,
+            "totalUsage": [
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.18507255067678322,
+                5.000000000000001e-05
+              ],
+              [
+                0.23667267593356675,
+                7.500000000000001e-05
+              ],
+              [
+                0.3268462787505952,
+                0.00010000000000000002
+              ]
+            ],
+            "cacheUsage": [],
+            "dataUsage": [
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.18507255067678322,
+                5.000000000000001e-05
+              ],
+              [
+                0.23667267593356675,
+                7.500000000000001e-05
+              ],
+              [
+                0.3268462787505952,
+                0.00010000000000000002
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "nodeId": 11,
+        "unused": false,
+        "energy": {
+          "xavierCpu": 5.784996343344486e-07,
+          "xavierGpu": 1.3817710408641307e-07,
+          "xavierDla": 4.603601668712747e-10
+        },
+        "energyIdle": {
+          "xavierCpu": 5.314662269386153e-07,
+          "xavierGpu": 1.3817710408641307e-07,
+          "xavierDla": 4.603601668712747e-10
+        },
+        "idleTime": {
+          "xavierCpu": 2.4360870611785423,
+          "xavierGpu": 0.33145932014731777,
+          "xavierDla": 0.33145932014731777
+        },
+        "schedulingTime": 1.3586017303168774e-05,
+        "storageTime": 0.10538942573361282,
+        "localDependencies": 5,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 54,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 6.709451947930608e-08,
+            "idleTime": 0.3075418201473178,
+            "idleProportion": 92.78418238794136,
+            "storageTime": 0.021077885146722562
+          },
+          {
+            "platformId": 55,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 6.709451947930608e-08,
+            "idleTime": 0.3075418201473178,
+            "idleProportion": 92.78418238794136,
+            "storageTime": 0.021077885146722562
+          },
+          {
+            "platformId": 56,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 6.709451947930608e-08,
+            "idleTime": 0.3075418201473178,
+            "idleProportion": 92.78418238794136,
+            "storageTime": 0.021077885146722562
+          },
+          {
+            "platformId": 57,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 58,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 59,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 60,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 61,
+            "platformType": {
+              "shortName": "xavierGpu",
+              "name": "Nvidia Xavier Volta",
+              "hardware": "gpu",
+              "price": 3399,
+              "idleEnergy": 0.00150075
+            },
+            "energy": 1.3817710408641307e-07,
+            "energyIdle": 1.3817710408641307e-07,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 62,
+            "platformType": {
+              "shortName": "xavierDla",
+              "name": "Nvidia Xavier DLA",
+              "hardware": "dla",
+              "price": 3399,
+              "idleEnergy": 5e-06
+            },
+            "energy": 4.603601668712747e-10,
+            "energyIdle": 4.603601668712747e-10,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 53,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 4.0932851333472744e-08,
+            "idleTime": 0.18762432014731775,
+            "idleProportion": 56.60553459891481,
+            "storageTime": 0.042155770293445124
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 23,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 22,
+            "totalUsage": [
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.28249563099802555,
+                5.000000000000001e-05
+              ]
+            ],
+            "cacheUsage": [],
+            "dataUsage": [
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.28249563099802555,
+                5.000000000000001e-05
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "nodeId": 1,
+        "unused": false,
+        "energy": {
+          "xavierCpu": 5.784996343344486e-07,
+          "xavierGpu": 1.3817710408641307e-07,
+          "xavierDla": 4.603601668712747e-10
+        },
+        "energyIdle": {
+          "xavierCpu": 5.628458298969486e-07,
+          "xavierGpu": 1.3817710408641307e-07,
+          "xavierDla": 4.603601668712747e-10
+        },
+        "idleTime": {
+          "xavierCpu": 2.579922061178542,
+          "xavierGpu": 0.33145932014731777,
+          "xavierDla": 0.33145932014731777
+        },
+        "schedulingTime": 1.2774020433425903e-05,
+        "storageTime": 0.06323365544016768,
+        "localDependencies": 3,
+        "cacheHits": 0,
+        "platformResults": [
+          {
+            "platformId": 5,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 6.709451947930608e-08,
+            "idleTime": 0.3075418201473178,
+            "idleProportion": 92.78418238794136,
+            "storageTime": 0.021077885146722562
+          },
+          {
+            "platformId": 6,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 7,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 8,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 9,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 10,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 11,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 7.231245429180608e-08,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 12,
+            "platformType": {
+              "shortName": "xavierGpu",
+              "name": "Nvidia Xavier Volta",
+              "hardware": "gpu",
+              "price": 3399,
+              "idleEnergy": 0.00150075
+            },
+            "energy": 1.3817710408641307e-07,
+            "energyIdle": 1.3817710408641307e-07,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 13,
+            "platformType": {
+              "shortName": "xavierDla",
+              "name": "Nvidia Xavier DLA",
+              "hardware": "dla",
+              "price": 3399,
+              "idleEnergy": 5e-06
+            },
+            "energy": 4.603601668712747e-10,
+            "energyIdle": 4.603601668712747e-10,
+            "idleTime": 0.33145932014731777,
+            "idleProportion": 100.0,
+            "storageTime": 0
+          },
+          {
+            "platformId": 4,
+            "platformType": {
+              "shortName": "xavierCpu",
+              "name": "Nvidia Xavier Carmel Arm v8.2",
+              "hardware": "cpu",
+              "price": 3399,
+              "idleEnergy": 0.00078539
+            },
+            "energy": 7.231245429180608e-08,
+            "energyIdle": 6.187658466680607e-08,
+            "idleTime": 0.28362432014731775,
+            "idleProportion": 85.56836477588271,
+            "storageTime": 0.042155770293445124
+          }
+        ],
+        "storageResults": [
+          {
+            "storageId": 3,
+            "totalUsage": [],
+            "cacheUsage": [],
+            "dataUsage": []
+          },
+          {
+            "storageId": 2,
+            "totalUsage": [
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.09549445826326083,
+                5.000000000000001e-05
+              ]
+            ],
+            "cacheUsage": [],
+            "dataUsage": [
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.04038234375,
+                2.5000000000000005e-05
+              ],
+              [
+                0.09549445826326083,
+                5.000000000000001e-05
+              ]
+            ]
+          }
+        ]
+      }
+    ],
+    "taskResults": [
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.18629557861328122,
+        "applicationType": {
+          "name": "nofs-dnn1",
+          "dag": {
+            "dnn1": []
+          }
+        },
+        "taskType": {
+          "name": "dnn1",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn1": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "rpiCpu",
+          "name": "Raspberry Pi 4 Broadcom BCM2711",
+          "hardware": "cpu",
+          "price": 60,
+          "idleEnergy": 0.000663305
+        },
+        "elapsedTime": 0.18629557861328122,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.16842,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.18629557861328122,
+        "communicationsTime": 0.01787557861328125,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 1.35764e-07,
+        "networkLatency": 0.0,
+        "sourceNode": "client_node0",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.18629557861328122,
+        "applicationType": {
+          "name": "nofs-dnn2",
+          "dag": {
+            "dnn2": []
+          }
+        },
+        "taskType": {
+          "name": "dnn2",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn2": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "rpiCpu",
+          "name": "Raspberry Pi 4 Broadcom BCM2711",
+          "hardware": "cpu",
+          "price": 60,
+          "idleEnergy": 0.000663305
+        },
+        "elapsedTime": 0.18629557861328122,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.16842,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.18629557861328122,
+        "communicationsTime": 0.01787557861328125,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 1.35764e-07,
+        "networkLatency": 0.0,
+        "sourceNode": "client_node0",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.044995385146722564,
+        "applicationType": {
+          "name": "nofs-dnn1",
+          "dag": {
+            "dnn1": []
+          }
+        },
+        "taskType": {
+          "name": "dnn1",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn1": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "xavierCpu",
+          "name": "Nvidia Xavier Carmel Arm v8.2",
+          "hardware": "cpu",
+          "price": 3399,
+          "idleEnergy": 0.00078539
+        },
+        "elapsedTime": 0.044995385146722564,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.0239175,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.044995385146722564,
+        "communicationsTime": 0.021077885146722562,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 8.19445e-08,
+        "networkLatency": 0.0,
+        "sourceNode": "client_node1",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.044995385146722564,
+        "applicationType": {
+          "name": "nofs-dnn2",
+          "dag": {
+            "dnn2": []
+          }
+        },
+        "taskType": {
+          "name": "dnn2",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn2": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "xavierCpu",
+          "name": "Nvidia Xavier Carmel Arm v8.2",
+          "hardware": "cpu",
+          "price": 3399,
+          "idleEnergy": 0.00078539
+        },
+        "elapsedTime": 0.044995385146722564,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.0239175,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.044995385146722564,
+        "communicationsTime": 0.021077885146722562,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 8.19445e-08,
+        "networkLatency": 0.0,
+        "sourceNode": "client_node1",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.18629557861328122,
+        "applicationType": {
+          "name": "nofs-dnn1",
+          "dag": {
+            "dnn1": []
+          }
+        },
+        "taskType": {
+          "name": "dnn1",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn1": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "rpiCpu",
+          "name": "Raspberry Pi 4 Broadcom BCM2711",
+          "hardware": "cpu",
+          "price": 60,
+          "idleEnergy": 0.000663305
+        },
+        "elapsedTime": 0.18629557861328122,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.16842,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.18629557861328122,
+        "communicationsTime": 0.01787557861328125,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 1.35764e-07,
+        "networkLatency": 0.0,
+        "sourceNode": "node0",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.18629557861328122,
+        "applicationType": {
+          "name": "nofs-dnn1",
+          "dag": {
+            "dnn1": []
+          }
+        },
+        "taskType": {
+          "name": "dnn1",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn1": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "rpiCpu",
+          "name": "Raspberry Pi 4 Broadcom BCM2711",
+          "hardware": "cpu",
+          "price": 60,
+          "idleEnergy": 0.000663305
+        },
+        "elapsedTime": 0.18629557861328122,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.16842,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.18629557861328122,
+        "communicationsTime": 0.01787557861328125,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 1.35764e-07,
+        "networkLatency": 0.0,
+        "sourceNode": "node0",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.18629557861328122,
+        "applicationType": {
+          "name": "nofs-dnn2",
+          "dag": {
+            "dnn2": []
+          }
+        },
+        "taskType": {
+          "name": "dnn2",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn2": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "rpiCpu",
+          "name": "Raspberry Pi 4 Broadcom BCM2711",
+          "hardware": "cpu",
+          "price": 60,
+          "idleEnergy": 0.000663305
+        },
+        "elapsedTime": 0.18629557861328122,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.16842,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.18629557861328122,
+        "communicationsTime": 0.01787557861328125,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 1.35764e-07,
+        "networkLatency": 0.0,
+        "sourceNode": "node0",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.18629557861328122,
+        "applicationType": {
+          "name": "nofs-dnn2",
+          "dag": {
+            "dnn2": []
+          }
+        },
+        "taskType": {
+          "name": "dnn2",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn2": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "rpiCpu",
+          "name": "Raspberry Pi 4 Broadcom BCM2711",
+          "hardware": "cpu",
+          "price": 60,
+          "idleEnergy": 0.000663305
+        },
+        "elapsedTime": 0.18629557861328122,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.16842,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.18629557861328122,
+        "communicationsTime": 0.01787557861328125,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 1.35764e-07,
+        "networkLatency": 0.0,
+        "sourceNode": "node0",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.044995385146722564,
+        "applicationType": {
+          "name": "nofs-dnn1",
+          "dag": {
+            "dnn1": []
+          }
+        },
+        "taskType": {
+          "name": "dnn1",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn1": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "xavierCpu",
+          "name": "Nvidia Xavier Carmel Arm v8.2",
+          "hardware": "cpu",
+          "price": 3399,
+          "idleEnergy": 0.00078539
+        },
+        "elapsedTime": 0.044995385146722564,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.0239175,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.044995385146722564,
+        "communicationsTime": 0.021077885146722562,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 8.19445e-08,
+        "networkLatency": 0.0,
+        "sourceNode": "node1",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.044995385146722564,
+        "applicationType": {
+          "name": "nofs-dnn1",
+          "dag": {
+            "dnn1": []
+          }
+        },
+        "taskType": {
+          "name": "dnn1",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn1": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "xavierCpu",
+          "name": "Nvidia Xavier Carmel Arm v8.2",
+          "hardware": "cpu",
+          "price": 3399,
+          "idleEnergy": 0.00078539
+        },
+        "elapsedTime": 0.044995385146722564,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.0239175,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.044995385146722564,
+        "communicationsTime": 0.021077885146722562,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 8.19445e-08,
+        "networkLatency": 0.0,
+        "sourceNode": "node1",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.044995385146722564,
+        "applicationType": {
+          "name": "nofs-dnn2",
+          "dag": {
+            "dnn2": []
+          }
+        },
+        "taskType": {
+          "name": "dnn2",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn2": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "xavierCpu",
+          "name": "Nvidia Xavier Carmel Arm v8.2",
+          "hardware": "cpu",
+          "price": 3399,
+          "idleEnergy": 0.00078539
+        },
+        "elapsedTime": 0.044995385146722564,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.0239175,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.044995385146722564,
+        "communicationsTime": 0.021077885146722562,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 8.19445e-08,
+        "networkLatency": 0.0,
+        "sourceNode": "node1",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.044995385146722564,
+        "applicationType": {
+          "name": "nofs-dnn2",
+          "dag": {
+            "dnn2": []
+          }
+        },
+        "taskType": {
+          "name": "dnn2",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn2": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "xavierCpu",
+          "name": "Nvidia Xavier Carmel Arm v8.2",
+          "hardware": "cpu",
+          "price": 3399,
+          "idleEnergy": 0.00078539
+        },
+        "elapsedTime": 0.044995385146722564,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.0239175,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.044995385146722564,
+        "communicationsTime": 0.021077885146722562,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 8.19445e-08,
+        "networkLatency": 0.0,
+        "sourceNode": "node1",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.18629557861328122,
+        "applicationType": {
+          "name": "nofs-dnn1",
+          "dag": {
+            "dnn1": []
+          }
+        },
+        "taskType": {
+          "name": "dnn1",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn1": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "rpiCpu",
+          "name": "Raspberry Pi 4 Broadcom BCM2711",
+          "hardware": "cpu",
+          "price": 60,
+          "idleEnergy": 0.000663305
+        },
+        "elapsedTime": 0.18629557861328122,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.16842,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.18629557861328122,
+        "communicationsTime": 0.01787557861328125,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 1.35764e-07,
+        "networkLatency": 0.0,
+        "sourceNode": "node3",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.18629557861328122,
+        "applicationType": {
+          "name": "nofs-dnn1",
+          "dag": {
+            "dnn1": []
+          }
+        },
+        "taskType": {
+          "name": "dnn1",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn1": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "rpiCpu",
+          "name": "Raspberry Pi 4 Broadcom BCM2711",
+          "hardware": "cpu",
+          "price": 60,
+          "idleEnergy": 0.000663305
+        },
+        "elapsedTime": 0.18629557861328122,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.16842,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.18629557861328122,
+        "communicationsTime": 0.01787557861328125,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 1.35764e-07,
+        "networkLatency": 0.0,
+        "sourceNode": "node3",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.18629557861328122,
+        "applicationType": {
+          "name": "nofs-dnn2",
+          "dag": {
+            "dnn2": []
+          }
+        },
+        "taskType": {
+          "name": "dnn2",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn2": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "rpiCpu",
+          "name": "Raspberry Pi 4 Broadcom BCM2711",
+          "hardware": "cpu",
+          "price": 60,
+          "idleEnergy": 0.000663305
+        },
+        "elapsedTime": 0.18629557861328122,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.16842,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.18629557861328122,
+        "communicationsTime": 0.01787557861328125,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 1.35764e-07,
+        "networkLatency": 0.0,
+        "sourceNode": "node3",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.18629557861328122,
+        "applicationType": {
+          "name": "nofs-dnn2",
+          "dag": {
+            "dnn2": []
+          }
+        },
+        "taskType": {
+          "name": "dnn2",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn2": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "rpiCpu",
+          "name": "Raspberry Pi 4 Broadcom BCM2711",
+          "hardware": "cpu",
+          "price": 60,
+          "idleEnergy": 0.000663305
+        },
+        "elapsedTime": 0.18629557861328122,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.16842,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.18629557861328122,
+        "communicationsTime": 0.01787557861328125,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 1.35764e-07,
+        "networkLatency": 0.0,
+        "sourceNode": "node3",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.044995385146722564,
+        "applicationType": {
+          "name": "nofs-dnn1",
+          "dag": {
+            "dnn1": []
+          }
+        },
+        "taskType": {
+          "name": "dnn1",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn1": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "xavierCpu",
+          "name": "Nvidia Xavier Carmel Arm v8.2",
+          "hardware": "cpu",
+          "price": 3399,
+          "idleEnergy": 0.00078539
+        },
+        "elapsedTime": 0.044995385146722564,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.0239175,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.044995385146722564,
+        "communicationsTime": 0.021077885146722562,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 8.19445e-08,
+        "networkLatency": 0.0,
+        "sourceNode": "node4",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.044995385146722564,
+        "applicationType": {
+          "name": "nofs-dnn1",
+          "dag": {
+            "dnn1": []
+          }
+        },
+        "taskType": {
+          "name": "dnn1",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn1": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "xavierCpu",
+          "name": "Nvidia Xavier Carmel Arm v8.2",
+          "hardware": "cpu",
+          "price": 3399,
+          "idleEnergy": 0.00078539
+        },
+        "elapsedTime": 0.044995385146722564,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.0239175,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.044995385146722564,
+        "communicationsTime": 0.021077885146722562,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 8.19445e-08,
+        "networkLatency": 0.0,
+        "sourceNode": "node4",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.044995385146722564,
+        "applicationType": {
+          "name": "nofs-dnn2",
+          "dag": {
+            "dnn2": []
+          }
+        },
+        "taskType": {
+          "name": "dnn2",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn2": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "xavierCpu",
+          "name": "Nvidia Xavier Carmel Arm v8.2",
+          "hardware": "cpu",
+          "price": 3399,
+          "idleEnergy": 0.00078539
+        },
+        "elapsedTime": 0.044995385146722564,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.0239175,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.044995385146722564,
+        "communicationsTime": 0.021077885146722562,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 8.19445e-08,
+        "networkLatency": 0.0,
+        "sourceNode": "node4",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": -1000,
+        "dispatchedTime": 0,
+        "scheduledTime": 0,
+        "arrivedTime": 0,
+        "startedTime": 0.0,
+        "doneTime": 0.044995385146722564,
+        "applicationType": {
+          "name": "nofs-dnn2",
+          "dag": {
+            "dnn2": []
+          }
+        },
+        "taskType": {
+          "name": "dnn2",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn2": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "xavierCpu",
+          "name": "Nvidia Xavier Carmel Arm v8.2",
+          "hardware": "cpu",
+          "price": 3399,
+          "idleEnergy": 0.00078539
+        },
+        "elapsedTime": 0.044995385146722564,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.0239175,
+        "waitTime": 0,
+        "queueTime": 0,
+        "initializationTime": 0.0,
+        "computeTime": 0.044995385146722564,
+        "communicationsTime": 0.021077885146722562,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 8.19445e-08,
+        "networkLatency": 0.0,
+        "sourceNode": "node4",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": 0,
+        "dispatchedTime": 0.018070740248957592,
+        "scheduledTime": 0.055112114513260826,
+        "arrivedTime": 0.1446902069267832,
+        "startedTime": 0.1446902069267832,
+        "doneTime": 0.18968559207350577,
+        "applicationType": {
+          "name": "nofs-dnn1",
+          "dag": {
+            "dnn1": []
+          }
+        },
+        "taskType": {
+          "name": "dnn1",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn1": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "xavierCpu",
+          "name": "Nvidia Xavier Carmel Arm v8.2",
+          "hardware": "cpu",
+          "price": 3399,
+          "idleEnergy": 0.00078539
+        },
+        "elapsedTime": 0.17161485182454816,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.0239175,
+        "waitTime": 0.037041374264303234,
+        "queueTime": 0.08957809241352237,
+        "initializationTime": 0.0,
+        "computeTime": 0.04499538514672258,
+        "communicationsTime": 0.021077885146722562,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 8.19445e-08,
+        "networkLatency": 0.08957809241352235,
+        "sourceNode": "client_node2",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": 1,
+        "dispatchedTime": 0.035107144387050704,
+        "scheduledTime": 0.055112114513260826,
+        "arrivedTime": 0.10029033218356674,
+        "startedTime": 0.19629033218356673,
+        "doneTime": 0.2412857173302893,
+        "applicationType": {
+          "name": "nofs-dnn2",
+          "dag": {
+            "dnn2": []
+          }
+        },
+        "taskType": {
+          "name": "dnn2",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn2": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "xavierCpu",
+          "name": "Nvidia Xavier Carmel Arm v8.2",
+          "hardware": "cpu",
+          "price": 3399,
+          "idleEnergy": 0.00078539
+        },
+        "elapsedTime": 0.2061785729432386,
+        "pullTime": 0.0,
+        "coldStartTime": 0.096,
+        "executionTime": 0.0239175,
+        "waitTime": 0.020004970126210123,
+        "queueTime": 0.045178217670305915,
+        "initializationTime": 0.09599999999999999,
+        "computeTime": 0.04499538514672258,
+        "communicationsTime": 0.021077885146722562,
+        "coldStarted": true,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 8.19445e-08,
+        "networkLatency": 0.045178217670305915,
+        "sourceNode": "client_node4",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": 2,
+        "dispatchedTime": 0.03536224672704006,
+        "scheduledTime": 0.055112114513260826,
+        "arrivedTime": 0.2864639350005952,
+        "startedTime": 0.2864639350005952,
+        "doneTime": 0.33145932014731777,
+        "applicationType": {
+          "name": "nofs-dnn2",
+          "dag": {
+            "dnn2": []
+          }
+        },
+        "taskType": {
+          "name": "dnn2",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn2": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "xavierCpu",
+          "name": "Nvidia Xavier Carmel Arm v8.2",
+          "hardware": "cpu",
+          "price": 3399,
+          "idleEnergy": 0.00078539
+        },
+        "elapsedTime": 0.2960970734202777,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.0239175,
+        "waitTime": 0.019749867786220766,
+        "queueTime": 0.23135182048733438,
+        "initializationTime": 0.0,
+        "computeTime": 0.04499538514672258,
+        "communicationsTime": 0.021077885146722562,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 8.19445e-08,
+        "networkLatency": 0.045178217670305915,
+        "sourceNode": "client_node4",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": 3,
+        "dispatchedTime": 0.05028982618739224,
+        "scheduledTime": 0.055112114513260826,
+        "arrivedTime": 0.14611328724802558,
+        "startedTime": 0.24211328724802558,
+        "doneTime": 0.28710867239474813,
+        "applicationType": {
+          "name": "nofs-dnn2",
+          "dag": {
+            "dnn2": []
+          }
+        },
+        "taskType": {
+          "name": "dnn2",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn2": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "xavierCpu",
+          "name": "Nvidia Xavier Carmel Arm v8.2",
+          "hardware": "cpu",
+          "price": 3399,
+          "idleEnergy": 0.00078539
+        },
+        "elapsedTime": 0.23681884620735588,
+        "pullTime": 0.0,
+        "coldStartTime": 0.096,
+        "executionTime": 0.0239175,
+        "waitTime": 0.004822288325868583,
+        "queueTime": 0.09100117273476475,
+        "initializationTime": 0.096,
+        "computeTime": 0.04499538514672255,
+        "communicationsTime": 0.021077885146722562,
+        "coldStarted": true,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 8.19445e-08,
+        "networkLatency": 0.09100117273476477,
+        "sourceNode": "client_node0",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      },
+      {
+        "taskId": 4,
+        "dispatchedTime": 0.055112114513260826,
+        "scheduledTime": 0.055112114513260826,
+        "arrivedTime": 0.055112114513260826,
+        "startedTime": 0.055112114513260826,
+        "doneTime": 0.10010749965998339,
+        "applicationType": {
+          "name": "nofs-dnn1",
+          "dag": {
+            "dnn1": []
+          }
+        },
+        "taskType": {
+          "name": "dnn1",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn1": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "platform": {
+          "shortName": "xavierCpu",
+          "name": "Nvidia Xavier Carmel Arm v8.2",
+          "hardware": "cpu",
+          "price": 3399,
+          "idleEnergy": 0.00078539
+        },
+        "elapsedTime": 0.044995385146722564,
+        "pullTime": 0.0,
+        "coldStartTime": 0.0,
+        "executionTime": 0.0239175,
+        "waitTime": 0.0,
+        "queueTime": 0.0,
+        "initializationTime": 0.0,
+        "computeTime": 0.044995385146722564,
+        "communicationsTime": 0.021077885146722562,
+        "coldStarted": false,
+        "cacheHit": true,
+        "localDependencies": true,
+        "localCommunications": false,
+        "energy": 8.19445e-08,
+        "networkLatency": 0.0,
+        "sourceNode": "client_node1",
+        "executionNode": "",
+        "executionPlatform": "",
+        "gnn_decision_time": 0.0
+      }
+    ],
+    "scaleEvents": [],
+    "systemEvents": [
+      {
+        "name": "dnn1",
+        "timestamp": 0,
+        "count": 10,
+        "average_queue_length": 0.0,
+        "rpiCpu": 5,
+        "xavierCpu": 5
+      },
+      {
+        "name": "dnn2",
+        "timestamp": 0,
+        "count": 10,
+        "average_queue_length": 0.0,
+        "rpiCpu": 5,
+        "xavierCpu": 5
+      }
+    ],
+    "averageNetworkLatency": 0.010837428019555957,
+    "nodePairLatencies": {
+      "client_node0->": 0.03033372424492159,
+      "client_node1->": 0.0,
+      "node0->": 0.0,
+      "node1->": 0.0,
+      "node3->": 0.0,
+      "node4->": 0.0,
+      "client_node2->": 0.08957809241352235,
+      "client_node4->": 0.045178217670305915
+    },
+    "networkTopology": {
+      "client_node0": {
+        "node1": 0.09100117273476477,
+        "node2": 0.118917697133121,
+        "node5": 0.09375374557482163,
+        "node6": 0.07186379748036034,
+        "node8": 0.07590701205493189
+      },
+      "client_node2": {
+        "node4": 0.08957809241352235
+      },
+      "client_node3": {
+        "node2": 0.07823186205212375,
+        "node4": 0.08931163545444121,
+        "node5": 0.08223788824880737,
+        "node9": 0.07669778220491133
+      },
+      "client_node4": {
+        "node3": 0.10916507191801397,
+        "node4": 0.045178217670305915
+      },
+      "client_node5": {
+        "node1": 0.08128400975616151,
+        "node4": 0.11771638857340216
+      },
+      "client_node6": {
+        "node2": 0.10490945073305208,
+        "node7": 0.1199015042598044,
+        "node9": 0.05471163754247346
+      },
+      "client_node7": {
+        "node0": 0.1050978416681236,
+        "node3": 0.09526477146026147,
+        "node8": 0.10882887277440778
+      },
+      "client_node8": {
+        "node3": 0.0947812200535284,
+        "node9": 0.13301022714758565
+      },
+      "client_node9": {
+        "node4": 0.11050043200300605,
+        "node8": 0.08593248456037385,
+        "node9": 0.1429098616264617
+      },
+      "node0": {
+        "client_node7": 0.1050978416681236
+      },
+      "node2": {
+        "client_node0": 0.118917697133121,
+        "client_node3": 0.07823186205212375,
+        "client_node6": 0.10490945073305208
+      },
+      "node3": {
+        "client_node1": 0.11223277007331231,
+        "client_node4": 0.10916507191801397,
+        "client_node7": 0.09526477146026147,
+        "client_node8": 0.0947812200535284
+      },
+      "node5": {
+        "client_node0": 0.09375374557482163,
+        "client_node3": 0.08223788824880737
+      },
+      "node6": {
+        "client_node0": 0.07186379748036034,
+        "client_node1": 0.11828852288827124
+      },
+      "node7": {
+        "client_node6": 0.1199015042598044
+      },
+      "node8": {
+        "client_node0": 0.07590701205493189,
+        "client_node1": 0.08386865507333856,
+        "client_node7": 0.10882887277440778,
+        "client_node9": 0.08593248456037385
+      },
+      "node9": {
+        "client_node3": 0.07669778220491133,
+        "client_node6": 0.05471163754247346,
+        "client_node8": 0.13301022714758565,
+        "client_node9": 0.1429098616264617
+      },
+      "node4": {
+        "client_node3": 0.08931163545444121,
+        "client_node4": 0.045178217670305915,
+        "client_node5": 0.11771638857340216,
+        "client_node9": 0.11050043200300605,
+        "client_node2": 0.08957809241352235
+      },
+      "node1": {
+        "client_node0": 0.09100117273476477,
+        "client_node1": 0.05357062735503636,
+        "client_node5": 0.08128400975616151
+      },
+      "client_node1": {
+        "node1": 0.05357062735503636,
+        "node3": 0.11223277007331231,
+        "node6": 0.11828852288827124,
+        "node8": 0.08386865507333856
+      }
+    },
+    "offloadingRate": 100.0,
+    "systemStateResults": [
+      {
+        "timestamp": 0.33145932014731777,
+        "scheduler_state": {
+          "target_concurrencies": {
+            "dnn1": {
+              "rpiCpu": 30,
+              "xavierCpu": 30,
+              "xavierGpu": 30,
+              "xavierDla": 30,
+              "pynqFpga": 30
+            },
+            "dnn2": {
+              "rpiCpu": 30,
+              "xavierCpu": 30,
+              "xavierGpu": 30,
+              "xavierDla": 30,
+              "pynqFpga": 30
+            }
+          },
+          "average_contention": {
+            "dnn1": {
+              "13_64": 0.0,
+              "14_69": 0.0,
+              "0_0": 0.0,
+              "11_53": 0.0,
+              "11_54": 0.0,
+              "10_50": 0.0,
+              "14_68": 0.0,
+              "13_65": 0.0,
+              "1_4": 0.0,
+              "10_49": 0.0
+            },
+            "dnn2": {
+              "13_67": 0.0,
+              "11_55": 0.0,
+              "14_71": 0.0,
+              "13_66": 0.0,
+              "11_56": 0.0,
+              "10_52": 0.0,
+              "0_1": 0.0,
+              "1_5": 0.0,
+              "14_70": 0.0,
+              "10_51": 0.0
+            }
+          },
+          "panic_contention": {
+            "dnn1": {},
+            "dnn2": {}
+          }
+        },
+        "available_resources": {
+          "node2": [
+            63
+          ],
+          "client_node2": [
+            14
+          ],
+          "node6": [
+            82,
+            80,
+            81,
+            79
+          ],
+          "node7": [
+            88,
+            87,
+            86,
+            92,
+            85,
+            91,
+            84,
+            90,
+            89,
+            83
+          ],
+          "client_node8": [
+            44
+          ],
+          "node3": [],
+          "node4": [
+            74,
+            73,
+            72,
+            77,
+            76,
+            75
+          ],
+          "node8": [
+            93
+          ],
+          "client_node5": [
+            29
+          ],
+          "client_node1": [
+            12,
+            8,
+            6,
+            9,
+            10,
+            7,
+            13,
+            11
+          ],
+          "client_node9": [
+            45,
+            47,
+            46,
+            48
+          ],
+          "node0": [],
+          "node1": [
+            58,
+            57,
+            62,
+            61,
+            60,
+            59
+          ],
+          "client_node3": [
+            18,
+            17,
+            15,
+            16
+          ],
+          "node5": [
+            78
+          ],
+          "client_node0": [
+            2,
+            3
+          ],
+          "client_node6": [
+            32,
+            30,
+            33,
+            31
+          ],
+          "node9": [
+            94,
+            96,
+            97,
+            95
+          ],
+          "client_node7": [
+            39,
+            38,
+            37,
+            43,
+            36,
+            42,
+            35,
+            41,
+            34,
+            40
+          ],
+          "client_node4": [
+            22,
+            20,
+            28,
+            27,
+            19,
+            25,
+            26,
+            24,
+            21,
+            23
+          ]
+        },
+        "replicas": {
+          "dnn1": [
+            [
+              "node3",
+              64
+            ],
+            [
+              "node4",
+              69
+            ],
+            [
+              "client_node0",
+              0
+            ],
+            [
+              "node1",
+              53
+            ],
+            [
+              "node1",
+              54
+            ],
+            [
+              "node0",
+              50
+            ],
+            [
+              "node4",
+              68
+            ],
+            [
+              "node3",
+              65
+            ],
+            [
+              "client_node1",
+              4
+            ],
+            [
+              "node0",
+              49
+            ]
+          ],
+          "dnn2": [
+            [
+              "node3",
+              67
+            ],
+            [
+              "node1",
+              55
+            ],
+            [
+              "node4",
+              71
+            ],
+            [
+              "node3",
+              66
+            ],
+            [
+              "node1",
+              56
+            ],
+            [
+              "node0",
+              52
+            ],
+            [
+              "client_node0",
+              1
+            ],
+            [
+              "client_node1",
+              5
+            ],
+            [
+              "node4",
+              70
+            ],
+            [
+              "node0",
+              51
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  "sample": {
+    "apps": [
+      "nofs-dnn1",
+      "nofs-dnn2"
+    ],
+    "sample": [
+      100.0,
+      50.0,
+      0.2,
+      0.3,
+      0.5,
+      0.30000000000000004,
+      0.9000000000000001
+    ],
+    "mapping": {
+      "0": "network_bandwidth",
+      "1": "cluster_size",
+      "2": "device_prop_pyngFpga",
+      "3": "device_prop_rpi",
+      "4": "device_prop_xavier",
+      "5": "workload_nofs-dnn1",
+      "6": "workload_nofs-dnn2"
+    },
+    "infra_config": {
+      "pci": {
+        "rpi": {
+          "min": 0.3,
+          "max": 0.3,
+          "step": 0.1,
+          "specs": {
+            "node_name": "",
+            "network_map": {},
+            "memory": 8,
+            "platforms": [
+              "rpiCpu",
+              "rpiCpu",
+              "rpiCpu",
+              "rpiCpu"
+            ],
+            "storage": [
+              "flashCard",
+              "someRemote"
+            ]
+          }
+        },
+        "xavier": {
+          "min": 0.5,
+          "max": 0.5,
+          "step": 0.1,
+          "specs": {
+            "node_name": "",
+            "network_map": {},
+            "memory": 32,
+            "platforms": [
+              "xavierCpu",
+              "xavierCpu",
+              "xavierCpu",
+              "xavierCpu",
+              "xavierCpu",
+              "xavierCpu",
+              "xavierCpu",
+              "xavierCpu",
+              "xavierGpu",
+              "xavierDla"
+            ],
+            "storage": [
+              "eMMC",
+              "someRemote"
+            ]
+          }
+        },
+        "pyngFpga": {
+          "min": 0.2,
+          "max": 0.2,
+          "step": 0.1,
+          "specs": {
+            "node_name": "",
+            "network_map": {},
+            "memory": 0.5,
+            "platforms": [
+              "pynqFpga"
+            ],
+            "storage": [
+              "flashCard",
+              "someRemote"
+            ]
+          }
+        }
+      },
+      "wsc": {
+        "nofs-dnn1": {
+          "average": 125,
+          "min": 0.2,
+          "max": 3,
+          "step": 0.1
+        },
+        "nofs-dnn2": {
+          "average": 125,
+          "min": 0.2,
+          "max": 3,
+          "step": 0.1
+        }
+      },
+      "nwc": {
+        "average": 100,
+        "min": 100,
+        "max": 100,
+        "step": 50
+      },
+      "nodes": {
+        "client_nodes": {
+          "count": 10
+        },
+        "server_nodes": {
+          "count": 10
+        }
+      },
+      "network": {
+        "average": 100,
+        "min": 50,
+        "max": 150,
+        "step": 50,
+        "latency": {
+          "base_latency": 0.1,
+          "device_latencies": {
+            "rpi": {
+              "rpi": {
+                "min": 0.05,
+                "max": 0.15
+              },
+              "xavier": {
+                "min": 0.08,
+                "max": 0.12
+              },
+              "pyngFpga": {
+                "min": 0.06,
+                "max": 0.14
+              }
+            },
+            "xavier": {
+              "rpi": {
+                "min": 0.08,
+                "max": 0.12
+              },
+              "xavier": {
+                "min": 0.03,
+                "max": 0.07
+              },
+              "pyngFpga": {
+                "min": 0.08,
+                "max": 0.12
+              }
+            },
+            "pyngFpga": {
+              "rpi": {
+                "min": 0.06,
+                "max": 0.14
+              },
+              "xavier": {
+                "min": 0.08,
+                "max": 0.12
+              },
+              "pyngFpga": {
+                "min": 0.05,
+                "max": 0.15
+              }
+            }
+          }
+        },
+        "topology": {
+          "type": "sparse",
+          "connection_probability": 0.25,
+          "edges": [],
+          "seed": 42
+        }
+      },
+      "brute_force": {
+        "early_stop_patience": 100,
+        "early_stop_min_delta": 0.0,
+        "save_only_optimal": true
+      },
+      "preinit": {
+        "client_percentage": 0.2,
+        "server_percentage": 0.5,
+        "task_types": [
+          "dnn1",
+          "dnn2"
+        ]
+      },
+      "replicas": {
+        "dnn1": {
+          "per_server": 2,
+          "per_client": 1
+        },
+        "dnn2": {
+          "per_server": 2,
+          "per_client": 1
+        }
+      },
+      "prewarm": {
+        "dnn1": {
+          "per_server": 2,
+          "per_client": 1,
+          "initial_queue": 1
+        },
+        "dnn2": {
+          "per_server": 1,
+          "per_client": 0,
+          "initial_queue": 1
+        }
+      },
+      "startup_simulation": {
+        "simulate_contention": false,
+        "contention_threshold": 0.8,
+        "memory_fragmentation": 0.3,
+        "platform_utilization": 0.4,
+        "background_tasks": 5,
+        "runtime": {
+          "mode": "step",
+          "tick": 0.5,
+          "duration_hint": 60,
+          "per_platform_type": {
+            "rpiCpu": {
+              "slowdown": 1.25,
+              "cold_start_boost": 1.3
+            },
+            "xavierCpu": {
+              "slowdown": 1.0,
+              "cold_start_boost": 1.1
+            },
+            "xavierGpu": {
+              "slowdown": 0.85,
+              "cold_start_boost": 1.05
+            },
+            "xavierDla": {
+              "slowdown": 0.95,
+              "cold_start_boost": 1.05
+            },
+            "pynqFpga": {
+              "slowdown": 1.1,
+              "cold_start_boost": 1.15
+            }
+          },
+          "burst": {
+            "q_len": 3,
+            "penalty": 0.15
+          }
+        }
+      }
+    },
+    "sim_inputs": {
+      "application_types": {
+        "nofs-dnn1": {
+          "name": "nofs-dnn1",
+          "dag": {
+            "dnn1": []
+          }
+        },
+        "nofs-dnn2": {
+          "name": "nofs-dnn2",
+          "dag": {
+            "dnn2": []
+          }
+        }
+      },
+      "platform_types": {
+        "rpiCpu": {
+          "shortName": "rpiCpu",
+          "name": "Raspberry Pi 4 Broadcom BCM2711",
+          "hardware": "cpu",
+          "price": 60,
+          "idleEnergy": 0.000663305
+        },
+        "xavierCpu": {
+          "shortName": "xavierCpu",
+          "name": "Nvidia Xavier Carmel Arm v8.2",
+          "hardware": "cpu",
+          "price": 3399,
+          "idleEnergy": 0.00078539
+        },
+        "xavierGpu": {
+          "shortName": "xavierGpu",
+          "name": "Nvidia Xavier Volta",
+          "hardware": "gpu",
+          "price": 3399,
+          "idleEnergy": 0.00150075
+        },
+        "xavierDla": {
+          "shortName": "xavierDla",
+          "name": "Nvidia Xavier DLA",
+          "hardware": "dla",
+          "price": 3399,
+          "idleEnergy": 5e-06
+        },
+        "pynqFpga": {
+          "shortName": "pynqFpga",
+          "name": "Xilinx Artix-7",
+          "hardware": "fpga",
+          "price": 170,
+          "idleEnergy": 0.002688664
+        }
+      },
+      "qos_types": {
+        "medium": {
+          "name": "medium",
+          "maxDurationDeviation": 15
+        }
+      },
+      "storage_types": {
+        "eMMC": {
+          "name": "eMMC",
+          "hardware": "mmc",
+          "remote": false,
+          "price": 32,
+          "idleEnergy": 0,
+          "capacity": 32,
+          "iops": {
+            "read": 1820,
+            "write": 606
+          },
+          "throughput": {
+            "read": 294,
+            "write": 82
+          },
+          "latency": {
+            "read": 0.00452,
+            "write": 0.00452
+          }
+        },
+        "flashCard": {
+          "name": "Flash Card",
+          "hardware": "flash",
+          "remote": false,
+          "price": 16,
+          "idleEnergy": 0,
+          "capacity": 64,
+          "iops": {
+            "read": 2977,
+            "write": 987
+          },
+          "throughput": {
+            "read": 100,
+            "write": 40
+          },
+          "latency": {
+            "read": 0.00122,
+            "write": 0.00122
+          }
+        },
+        "someRemote": {
+          "name": "Some Remote Storage",
+          "hardware": "ssd",
+          "remote": true,
+          "price": 8,
+          "idleEnergy": 0,
+          "capacity": 99999999999999999999999999999999999999999999999999,
+          "iops": {
+            "read": 92500,
+            "write": 60170
+          },
+          "throughput": {
+            "read": 108,
+            "write": 108
+          },
+          "latency": {
+            "read": 0.015,
+            "write": 0.015
+          }
+        }
+      },
+      "task_types": {
+        "dnn1": {
+          "name": "dnn1",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn1": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        },
+        "dnn2": {
+          "name": "dnn2",
+          "platforms": [
+            "rpiCpu",
+            "xavierGpu",
+            "xavierCpu"
+          ],
+          "memoryRequirements": {
+            "rpiCpu": 0.069229126,
+            "xavierGpu": 0.9,
+            "xavierCpu": 0.068973541
+          },
+          "coldStartDuration": {
+            "rpiCpu": 0.636,
+            "xavierGpu": 6.14,
+            "xavierCpu": 0.096
+          },
+          "executionTime": {
+            "rpiCpu": 0.16842,
+            "xavierGpu": 0.0362488,
+            "xavierCpu": 0.0239175
+          },
+          "energy": {
+            "rpiCpu": 1.35764e-07,
+            "xavierGpu": 1.41667e-07,
+            "xavierCpu": 8.19445e-08
+          },
+          "imageSize": {
+            "rpiCpu": 3.057,
+            "xavierGpu": 2.99,
+            "xavierCpu": 2.987
+          },
+          "stateSize": {
+            "ae-dnn2": {
+              "input": 20000,
+              "output": 8000
+            },
+            "es-dnn2": {
+              "input": 12800,
+              "output": 8000
+            },
+            "nofs-dnn2": {
+              "input": 153600,
+              "output": 8000
+            }
+          }
+        }
+      }
+    },
+    "scheduling_strategy": "determined_determined",
+    "cache_policy": "fifo",
+    "task_priority": "fifo",
+    "keep_alive": 30,
+    "queue_length": 30,
+    "placement_plan": {
+      "0": [
+        14,
+        68
+      ],
+      "1": [
+        14,
+        69
+      ],
+      "2": [
+        14,
+        69
+      ],
+      "3": [
+        11,
+        53
+      ],
+      "4": [
+        1,
+        4
+      ]
+    }
+  }
+}

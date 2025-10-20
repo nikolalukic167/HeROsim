@@ -527,7 +527,8 @@ scheduling_strategies: Dict[str, str] = {
     "prohetkn_prohetkn": "PROHETKN-PROHETKN",
     "gnn_gnn": "GNN-GNN",
     "multiloop_multiloop": "MULTILOOP-MULTILOOP",
-    "determined_determined": "DETERMINED-DETERMINED"
+    "determined_determined": "DETERMINED-DETERMINED",
+    "evaluator_evaluator": "EVALUATOR-EVALUATOR"
 }
 
 cache_policies: Set[str] = {

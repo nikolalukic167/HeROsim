@@ -992,6 +992,7 @@ def execute_brute_force_placement_optimization(
             bf_cfg = infra_config.get('brute_force', {}) if isinstance(infra_config, dict) else {}
             early_stop_patience = int(bf_cfg.get('early_stop_patience', 0))  # 0 disables
             early_stop_min_delta = float(bf_cfg.get('early_stop_min_delta', 0.0))
+            save_only_optimal = bool(bf_cfg.get('save_only_optimal', True))  # Default: save only optimal
 
             base_nodes = sim_config['nodes']
 
@@ -1048,8 +1049,8 @@ def execute_brute_force_placement_optimization(
                         sample_rtts.append(cur_rtt_value)
 
                         if cur_rtt_value + early_stop_min_delta < best_rtt:
-                            # New best: remove previous best file
-                            if best_file is not None and os.path.exists(best_file):
+                            # New best: remove previous best file if save_only_optimal enabled
+                            if save_only_optimal and best_file is not None and os.path.exists(best_file):
                                 try:
                                     os.remove(best_file)
                                 except Exception:
@@ -1058,11 +1059,12 @@ def execute_brute_force_placement_optimization(
                             best_rtt = cur_rtt_value
                             batch_improved = True
                         else:
-                            # Not better => delete file to save storage
-                            try:
-                                os.remove(current_path)
-                            except Exception:
-                                pass
+                            # Not better => delete file if save_only_optimal enabled
+                            if save_only_optimal:
+                                try:
+                                    os.remove(current_path)
+                                except Exception:
+                                    pass
 
                     if early_stop_patience > 0:
                         if batch_improved:
@@ -1076,12 +1078,25 @@ def execute_brute_force_placement_optimization(
             # Record the surviving best file for this sample
             if best_file is not None:
                 result_paths.append(best_file)
+                
+                # Write best result info to sidecar file for bash script
+                best_info = {
+                    "file": os.path.basename(best_file),
+                    "rtt": best_rtt
+                }
+                best_json_path = output_dir / "best.json"
+                with open(best_json_path, 'w') as f:
+                    json.dump(best_info, f)
+            
             # Persist per-sample RTTs for final plotting
             if sample_rtts:
                 per_sample_rtts.append(sample_rtts)
                 all_rtts.extend(sample_rtts)
 
-            print(f"Completed {len(placement_combinations)} simulations for sample {sample_idx + 1} (kept 1 best file)")
+            if save_only_optimal:
+                print(f"Completed {len(placement_combinations)} simulations for sample {sample_idx + 1} (kept 1 best file)")
+            else:
+                print(f"Completed {len(placement_combinations)} simulations for sample {sample_idx + 1} (kept all {len(placement_combinations)} files)")
             
         except Exception as e:
             print(f"Error processing sample {sample_idx + 1}: {str(e)}")
@@ -1091,6 +1106,8 @@ def execute_brute_force_placement_optimization(
 
     print(f"\n=== Brute Force Placement Optimization Complete ===")
     print(f"Total result files generated: {len(result_paths)}")
+    
+    """
     # Plot RTT distributions to a PDF
     if all_rtts:
         try:
@@ -1133,9 +1150,11 @@ def execute_brute_force_placement_optimization(
             print(f"Saved RTT summary PDF to {pdf_path}")
         except Exception as e:
             print(f"Matplotlib not available or plotting failed, skipping PDF: {str(e)}")
+            
     else:
         print("No RTTs collected; skipping PDF generation")
-    
+    """
+
     # Analyze results to find the fastest simulation
     print(f"\n=== Analyzing Results for Fastest Simulation ===")
     fastest_simulation = None

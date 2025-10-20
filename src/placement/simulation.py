@@ -26,8 +26,8 @@ from typing import Dict, Tuple, Type, Set, Any, List
 
 from src.placement.infrastructure import Node, Platform, Storage, Application, Task
 
-from simpy.core import Environment
-from simpy.resources.store import FilterStore
+from simpy.core import Environment  # type: ignore[import-not-found]
+from simpy.resources.store import FilterStore  # type: ignore[import-not-found]
 
 from src.placement.model import (
     DataclassJSONEncoder,
@@ -76,6 +76,11 @@ from src.policy.multiloop.scheduler import MultiLoopScheduler
 from src.policy.determined.orchestrator import DeterminedOrchestrator
 from src.policy.determined.autoscaler import DeterminedAutoscaler
 from src.policy.determined.scheduler import DeterminedScheduler
+from src.policy.evaluator.orchestrator import EvaluatorOrchestrator
+from src.policy.evaluator.autoscaler import EvaluatorAutoscaler
+from src.policy.evaluator.scheduler import EvaluatorScheduler
+
+from src.utils.distributions import sample_bounded_int, sample_replica_count
 
 
 def create_nodes(
@@ -198,6 +203,9 @@ def precreate_replicas(
     # Track which platforms have been assigned to avoid double-booking
     assigned_platforms = set()
     initial_replicas = {}
+    # Optional RNG seed from prewarm config
+    import random
+    rng = random.Random()
     
     # Create replicas for each task type according to configuration
     for task_type_name, replica_config in replicas_config.items():
@@ -219,6 +227,14 @@ def precreate_replicas(
             
             for node in server_nodes:
                 if node.node_name in preinit_servers:
+                    # Allow statistical override per node (if configured)
+                    task_prewarm_cfg = prewarm_config.get(task_type_name, {}) if prewarm_config else {}
+                    per_node_target = per_server
+                    if task_prewarm_cfg.get('distribution') == 'statistical':
+                        rep_dist = task_prewarm_cfg.get('replica_distribution') or {}
+                        sampled = sample_replica_count('server', rep_dist, rng)
+                        # preserve at least 0, and don't exceed number of suitable platforms
+                        per_node_target = max(0, int(sampled))
                     # Find suitable unassigned platforms on this server
                     suitable_platforms = [
                         platform for platform in node.platforms.items
@@ -229,7 +245,7 @@ def precreate_replicas(
                     # Create up to per_server replicas on this node
                     replicas_created = 0
                     for platform in suitable_platforms:
-                        if replicas_created >= per_server:
+                        if replicas_created >= per_node_target:
                             break
                         
                         # Create replica
@@ -245,6 +261,14 @@ def precreate_replicas(
                         if env and simulation_policy and prewarm_config:
                             task_prewarm = prewarm_config.get(task_type_name, {})
                             initial_queue = task_prewarm.get('initial_queue', 0)
+                            # Statistical queue distribution support
+                            if task_prewarm.get('queue_distribution') == 'statistical':
+                                q_params = task_prewarm.get('queue_distribution_params') or {}
+                                # default clamp: non-negative small cap to avoid huge queues
+                                if 'min' not in q_params:
+                                    q_params['min'] = 0
+                                sampled_q = sample_bounded_int(q_params, rng)
+                                initial_queue = max(0, int(sampled_q))
                             if initial_queue > 0:
                                 warmup_tasks = create_warmup_tasks(
                                     env, platform, task_type_name, simulation_data, 
@@ -265,6 +289,13 @@ def precreate_replicas(
             
             for node in client_nodes:
                 if node.node_name in preinit_clients:
+                    # Allow statistical override per node (if configured)
+                    task_prewarm_cfg = prewarm_config.get(task_type_name, {}) if prewarm_config else {}
+                    per_node_target = per_client
+                    if task_prewarm_cfg.get('distribution') == 'statistical':
+                        rep_dist = task_prewarm_cfg.get('replica_distribution') or {}
+                        sampled = sample_replica_count('client', rep_dist, rng)
+                        per_node_target = max(0, int(sampled))
                     # Find suitable unassigned platforms on this client
                     suitable_platforms = [
                         platform for platform in node.platforms.items
@@ -275,7 +306,7 @@ def precreate_replicas(
                     # Create up to per_client replicas on this node
                     replicas_created = 0
                     for platform in suitable_platforms:
-                        if replicas_created >= per_client:
+                        if replicas_created >= per_node_target:
                             break
                         
                         # Create replica
@@ -291,6 +322,12 @@ def precreate_replicas(
                         if env and simulation_policy and prewarm_config:
                             task_prewarm = prewarm_config.get(task_type_name, {})
                             initial_queue = task_prewarm.get('initial_queue', 0)
+                            if task_prewarm.get('queue_distribution') == 'statistical':
+                                q_params = task_prewarm.get('queue_distribution_params') or {}
+                                if 'min' not in q_params:
+                                    q_params['min'] = 0
+                                sampled_q = sample_bounded_int(q_params, rng)
+                                initial_queue = max(0, int(sampled_q))
                             if initial_queue > 0:
                                 warmup_tasks = create_warmup_tasks(
                                     env, platform, task_type_name, simulation_data, 
@@ -396,8 +433,8 @@ def create_warmup_tasks(
         
         # Attach to platform for orchestrator to discover later
         if not hasattr(platform, '_warmup_tasks'):
-            setattr(platform, '_warmup_tasks', [])
-        platform._warmup_tasks.append(warmup_task)
+            setattr(platform, '_warmup_tasks', [])  # type: ignore[attr-defined]
+        platform._warmup_tasks.append(warmup_task)  # type: ignore[attr-defined]
 
         warmup_tasks.append(warmup_task)
     
@@ -493,7 +530,8 @@ def start_simulation(
         "prohetkn_prohetkn": (HeteroProactiveKnativeOrchestrator, HeteroProactiveKnativeAutoscaler, HeteroProactiveKnativeScheduler),
         "gnn_gnn": (GNNOrchestrator, GNNAutoscaler, GNNScheduler),
         "multiloop_multiloop": (MultiLoopOrchestrator, MultiLoopAutoscaler, MultiLoopScheduler),
-        "determined_determined": (DeterminedOrchestrator, DeterminedAutoscaler, DeterminedScheduler)
+        "determined_determined": (DeterminedOrchestrator, DeterminedAutoscaler, DeterminedScheduler),
+        "evaluator_evaluator": (EvaluatorOrchestrator, EvaluatorAutoscaler, EvaluatorScheduler)
     }
 
     # Retrieve relevant Autoscaler and Scheduler classes

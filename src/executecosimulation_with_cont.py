@@ -1242,7 +1242,7 @@ def execute_brute_force_placement_optimization(
     # Plot RTT distributions to a PDF
     try:
         if all_rtts:
-            pdf_path = output_dir / "rtt_summary.pdf"
+            pdf_path = "simulation_data/rtt_summary.pdf"
             with PdfPages(pdf_path) as pdf:
                 # Page 1: Overall histogram
                 plt.figure(figsize=(10, 6))

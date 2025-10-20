@@ -1,0 +1,40 @@
+{
+  "os":  "Linux-6.8.0-85-generic-x86_64-with-glibc2.39",
+  "python":  "CPython 3.12.3",
+  "startedAt":  "2025-10-07T16:18:07.539278Z",
+  "program":  "/root/projects/my-herosim/src/notebooks/new/gnn_v4.ipynb",
+  "codePath":  "src/notebooks/new/gnn_v4.ipynb",
+  "codePathLocal":  "gnn_v4.ipynb",
+  "git":  {
+    "remote":  "https://git.dsg.tuwien.ac.at/praith/my-herosim.git",
+    "commit":  "96427114222b61981cb848078e8e59c9f8c84a99"
+  },
+  "email":  "nikolalukic167@gmail.com",
+  "root":  "/root/projects/my-herosim/src/notebooks/new",
+  "host":  "mitrix",
+  "executable":  "/root/.local/share/virtualenvs/my-herosim-7iPRbgpb/bin/python",
+  "cpu_count":  16,
+  "cpu_count_logical":  16,
+  "gpu":  "Tesla T4",
+  "gpu_count":  1,
+  "disk":  {
+    "/":  {
+      "total":  "211044827136",
+      "used":  "44840456192"
+    }
+  },
+  "memory":  {
+    "total":  "33652129792"
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "Tesla T4",
+      "memoryTotal":  "16106127360",
+      "cudaCores":  2560,
+      "architecture":  "Turing",
+      "uuid":  "GPU-c9bee304-1e67-b007-a5e4-21ad82475308"
+    }
+  ],
+  "cudaVersion":  "13.0",
+  "writerId":  "ber4jjiqyqxpoyazdm2nbs2kgwek47gs"
+}

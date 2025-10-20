@@ -189,3 +189,4 @@ src/wandb
 # gnn datasets
 simulation_data/gnn_datasets/
 simulation_data/initial_results_simple/
+src/notebooks/data/results_sim/

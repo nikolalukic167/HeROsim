@@ -185,7 +185,9 @@ logs/
 
 # wandb
 src/wandb
+src/notebooks/new/wandb
 
 # gnn datasets
 simulation_data/gnn_datasets/
 simulation_data/initial_results_simple/
+simulation_data/artifacts/

@@ -5,12 +5,12 @@ set -euo pipefail
 # GNN Dataset Generation Script
 # ============================================================================
 # Generate diverse datasets by systematically varying:
-#   1. Network topology (connection probability): 12 levels
-#   2. Replica configuration (per_client, per_server, preinit percentages): 10 configs
+#   1. Network topology (connection probability): 19 levels
+#   2. Replica configuration (per_client, per_server, preinit percentages): 15 configs
 #   3. Pre-warm queue levels (initial backlog per replica): 11 levels
 #   4. Workload patterns (task type ratios, client node distribution): 10 templates
 #
-# This creates up to 10,000 unique datasets (capped from 12×10×11×10 = 13,200 possible)
+# This creates up to 20,000 unique datasets (capped from 19×15×11×10 = 31,350 possible)
 # for training GNN-based schedulers with production-realistic scenarios.
 #
 # Each dataset contains:
@@ -31,15 +31,15 @@ PROGRESS_LOG="${BASE}/logs/progress.txt"
 mkdir -p "${OUT_BASE}" "${RESULTS_DIR}" "${BASE}/logs" "${WORKLOAD_TEMPLATES_DIR}"
 
 # Grid definition
-# Note: Do not vary seeds for now; keep the config's seed. Limit connectivity ≤ 0.50.
-PROBS=(0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40 0.45 0.50 0.55 0.60)
+# Note: Do not vary seeds for now; keep the config's seed. Extended connectivity range for more datasets.
+PROBS=(0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40 0.45 0.50 0.55 0.60 0.65 0.70 0.75 0.80 0.85 0.90 0.95)
 
 # Prefilled-queue sweep (10 levels) → multiplies datasets by 10
 # Controls initial backlog per replica for dnn1 and dnn2
 # PREWARM_Q=(0 1 2 3 4 6 8 12 16 24)
 PREWARM_Q=(24 20 16 12 8 6 4 3 2 1 0)
 
-# Replica config matrix: (per_client per_server client_percentage server_percentage) → 10 configs
+# Replica config matrix: (per_client per_server client_percentage server_percentage) → 15 configs
 REPLICA_CFGS=(
   "3 3 0.5 0.7"
   "2 3 0.6 0.8"
@@ -51,6 +51,11 @@ REPLICA_CFGS=(
   "2 2 0.6 0.8"
   "1 4 0.4 0.6"
   "2 2 0.5 0.7"
+  "3 2 0.7 0.8"
+  "1 2 0.5 0.9"
+  "2 4 0.8 0.7"
+  "3 1 0.6 0.8"
+  "1 1 0.4 0.8"
 )
 
 # Workload generation parameters
@@ -275,8 +280,8 @@ for connection_probability in "${PROBS[@]}"; do
       # Cycle through workload templates (10 templates total)
       workload_template_idx=$(( (workload_template_idx + 1) % 10 ))
       
-      # Stop at 10000 datasets (1000 infra configs × 10 workload templates)
-      if [ "$i" -ge 10000 ]; then
+      # Stop at 20000 datasets (extended parameter space)
+      if [ "$i" -ge 20000 ]; then
         break 3
       fi
     done

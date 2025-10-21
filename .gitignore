@@ -191,3 +191,11 @@ src/notebooks/new/wandb
 simulation_data/gnn_datasets/
 simulation_data/initial_results_simple/
 simulation_data/artifacts/
+
+# gnn model
+src/notebooks/new/best_gnn_placement_model.pt
+src/notebooks/new/models/
+
+# datasets
+analysis_results/
+simulation_data/network_topology.pdf

@@ -162,6 +162,19 @@ class EvaluatorScheduler(Scheduler):
             print(f"ERROR: GNN model not found at {model_path}")
             sys.exit(1)
         
+        """# Check device availability
+        if torch.cuda.is_available():
+            self.device = torch.device('cuda')
+            print(f"✓ CUDA available, using GPU")
+        else:
+            self.device = torch.device('cpu')
+            print(f"⚠ CUDA not available, using CPU")"""
+        
+        # TODO: Remove this once we have a working GNN model
+        # Check device availability - force CPU if CUDA has issues
+        self.device = torch.device('cpu')  # Force CPU to avoid CUDA initialization issues
+        print(f"⚠ Using CPU to avoid CUDA initialization issues")
+        
         # Initialize model with same architecture as training
         task_feature_dim = 3  # 2 (task type one-hot) + 1 (source node ID)
         platform_feature_dim = 7  # 5 (platform type one-hot) + 2 (replica flags)
@@ -173,11 +186,27 @@ class EvaluatorScheduler(Scheduler):
             hidden_dim=128
         )
         
-        # Load trained weights
-        self.gnn_model.load_state_dict(torch.load(model_path))
-        self.gnn_model.eval()
-        
-        print(f"✓ GNN model loaded from {model_path}")
+        # Load trained weights - load on CPU first to avoid CUDA initialization issues
+        try:
+            # Load state dict on CPU first
+            state_dict = torch.load(model_path, map_location='cpu')
+            self.gnn_model.load_state_dict(state_dict)
+            # Move model to appropriate device
+            self.gnn_model = self.gnn_model.to(self.device)
+            self.gnn_model.eval()
+            print(f"✓ GNN model loaded from {model_path} on {self.device}")
+        except Exception as e:
+            print(f"ERROR: Failed to load GNN model: {e}")
+            # Fallback: try loading with weights_only=True for security
+            try:
+                state_dict = torch.load(model_path, map_location='cpu', weights_only=True)
+                self.gnn_model.load_state_dict(state_dict)
+                self.gnn_model = self.gnn_model.to(self.device)
+                self.gnn_model.eval()
+                print(f"✓ GNN model loaded with weights_only=True from {model_path} on {self.device}")
+            except Exception as e2:
+                print(f"ERROR: Failed to load GNN model even with weights_only=True: {e2}")
+                sys.exit(1)
 
     def scheduler_process(self) -> Generator:
         # keep this for the simpy generator 
@@ -220,7 +249,7 @@ class EvaluatorScheduler(Scheduler):
                     )
                 )
                 batch.append(task)
-                print(f"[ {self.env.now} ] DEBUG: Added task {task.id} to batch (size={len(batch)})")
+                # print(f"[ {self.env.now} ] DEBUG: Added task {task.id} to batch (size={len(batch)})")
             except:
                 # No more tasks available
                 print(f"[ {self.env.now} ] DEBUG: No more tasks available after {len(batch)} tasks")
@@ -233,7 +262,7 @@ class EvaluatorScheduler(Scheduler):
         """Process multiple tasks simultaneously in a single operation"""
         print(f"[ {self.env.now} ] DEBUG: Processing {len(batch_tasks)} tasks in batch")
         # DEBUG: dump current per-platform queue status including internal (prewarm) tasks
-        try:
+        """try:
             for node in self.nodes.items:
                 for plat in node.platforms.items:
                     q_len = len(plat.queue.items)
@@ -241,7 +270,7 @@ class EvaluatorScheduler(Scheduler):
                         internal = sum(1 for t in plat.queue.items if getattr(t, 'is_internal', False))
                         print(f"[ {self.env.now} ] DEBUG: Platform {plat.id}@{node.node_name} q_len={q_len} internal={internal}")
         except Exception:
-            pass
+            pass"""
         
         # Get system state once for all tasks
         system_state: SystemState = yield self.mutex.get()
@@ -351,6 +380,9 @@ class EvaluatorScheduler(Scheduler):
         try:
             # Build graph for this single task
             graph_data = self._build_graph_for_tasks([task], [valid_replicas], system_state)
+            
+            # Move graph data to the same device as the model
+            graph_data = graph_data.to(self.device)
             
             # Run GNN inference
             with torch.no_grad():

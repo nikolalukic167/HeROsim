@@ -686,7 +686,7 @@ def process_sample(args):
         keep_alive = KEEP_ALIVE
         queue_length = QUEUE_LENGTH
         # todo: change to gnn_gnn
-        scheduling_strategy = 'multiloop_multiloop'
+        scheduling_strategy = 'evaluator_evaluator'
         print("started simulation")
         result = execute_simulation(full_config, sim_inputs, scheduling_strategy,
                                     cache_policy=cache_policy, task_priority=task_priority, keep_alive=keep_alive, queue_length=queue_length)

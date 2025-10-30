@@ -32,11 +32,11 @@
       "xavierCpu": 2.987
     },
     "stateSize": {
-      "ae-dnn2": {
+      "ae-dnn1": {
         "input": 20000,
         "output": 8000
       },
-      "es-dnn2": {
+      "es-dnn1": {
         "input": 12800,
         "output": 8000
       },

@@ -146,9 +146,9 @@
     },
     "topology": {
       "type": "sparse",
-      "connection_probability": 0.15,
+      "connection_probability": 0.20,
       "edges": [],
-      "seed": 42
+      "seed": 101
     }
   },
   "brute_force": {
@@ -158,7 +158,7 @@
   },
   "preinit": {
     "client_percentage": 0.6,
-    "server_percentage": 0.9,
+    "server_percentage": 0.8,
     "task_types": [
       "dnn1",
       "dnn2"
@@ -166,24 +166,38 @@
   },
   "replicas": {
     "dnn1": {
-      "per_server": 1,
+      "per_server": 3,
       "per_client": 2
     },
     "dnn2": {
-      "per_server": 1,
+      "per_server": 3,
       "per_client": 2
     }
   },
   "prewarm": {
     "dnn1": {
-      "per_server": 2,
-      "per_client": 1,
-      "initial_queue": 16
+      "distribution": "none",
+      "queue_distribution": "statistical",
+      "queue_distribution_params": {
+        "type": "uniform",
+        "low": 0,
+        "high": 24,
+        "min": 0,
+        "max": 24,
+        "step": 1
+      }
     },
     "dnn2": {
-      "per_server": 1,
-      "per_client": 0,
-      "initial_queue": 16
+      "distribution": "none",
+      "queue_distribution": "statistical",
+      "queue_distribution_params": {
+        "type": "uniform",
+        "low": 0,
+        "high": 24,
+        "min": 0,
+        "max": 24,
+        "step": 1
+      }
     }
   },
   "startup_simulation": {

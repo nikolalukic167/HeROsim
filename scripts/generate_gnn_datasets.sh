@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail  # -u: undefined variables error, -o pipefail: pipeline failures
 
 # ============================================================================
 # GNN Dataset Generation Script
@@ -31,13 +31,7 @@ PROGRESS_LOG="${BASE}/logs/progress.txt"
 mkdir -p "${OUT_BASE}" "${RESULTS_DIR}" "${BASE}/logs" "${WORKLOAD_TEMPLATES_DIR}"
 
 # Grid definition
-# Note: Do not vary seeds for now; keep the config's seed. Extended connectivity range for more datasets.
-PROBS=(0.05 0.10 0.15 0.20 0.25 0.30 0.35 0.40 0.45 0.50 0.55 0.60 0.65 0.70 0.75 0.80 0.85 0.90 0.95)
-
-# Prefilled-queue sweep (10 levels) → multiplies datasets by 10
-# Controls initial backlog per replica for dnn1 and dnn2
-# PREWARM_Q=(0 1 2 3 4 6 8 12 16 24)
-PREWARM_Q=(24 20 16 12 8 6 4 3 2 1 0)
+PROBS=(0.20 0.25 0.30 0.35 0.40 0.45 0.50 0.55 0.60 0.65 0.70 0.75 0.80)
 
 # Replica config matrix: (per_client per_server client_percentage server_percentage) → 15 configs
 REPLICA_CFGS=(
@@ -56,6 +50,27 @@ REPLICA_CFGS=(
   "2 4 0.8 0.7"
   "3 1 0.6 0.8"
   "1 1 0.4 0.8"
+)
+
+# Additional random seeds to scale dataset count (~PROBS*CFG*QDISTS*SEEDS)
+# Target ~10k datasets: 19*15*8*5 ≈ 11,400
+
+# SEEDS=(101 202 303 404 505)
+SEEDS=(101) 
+
+
+# Queue distribution variants (type mean/std or lambda, min, max, step-meta)
+# Format: name type param1 param2 min max step
+# Expanded set to improve diversity while staying bounded [0,32]
+QUEUE_DISTS=(
+  "pois4 poisson 4 0 0 32 1"
+  "pois8 poisson 8 0 0 32 1"
+  "pois12 poisson 12 0 0 32 1"
+  "pois16 poisson 16 0 0 32 1"
+  "norm8 normal 8 3 0 32 1"
+  "norm12 normal 12 4 0 32 1"
+  "unif024 uniform 0 24 0 24 1"
+  "unif032 uniform 0 32 0 32 1"
 )
 
 # Workload generation parameters
@@ -161,129 +176,151 @@ trap restore_cfg EXIT INT TERM
 # Generate workload templates before starting dataset generation
 generate_workload_templates
 
-# Track failed combinations of (connection_probability, replica_cfg, workload_template)
-declare -A FAILED_COMBOS
-
 i=0
 workload_template_idx=0  # Cycle through workload templates
 for connection_probability in "${PROBS[@]}"; do
   for replica_cfg in "${REPLICA_CFGS[@]}"; do
     read -r replicas_per_client replicas_per_server preinit_client_pct preinit_server_pct <<< "${replica_cfg}"
-    for prewarm_initial_queue in "${PREWARM_Q[@]}"; do
-      
-      # Create unique key for this combination (network + replica + workload)
-      combo_key="${connection_probability}_${replica_cfg}_${workload_template_idx}"
-      
-      # Skip if this exact combo previously failed
-      if [[ -n "${FAILED_COMBOS[$combo_key]:-}" ]]; then
-        echo "[SKIP] Combo conn=${connection_probability} replica='${replica_cfg}' workload=${workload_template_idx} previously failed"
-        continue
-      fi
+    for seed in "${SEEDS[@]}"; do
+      for qdist in "${QUEUE_DISTS[@]}"; do
+        read -r qname qtype qp1 qp2 qmin qmax qstep <<< "${qdist}"
 
-      DID=$(printf "ds_%05d" "$i")  # Updated to 5 digits for 10k datasets
-      OUT_DIR="${OUT_BASE}/${DID}"
+        DID=$(printf "ds_%05d" "$i")  # 0..99999 supports up to 100k
+        OUT_DIR="${OUT_BASE}/${DID}"
 
-      # Select workload template (cycle through 10 templates)
-      WORKLOAD_TEMPLATE="${WORKLOAD_TEMPLATES_DIR}/workload_template_${workload_template_idx}.json"
-      
-      # Validate workload template exists
-      if [ ! -f "${WORKLOAD_TEMPLATE}" ]; then
-        echo "ERROR: Workload template not found: ${WORKLOAD_TEMPLATE}"
-        exit 1
-      fi
-      
-      echo "[${DID}] workload_template=${workload_template_idx} conn_prob=${connection_probability} replicas_per_client=${replicas_per_client} replicas_per_server=${replicas_per_server} preinit_client_pct=${preinit_client_pct} preinit_server_pct=${preinit_server_pct} prewarm.initial_queue=${prewarm_initial_queue}"
-
-      TMP_CFG="$(mktemp)"
-      jq --argjson p "${connection_probability}" \
-         --argjson pc "${replicas_per_client}" \
-         --argjson ps "${replicas_per_server}" \
-         --argjson cp "${preinit_client_pct}" \
-         --argjson sp "${preinit_server_pct}" \
-         --argjson iq "${prewarm_initial_queue}" \
-         '.network.topology.connection_probability=$p
-          | .preinit.client_percentage=$cp
-          | .preinit.server_percentage=$sp
-          | .replicas.dnn1.per_client=$pc
-          | .replicas.dnn1.per_server=$ps
-          | .replicas.dnn2.per_client=$pc
-          | .replicas.dnn2.per_server=$ps
-          | .prewarm.dnn1.initial_queue=$iq
-          | .prewarm.dnn2.initial_queue=$iq' \
-         "${CFG_PATH}" > "${TMP_CFG}"
-
-      # Apply the temporary config to the hardcoded path (sequential to avoid races)
-      cp "${TMP_CFG}" "${CFG_PATH}"
-      
-      # Copy workload template to the expected location for this run
-      cp "${WORKLOAD_TEMPLATE}" "${WORKLOAD_DIR}/workload-10.json"
-
-      # Run executor (sequential). Let brute-force run fully (no cap)
-      # Use temporary log file until we know if it succeeds
-      TMP_LOG="$(mktemp)"
-      start_time=$(date +%s)
-      (
-        cd "${BASE}" && \
-        python -m src.executecosimulation --brute-force 300 \
-          > "${TMP_LOG}" 2>&1
-      ) || echo "FAIL ${DID}" | tee -a "${TMP_LOG}"
-      end_time=$(date +%s)
-      duration=$((end_time - start_time))
-
-      # Check if simulation found an optimal result
-      if [ -f "${RESULTS_DIR}/best.json" ]; then
-        # Success! Create dataset directory and save all results
-        mkdir -p "${OUT_DIR}"
+        # Select workload template (cycle through 10 templates)
+        WORKLOAD_TEMPLATE="${WORKLOAD_TEMPLATES_DIR}/workload_template_${workload_template_idx}.json"
         
-        # Copy best.json to dataset directory before next run overwrites it
-        cp "${RESULTS_DIR}/best.json" "${OUT_DIR}/best.json"
-        
-        OPTIMAL_FILE=$(jq -r '.file' "${OUT_DIR}/best.json")
-        OPTIMAL_RTT=$(jq -r '.rtt' "${OUT_DIR}/best.json")
-        
-        if [ -f "${RESULTS_DIR}/${OPTIMAL_FILE}" ]; then
-          cp "${RESULTS_DIR}/${OPTIMAL_FILE}" "${OUT_DIR}/optimal_result.json"
-          echo "[${DID}] Optimal: ${OPTIMAL_FILE} (RTT: ${OPTIMAL_RTT}s)"
+        # Validate workload template exists
+        if [ ! -f "${WORKLOAD_TEMPLATE}" ]; then
+          echo "ERROR: Workload template not found: ${WORKLOAD_TEMPLATE}"
+          exit 1
         fi
-        
-        # Save configuration files (reuse TMP_CFG instead of regenerating)
-        cp "${TMP_CFG}" "${OUT_DIR}/space_with_network.json"
-        cp "${WORKLOAD_TEMPLATE}" "${OUT_DIR}/workload.json"
-        mv "${TMP_LOG}" "${OUT_DIR}/run.log"
-        
-        # Log progress with time
-        echo "${DID} SUCCESS $(date '+%Y-%m-%d %H:%M:%S') ${duration}s RTT=${OPTIMAL_RTT}s" >> "${PROGRESS_LOG}"
-        
-        # Clean up result files from shared directory
-        rm -f "${RESULTS_DIR}/${OPTIMAL_FILE}"
-        rm -f "${RESULTS_DIR}/best.json"
-        rm -f "${TMP_CFG}"
-      else
-        echo "[${DID}] No optimal result found - marking combo as failed (no dataset saved)"
-        FAILED_COMBOS[$combo_key]=1
-        
-        # Log failure with time
-        echo "${DID} FAILED $(date '+%Y-%m-%d %H:%M:%S') ${duration}s combo=${combo_key}" >> "${PROGRESS_LOG}"
-        
-        # Clean up temporary files
-        rm -f "${TMP_LOG}"
-        rm -f "${TMP_CFG}"
-        
-        # Skip remaining prewarm_queue iterations (they'll fail too)
-        # Still need to increment counters for consistency
-        i=$((i+1))
-        workload_template_idx=$(( (workload_template_idx + 1) % 10 ))
-        break
-      fi
 
-      i=$((i+1))
-      # Cycle through workload templates (10 templates total)
-      workload_template_idx=$(( (workload_template_idx + 1) % 10 ))
-      
-      # Stop at 20000 datasets (extended parameter space)
-      if [ "$i" -ge 20000 ]; then
-        break 3
-      fi
+        echo "[${DID}] wl=${workload_template_idx} conn=${connection_probability} seed=${seed} rpc=${replicas_per_client} rps=${replicas_per_server} cpct=${preinit_client_pct} spct=${preinit_server_pct} q=${qname}"
+
+        TMP_CFG="$(mktemp)"
+          jq --argjson p "${connection_probability}" \
+           --argjson pc "${replicas_per_client}" \
+           --argjson ps "${replicas_per_server}" \
+           --argjson cp "${preinit_client_pct}" \
+           --argjson sp "${preinit_server_pct}" \
+           --argjson seed "${seed}" \
+           --arg qtype "${qtype}" \
+           --argjson qp1 "${qp1}" \
+           --argjson qp2 "${qp2}" \
+           --argjson qmin "${qmin}" \
+           --argjson qmax "${qmax}" \
+           --argjson qstep "${qstep}" \
+           '.network.topology.connection_probability=$p
+            | .network.topology.seed=$seed
+            | .preinit.client_percentage=$cp
+            | .preinit.server_percentage=$sp
+            | .replicas.dnn1.per_client=$pc
+            | .replicas.dnn1.per_server=$ps
+            | .replicas.dnn2.per_client=$pc
+            | .replicas.dnn2.per_server=$ps
+            # Disable replica sampling; use fixed per_server/per_client
+            | .prewarm.dnn1 = {
+                distribution: "none",
+                queue_distribution: "statistical",
+                queue_distribution_params: (
+                  if $qtype == "poisson" then {type:$qtype, lambda:$qp1, min:$qmin, max:$qmax, step:$qstep}
+                  elif $qtype == "normal" then {type:$qtype, mean:$qp1, stddev:($qp2|if .==0 then 1 else . end), min:$qmin, max:$qmax, step:$qstep}
+                  elif $qtype == "uniform" then {type:$qtype, low:$qp1, high:$qp2, min:$qmin, max:$qmax, step:$qstep}
+                  else {type:"poisson", lambda:4, min:$qmin, max:$qmax, step:$qstep} end)
+              }
+            | .prewarm.dnn2 = {
+                distribution: "none",
+                queue_distribution: "statistical",
+                queue_distribution_params: (
+                  if $qtype == "poisson" then {type:$qtype, lambda:$qp1, min:$qmin, max:$qmax, step:$qstep}
+                  elif $qtype == "normal" then {type:$qtype, mean:$qp1, stddev:($qp2|if .==0 then 1 else . end), min:$qmin, max:$qmax, step:$qstep}
+                  elif $qtype == "uniform" then {type:$qtype, low:$qp1, high:$qp2, min:$qmin, max:$qmax, step:$qstep}
+                  else {type:"poisson", lambda:4, min:$qmin, max:$qmax, step:$qstep} end)
+              }' \
+           "${CFG_PATH}" > "${TMP_CFG}"
+
+        # Apply the temporary config to the hardcoded path (sequential to avoid races)
+        cp "${TMP_CFG}" "${CFG_PATH}"
+        
+        # Copy workload template to the expected location for this run
+        cp "${WORKLOAD_TEMPLATE}" "${WORKLOAD_DIR}/workload-10.json"
+
+        # Run executor (sequential). Let brute-force run fully (no cap)
+        # Use temporary log file until we know if it succeeds
+        TMP_LOG="$(mktemp)"
+        start_time=$(date +%s)
+        
+        # Run with timeout to prevent infinite hangs (3600s = 1 hour per dataset)
+        timeout 3600 bash -c "
+          cd '${BASE}' && \
+          python -m src.executecosimulation --brute-force 300 \
+            > '${TMP_LOG}' 2>&1
+        " || {
+          EXIT_CODE=$?
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "[${DID}] TIMEOUT after 3600s" >> "${TMP_LOG}"
+          else
+            echo "[${DID}] FAIL exit_code=$EXIT_CODE" >> "${TMP_LOG}"
+          fi
+        }
+        
+        end_time=$(date +%s)
+        duration=$((end_time - start_time))
+
+        # Prepare dataset directory
+        mkdir -p "${OUT_DIR}"
+
+        # Check if simulation found an optimal result
+        if [ -f "${RESULTS_DIR}/best.json" ]; then
+          # Copy best.json to dataset directory before next run overwrites it
+          cp "${RESULTS_DIR}/best.json" "${OUT_DIR}/best.json"
+          
+          OPTIMAL_FILE=$(jq -r '.file' "${OUT_DIR}/best.json")
+          OPTIMAL_RTT=$(jq -r '.rtt' "${OUT_DIR}/best.json")
+          
+          if [ -f "${RESULTS_DIR}/${OPTIMAL_FILE}" ]; then
+            cp "${RESULTS_DIR}/${OPTIMAL_FILE}" "${OUT_DIR}/optimal_result.json"
+            echo "[${DID}] Optimal: ${OPTIMAL_FILE} (RTT: ${OPTIMAL_RTT}s)"
+          fi
+
+          # Index whatever results are present
+          ls -1 "${RESULTS_DIR}"/simulation_*.json 2>/dev/null | xargs -I{} basename {} > "${OUT_DIR}/results_index.txt" || true
+
+          # Save configuration files (reuse TMP_CFG instead of regenerating)
+          cp "${TMP_CFG}" "${OUT_DIR}/space_with_network.json"
+          cp "${WORKLOAD_TEMPLATE}" "${OUT_DIR}/workload.json"
+          mv "${TMP_LOG}" "${OUT_DIR}/run.log"
+          
+          # Log progress with time
+          echo "${DID} SUCCESS $(date '+%Y-%m-%d %H:%M:%S') ${duration}s RTT=${OPTIMAL_RTT}s qdist=${qname} seed=${seed}" >> "${PROGRESS_LOG}"
+          
+          # Clean up result files from shared directory
+          rm -f "${RESULTS_DIR}/${OPTIMAL_FILE}"
+          rm -f "${RESULTS_DIR}/best.json"
+        else
+          echo "[${DID}] No optimal result found - continuing (no skip)"
+          # Log failure with time
+          echo "${DID} FAILED $(date '+%Y-%m-%d %H:%M:%S') ${duration}s conn=${connection_probability} repl='${replica_cfg}' wl=${workload_template_idx} q=${qname} seed=${seed}" >> "${PROGRESS_LOG}"
+          # Keep logs/configs for debugging this combo
+          cp "${TMP_CFG}" "${OUT_DIR}/space_with_network.json"
+          cp "${WORKLOAD_TEMPLATE}" "${OUT_DIR}/workload.json"
+          mv "${TMP_LOG}" "${OUT_DIR}/run.log"
+        fi
+
+        # Clean tmp cfg
+        rm -f "${TMP_CFG}"
+
+        i=$((i+1))
+        # Cycle through workload templates (10 templates total)
+        workload_template_idx=$(( (workload_template_idx + 1) % 10 ))
+        
+        # Stop when reaching ~100000 datasets
+        if [ "$i" -ge 100000 ]; then
+          break 5
+        fi
+      done
     done
   done
 done
@@ -293,7 +330,6 @@ echo ""
 echo "=== Generation Complete ==="
 DATASET_COUNT=$(ls -1d ${OUT_BASE}/ds_* 2>/dev/null | wc -l)
 echo "Total datasets generated: ${DATASET_COUNT}"
-echo "Failed combinations skipped: ${#FAILED_COMBOS[@]}"
 echo "Dataset directory: ${OUT_BASE}"
 echo "Progress log: ${PROGRESS_LOG}"
 echo ""

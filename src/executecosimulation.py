@@ -1041,7 +1041,12 @@ def execute_brute_force_placement_optimization(
                     # Collect this batch
                     batch_improved = False
                     for future in concurrent.futures.as_completed(futures):
-                        result_file = future.result()
+                        try:
+                            result_file = future.result()
+                        except Exception as e:
+                            # Skip crashed/failed workers and continue with remaining
+                            print(f"Worker failed during placement run: {e}")
+                            continue
                         if result_file is None:
                             continue
                         current_path = str(result_file)

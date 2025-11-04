@@ -1008,6 +1008,16 @@ def execute_brute_force_placement_optimization(
                 except Exception:
                     return float('inf')
 
+            def _placement_plan_and_rtt(path: str):
+                try:
+                    with open(path, 'r') as f:
+                        data = json.load(f)
+                    rtt = _total_rtt(path)
+                    placement = data.get('sample', {}).get('placement_plan', {})
+                    return placement, rtt
+                except Exception:
+                    return None, float('inf')
+
             # Iterate placement combinations in batches to allow early stopping
             placements_iter = iter(placement_combinations)
             best_file: Optional[str] = None
@@ -1064,7 +1074,22 @@ def execute_brute_force_placement_optimization(
                             best_rtt = cur_rtt_value
                             batch_improved = True
                         else:
-                            # Not better => delete file if save_only_optimal enabled
+                            # Not better => persist lightweight summary (placement + RTT), then delete heavy file if enabled
+                            placement, rtt_val = _placement_plan_and_rtt(current_path)
+                            try:
+                                import hashlib, uuid
+                                placement_key = json.dumps(sorted((placement or {}).items()))
+                                placement_hash = hashlib.sha1(placement_key.encode('utf-8')).hexdigest()[:16]
+                                unique_suffix = uuid.uuid4().hex[:8]
+                                summary_name = f"placement_summary_{placement_hash}_{unique_suffix}.json"
+                                summary_path = os.path.join(output_dir, summary_name)
+                                with open(summary_path, 'w') as sf:
+                                    json.dump({
+                                        "placement_plan": placement or {},
+                                        "rtt": rtt_val
+                                    }, sf, indent=2)
+                            except Exception:
+                                pass
                             if save_only_optimal:
                                 try:
                                     os.remove(current_path)

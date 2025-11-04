@@ -31,7 +31,7 @@ PROGRESS_LOG="${BASE}/logs/progress.txt"
 mkdir -p "${OUT_BASE}" "${RESULTS_DIR}" "${BASE}/logs" "${WORKLOAD_TEMPLATES_DIR}"
 
 # Grid definition
-PROBS=(0.20 0.25 0.30 0.35 0.40 0.45 0.50 0.55 0.60 0.65 0.70 0.75 0.80)
+PROBS=(0.10 0.15 0.20 0.25 0.30 0.35 0.40 0.45 0.50 0.55 0.60 0.65 0.70 0.75 0.80 0.85 0.90)
 
 # Replica config matrix: (per_client per_server client_percentage server_percentage) → 15 configs
 REPLICA_CFGS=(
@@ -56,7 +56,7 @@ REPLICA_CFGS=(
 # Target ~10k datasets: 19*15*8*5 ≈ 11,400
 
 # SEEDS=(101 202 303 404 505)
-SEEDS=(101) 
+SEEDS=(101 202) 
 
 
 # Queue distribution variants (type mean/std or lambda, min, max, step-meta)
@@ -64,12 +64,17 @@ SEEDS=(101)
 # Expanded set to improve diversity while staying bounded [0,32]
 QUEUE_DISTS=(
   "pois4 poisson 4 0 0 32 1"
+  "pois6 poisson 6 0 0 32 1"
   "pois8 poisson 8 0 0 32 1"
   "pois12 poisson 12 0 0 32 1"
   "pois16 poisson 16 0 0 32 1"
+  "pois20 poisson 20 0 0 32 1"
   "norm8 normal 8 3 0 32 1"
   "norm12 normal 12 4 0 32 1"
+  "norm16 normal 16 5 0 32 1"
+  "norm20 normal 20 6 0 32 1"
   "unif024 uniform 0 24 0 24 1"
+  "unif028 uniform 0 28 0 28 1"
   "unif032 uniform 0 32 0 32 1"
 )
 
@@ -78,7 +83,7 @@ NUM_TASKS=5  # Number of tasks per workload
 # NUM_TASKS_MIN=3  # Uncomment to enable variable workload sizes
 # NUM_TASKS_MAX=10
 NUM_CLIENT_NODES=10  # client_node0 to client_node9
-TASK_TYPE_RATIOS=("0-100" "20-80" "40-60" "60-40" "80-20" "100-0")  # dnn1%-dnn2% ratios
+TASK_TYPE_RATIOS=("0-100" "10-90" "20-80" "30-70" "40-60" "50-50" "60-40" "70-30" "80-20" "90-10" "100-0")  # dnn1%-dnn2% ratios
 
 # Generate 10 diverse workload templates
 # Strategy: Cycle through task type ratios, with multiple random client distributions per ratio
@@ -255,7 +260,7 @@ for connection_probability in "${PROBS[@]}"; do
         # Run with timeout to prevent infinite hangs (3600s = 1 hour per dataset)
         timeout 3600 bash -c "
           cd '${BASE}' && \
-          python -m src.executecosimulation --brute-force 300 \
+          python -m src.executecosimulation --brute-force \
             > '${TMP_LOG}' 2>&1
         " || {
           EXIT_CODE=$?
@@ -285,8 +290,15 @@ for connection_probability in "${PROBS[@]}"; do
             echo "[${DID}] Optimal: ${OPTIMAL_FILE} (RTT: ${OPTIMAL_RTT}s)"
           fi
 
-          # Index whatever results are present
+          # Index whatever results are present (heavy results kept if not pruned)
           ls -1 "${RESULTS_DIR}"/simulation_*.json 2>/dev/null | xargs -I{} basename {} > "${OUT_DIR}/results_index.txt" || true
+
+          # Copy lightweight placement summaries (placement + RTT) into a subfolder
+          mkdir -p "${OUT_DIR}/placements"
+          ls -1 "${RESULTS_DIR}"/placement_summary_*.json 2>/dev/null | while read -r SUM; do
+            cp "$SUM" "${OUT_DIR}/placements/" || true
+            rm -f "$SUM" || true
+          done
 
           # Save configuration files (reuse TMP_CFG instead of regenerating)
           cp "${TMP_CFG}" "${OUT_DIR}/space_with_network.json"

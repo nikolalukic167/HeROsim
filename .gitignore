@@ -199,3 +199,5 @@ src/notebooks/new/models/
 # datasets
 analysis_results/
 simulation_data/network_topology.pdf
+src/notebooks/new/best_gnn_placement_model.pt
+src/notebooks/new/wandb/

@@ -178,7 +178,8 @@ cython_debug/
 /analysis/
 src/notebooks/data/results_sim/150-250-30-20-knative-3gb/simulation_1.json
 src/notebooks/data/results_sim/150-250-30-20-multiloop-3gb/simulation_1.json
-.gitignore
+# Simulation results (large files kept outside git)
+src/notebooks/data/results_sim/
 
 # logs
 logs/

@@ -577,7 +577,7 @@ def main():
     mapping_file = base_dir / "lhs_samples_simple_mapping.pkl"
     config_file = base_dir / "space_with_network.json"
     # python -m src.generator -d data/nofs-ids --generate-traces --rps 10 --seconds 10
-    workload_base_file = "data/nofs-ids/traces/workload-125-250.json"
+    workload_base_file = "data/nofs-ids/traces/workload-10.json"
     output_dir = base_dir / "initial_results_simple"
     os.makedirs(output_dir, exist_ok=True)
     # todo: max_workers = int(sys.argv[1])
@@ -686,7 +686,7 @@ def process_sample(args):
         keep_alive = KEEP_ALIVE
         queue_length = QUEUE_LENGTH
         # todo: change to gnn_gnn
-        scheduling_strategy = 'determined_determined'
+        scheduling_strategy = 'evaluator_evaluator'
         print("started simulation")
         result = execute_simulation(full_config, sim_inputs, scheduling_strategy,
                                     cache_policy=cache_policy, task_priority=task_priority, keep_alive=keep_alive, queue_length=queue_length)

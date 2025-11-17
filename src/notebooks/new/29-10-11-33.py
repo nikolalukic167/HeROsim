@@ -11,7 +11,7 @@ import random
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -23,7 +23,10 @@ from torch_geometric.utils import to_undirected
 from torch_geometric.nn.models import GIN
 from torch_geometric.loader import DataLoader
 from sklearn.model_selection import train_test_split
-from tqdm import tqdm
+try:
+    from tqdm.auto import tqdm  # Better notebook compatibility
+except ImportError:
+    from tqdm import tqdm
 from joblib import Parallel, delayed
 import wandb
 
@@ -173,8 +176,26 @@ def extract_dataset_to_dataframes_v1(optimal_result_path: Path) -> Dict[str, pd.
     }
 
 
-def load_all_datasets_v1(base_dir: Path) -> Dict[str, Dict[str, pd.DataFrame]]:
-    """Load all datasets from gnn_datasets directory."""
+def load_placement_summaries(dataset_dir: Path) -> List[Dict]:
+    """Load all placement summaries from placements/ folder."""
+    placements_dir = dataset_dir / "placements"
+    if not placements_dir.exists():
+        return []
+    
+    summaries = []
+    for summary_file in placements_dir.glob("placement_summary_*.json"):
+        try:
+            with open(summary_file, "r") as f:
+                summary = json.load(f)
+                summaries.append(summary)
+        except Exception as e:
+            print(f"  Warning: Failed to load {summary_file.name}: {e}")
+    
+    return summaries
+
+
+def load_all_datasets_v1(base_dir: Path) -> Dict[str, Dict]:
+    """Load all datasets from gnn_datasets directory, including placement summaries."""
     all_datasets = {}
     dataset_dirs = sorted(base_dir.glob("ds_*"))
     
@@ -187,7 +208,16 @@ def load_all_datasets_v1(base_dir: Path) -> Dict[str, Dict[str, pd.DataFrame]]:
         
         try:
             dataframes = extract_dataset_to_dataframes_v1(optimal_result_path)
-            all_datasets[dataset_dir.name] = dataframes
+            
+            # Load placement summaries
+            placement_summaries = load_placement_summaries(dataset_dir)
+            
+            # Store both dataframes and placement summaries
+            all_datasets[dataset_dir.name] = {
+                **dataframes,
+                'placement_summaries': placement_summaries,
+                'dataset_dir': dataset_dir
+            }
         except Exception as e:
             print(f"  Error loading {dataset_dir.name}: {e}")
     
@@ -416,6 +446,8 @@ def build_graph(df_nodes, df_tasks, df_platforms) -> Data:
         task_features=task_features_tensor,             # dim=3
         platform_features=platform_features_tensor,     # dim=7
     )
+    # Store platform position mapping as private attribute (PyG will skip during batching)
+    data._plat_pos_by_id = plat_pos_by_id
     return data
 
 # %%
@@ -546,55 +578,248 @@ class TaskPlacementGNN(nn.Module):
 
         return logits_per_task
 
-"""
-    def forward(self, data):
-        n_tasks = data.n_tasks
-        n_platforms = data.n_platforms
+# %%
+# ============================================================================
+# LOSS FUNCTIONS
+# ============================================================================
+
+def loss_original_ce(logits_per_task, data, device):
+    """
+    Original cross-entropy loss with one-hot labels (optimal placement).
+    L_t = -log(π_t,p*(t))
+    """
+    loss_total = torch.zeros(1, device=device)
+    valid_tasks = 0
+    
+    for task_idx, logits_t in enumerate(logits_per_task):
+        if logits_t.numel() == 0:
+            continue
         
-        # Encode task and platform features separately (they have different input dims)
-        task_embeddings = self.task_encoder(data.task_features)
-        platform_embeddings = self.platform_encoder(data.platform_features)
+        logits = logits_t.unsqueeze(0)  # (1, K)
+        target = data.y[task_idx].long()
+        if target.ndim == 0:
+            target = target.unsqueeze(0)
         
-        # Combine for GIN (now both have same embedding_dim)
-        x = torch.cat([task_embeddings, platform_embeddings], dim=0)
+        if target.item() < 0 or target.item() >= logits.size(1):
+            continue
         
-        # Apply GIN for message passing
-        x = self.gin(x, data.edge_index)
+        loss_total = loss_total + F.cross_entropy(logits, target)
+        valid_tasks += 1
+    
+    if valid_tasks == 0:
+        return torch.zeros(1, device=device), 0
+    
+    return loss_total / valid_tasks, valid_tasks
+
+
+def loss_expected_rtt(logits_per_task, data, device, temperature=1.0):
+    """
+    Loss Path A: Expected RTT loss over all placements.
+    L = E_{π ~ q_θ}[RTT(π)] = Σ_π q_θ(π) * RTT(π)
+    where q_θ(π) = Π_t p_θ(π(t)|t) (independent per-task assumption)
+    """
+    placement_summaries = getattr(data, '_placement_summaries', [])
+    if len(placement_summaries) == 0:
+        return torch.zeros(1, device=device), 0
+    
+    n_tasks = data.n_tasks
+    plat_pos_by_id = getattr(data, '_plat_pos_by_id', {})
+    
+    # Get task->platform edge mappings from edge_index
+    ei = data.edge_index
+    task_to_platforms = {}
+    task_to_edge_indices = {}
+    
+    if ei.numel() > 0:
+        ti = ei[0]
+        pj = ei[1] - n_tasks
+        valid = (pj >= 0) & (pj < data.n_platforms)
+        ti_valid = ti[valid]
+        pj_valid = pj[valid]
         
-        # Split back into task and platform embeddings
-        task_emb = x[:n_tasks]
-        platform_emb = x[n_tasks:]
+        for edge_idx in range(len(ti_valid)):
+            t = int(ti_valid[edge_idx].item())
+            p = int(pj_valid[edge_idx].item())
+            if t not in task_to_platforms:
+                task_to_platforms[t] = []
+                task_to_edge_indices[t] = []
+            task_to_platforms[t].append(p)
+            task_to_edge_indices[t].append(edge_idx)
+    
+    # Convert placement summaries to lookup: placement -> RTT
+    placement_rtt_map = {}
+    for summary in placement_summaries:
+        placement_plan = summary.get('placement_plan', {})
+        rtt = summary.get('rtt', float('inf'))
+        # Convert placement plan to tuple key: ((task_id, (node_id, plat_id)), ...)
+        key_parts = []
+        for task_id_str, placement in placement_plan.items():
+            task_id = int(task_id_str)
+            if isinstance(placement, list) and len(placement) >= 2:
+                node_id, plat_id = int(placement[0]), int(placement[1])
+                # Map platform_id to platform position
+                plat_pos = plat_pos_by_id.get(plat_id, None)
+                if plat_pos is not None:
+                    key_parts.append((task_id, plat_pos))
+        if key_parts:
+            key = tuple(sorted(key_parts))
+            placement_rtt_map[key] = min(placement_rtt_map.get(key, float('inf')), rtt)
+    
+    if len(placement_rtt_map) == 0:
+        return torch.zeros(1, device=device), 0
+    
+    # Compute per-task probabilities from logits
+    probs_per_task = []
+    for t in range(n_tasks):
+        if t in task_to_edge_indices:
+            edge_indices = task_to_edge_indices[t]
+            logits_t = logits_per_task[t]  # (K_t,)
+            probs_t = F.softmax(logits_t / temperature, dim=0)  # (K_t,)
+            probs_per_task.append({
+                'platforms': task_to_platforms[t],
+                'probs': probs_t
+            })
+        else:
+            probs_per_task.append(None)
+    
+    # Compute joint probability for each placement: q_θ(π) = Π_t p_θ(π(t)|t)
+    expected_rtt = torch.zeros(1, device=device)
+    total_weight = 0.0
+    
+    for placement_key, rtt in placement_rtt_map.items():
+        # Compute joint probability
+        log_prob_sum = torch.zeros(1, device=device)
+        valid_placement = True
         
-        # Score all edges
-        edge_scores = []
-        for i in range(data.edge_index.size(1)):
-            task_idx = int(data.edge_index[0, i])
-            platform_idx = int(data.edge_index[1, i]) - n_tasks
-            if 0 <= platform_idx < n_platforms:
-                t = task_emb[task_idx].unsqueeze(0)      # (1, D)
-                p = platform_emb[platform_idx].unsqueeze(0)  # (1, D)
-                score = self.edge_scorer(t, p)           # returns (1,)
-                edge_scores.append(score.squeeze(0))     # scalar tensor
-        edge_scores = (torch.stack(edge_scores)
-                    if len(edge_scores) > 0
-                    else torch.empty(0, device=task_emb.device))
-        
-        edge_scores = torch.stack(edge_scores)
-        
-        # Compute masked softmax per task
-        # For each task, normalize over its feasible platforms
-        logits_per_task = []
-        
-        for task_idx in range(n_tasks):
-            task_edges_mask = (data.edge_index[0] == task_idx)
-            task_edge_scores = edge_scores[task_edges_mask]
+        for task_id, plat_pos in placement_key:
+            if task_id >= n_tasks or probs_per_task[task_id] is None:
+                valid_placement = False
+                break
             
-            # Softmax over this task's feasible platforms
-            task_probs = F.softmax(task_edge_scores, dim=0)
-            logits_per_task.append(task_edge_scores)
+            plat_idx_in_task = None
+            for idx, p in enumerate(probs_per_task[task_id]['platforms']):
+                if p == plat_pos:
+                    plat_idx_in_task = idx
+                    break
+            
+            if plat_idx_in_task is None:
+                valid_placement = False
+                break
+            
+            prob = probs_per_task[task_id]['probs'][plat_idx_in_task]
+            log_prob_sum = log_prob_sum + torch.log(prob + 1e-10)
         
-        return logits_per_task
-"""
+        if valid_placement:
+            prob_joint = torch.exp(log_prob_sum)
+            expected_rtt = expected_rtt + prob_joint * rtt
+            total_weight = total_weight + prob_joint.item()
+    
+    if total_weight > 0:
+        return expected_rtt / total_weight, 1
+    return torch.zeros(1, device=device), 0
+
+
+def loss_conditional_soft_label(logits_per_task, data, device, temperature=1.0, soft_label_temperature=0.1):
+    """
+    Loss Path B: Conditional soft-label loss (per-task with RTT-based soft labels).
+    For each task t, compute min RTT when t is assigned to platform p, then form soft targets.
+    y_t(p) ∝ exp(-RTT*(t→p) / τ) where RTT*(t→p) = min over all placements with t→p
+    """
+    placement_summaries = getattr(data, '_placement_summaries', [])
+    if len(placement_summaries) == 0:
+        return torch.zeros(1, device=device), 0
+    
+    n_tasks = data.n_tasks
+    plat_pos_by_id = getattr(data, '_plat_pos_by_id', {})
+    
+    # Get task->platform edge mappings
+    ei = data.edge_index
+    task_to_platforms = {}
+    task_to_edge_indices = {}
+    
+    if ei.numel() > 0:
+        ti = ei[0]
+        pj = ei[1] - n_tasks
+        valid = (pj >= 0) & (pj < data.n_platforms)
+        ti_valid = ti[valid]
+        pj_valid = pj[valid]
+        
+        for edge_idx in range(len(ti_valid)):
+            t = int(ti_valid[edge_idx].item())
+            p = int(pj_valid[edge_idx].item())
+            if t not in task_to_platforms:
+                task_to_platforms[t] = []
+                task_to_edge_indices[t] = []
+            task_to_platforms[t].append(p)
+            task_to_edge_indices[t].append(edge_idx)
+    
+    # For each task, compute min RTT per platform assignment
+    loss_total = torch.zeros(1, device=device)
+    valid_tasks = 0
+    
+    for t in range(n_tasks):
+        if t not in task_to_platforms:
+            continue
+        
+        # Build RTT lookup for this task: platform_pos -> min RTT
+        platform_rtt_map = {}
+        
+        for summary in placement_summaries:
+            placement_plan = summary.get('placement_plan', {})
+            rtt = summary.get('rtt', float('inf'))
+            
+            # Find assignment for task t in this placement
+            task_placement = placement_plan.get(str(t), None)
+            if task_placement is None:
+                continue
+            
+            if isinstance(task_placement, list) and len(task_placement) >= 2:
+                _, plat_id = int(task_placement[0]), int(task_placement[1])
+                plat_pos = plat_pos_by_id.get(plat_id, None)
+                
+                if plat_pos is not None and plat_pos in task_to_platforms[t]:
+                    # Update min RTT for this platform
+                    if plat_pos not in platform_rtt_map:
+                        platform_rtt_map[plat_pos] = rtt
+                    else:
+                        platform_rtt_map[plat_pos] = min(platform_rtt_map[plat_pos], rtt)
+        
+        if len(platform_rtt_map) == 0:
+            continue
+        
+        # Build soft labels: y_t(p) ∝ exp(-RTT*(t→p) / τ)
+        platforms_for_task = task_to_platforms[t]
+        logits_t = logits_per_task[t]  # (K_t,)
+        
+        # Create soft labels
+        rtt_values = []
+        for p in platforms_for_task:
+            rtt_val = platform_rtt_map.get(p, float('inf'))
+            rtt_values.append(rtt_val)
+        
+        # Normalize RTTs (subtract min for numerical stability)
+        if all(r == float('inf') for r in rtt_values):
+            continue
+        
+        min_rtt = min(r for r in rtt_values if r != float('inf'))
+        rtt_scores = [-((r - min_rtt) if r != float('inf') else 1000.0) / soft_label_temperature for r in rtt_values]
+        
+        # Softmax to get soft labels
+        rtt_scores_tensor = torch.tensor(rtt_scores, device=device)
+        soft_labels = F.softmax(rtt_scores_tensor, dim=0)  # (K_t,)
+        
+        # Cross-entropy between model probs and soft labels
+        probs = F.softmax(logits_t / temperature, dim=0)  # (K_t,)
+        loss_t = -torch.sum(soft_labels * torch.log(probs + 1e-10))
+        
+        loss_total = loss_total + loss_t
+        valid_tasks += 1
+    
+    if valid_tasks == 0:
+        return torch.zeros(1, device=device), 0
+    
+    return loss_total / valid_tasks, valid_tasks
+
 
 # %%
 # ============================================================================
@@ -604,49 +829,55 @@ class TaskPlacementGNN(nn.Module):
 def train_epoch(model, train_loader, optimizer, device, epoch_num):
     model.train()
     # loss accross all graphs in the batch
-    running = 0.0
+    running_ce = 0.0
+    running_expected_rtt = 0.0
+    running_soft_label = 0.0
+    n_steps = 0
 
     for batch in tqdm(train_loader, desc=f"Epoch {epoch_num:3d} [Train]", leave=False):
         optimizer.zero_grad() # reset gradients
         graphs_in_batch = batch.to_data_list()
 
-        loss_total = torch.zeros(1, device=device)
+        loss_ce_total = torch.zeros(1, device=device)
+        loss_expected_rtt_total = torch.zeros(1, device=device)
+        loss_soft_label_total = torch.zeros(1, device=device)
         n_graphs = 0
 
         for data in graphs_in_batch:
             data = data.to(device)
             logits_per_task = model(data)
 
-            loss_g = torch.zeros(1, device=device)
-            valid_tasks = 0
-
-            for task_idx, logits_t in enumerate(logits_per_task):
-                if logits_t.numel() == 0:
-                    continue  # no feasible platforms
-
-                logits = logits_t.unsqueeze(0)  # (1, K)
-                target = data.y[task_idx].long()
-                if target.ndim == 0:
-                    target = target.unsqueeze(0)  # (1,)
-
-                if target.item() < 0 or target.item() >= logits.size(1):
-                    continue  # label not in feasible set
-
-                loss_g = loss_g + F.cross_entropy(logits, target)
-                valid_tasks += 1
-
-            if valid_tasks == 0:
-                continue  # skip this graph for loss/step
-
-            loss_g = loss_g / valid_tasks
-            loss_total = loss_total + loss_g
-            n_graphs += 1
+            # Original CE loss
+            loss_ce, valid_ce = loss_original_ce(logits_per_task, data, device)
+            if valid_ce > 0:
+                loss_ce_total = loss_ce_total + loss_ce
+                n_graphs += 1
+            
+            # Expected RTT loss (only if placement summaries available)
+            if hasattr(data, '_placement_summaries') and len(getattr(data, '_placement_summaries', [])) > 0:
+                loss_er, valid_er = loss_expected_rtt(logits_per_task, data, device)
+                if valid_er > 0:
+                    loss_expected_rtt_total = loss_expected_rtt_total + loss_er
+            
+            # Conditional soft-label loss (only if placement summaries available)
+            if hasattr(data, '_placement_summaries') and len(getattr(data, '_placement_summaries', [])) > 0:
+                loss_sl, valid_sl = loss_conditional_soft_label(logits_per_task, data, device)
+                if valid_sl > 0:
+                    loss_soft_label_total = loss_soft_label_total + loss_sl
 
         if n_graphs == 0:
             # nothing usable in this batch; skip backward to avoid NaNs
             continue
 
-        loss = loss_total / n_graphs
+        # Average losses
+        loss_ce_avg = loss_ce_total / n_graphs
+        
+        # Use CE loss for backprop (primary loss)
+        loss = loss_ce_avg
+        
+        # Optional: combine with RTT losses (weighted)
+        # Uncomment to use combined loss:
+        # loss = loss_ce_avg + 0.1 * loss_expected_rtt_total / n_graphs + 0.1 * loss_soft_label_total / n_graphs
 
         # backpropagate loss
         loss.backward() # compute gradients 
@@ -656,42 +887,75 @@ def train_epoch(model, train_loader, optimizer, device, epoch_num):
 
         optimizer.step() # update weights
 
-        running += loss.item()
+        running_ce += loss_ce_avg.item()
+        running_expected_rtt += loss_expected_rtt_total.item() / max(n_graphs, 1)
+        running_soft_label += loss_soft_label_total.item() / max(n_graphs, 1)
+        n_steps += 1
 
-    return running / max(1, len(train_loader))
+    return {
+        'ce': running_ce / max(1, n_steps),
+        'expected_rtt': running_expected_rtt / max(1, n_steps),
+        'soft_label': running_soft_label / max(1, n_steps)
+    }
 
 @torch.no_grad()
 def evaluate(model, loader, device):
     model.eval()
-    total_loss, correct, total = 0.0, 0, 0
+    total_loss_ce, total_loss_expected_rtt, total_loss_soft_label = 0.0, 0.0, 0.0
+    correct, total = 0, 0
+    n_graphs = 0
 
     for batch in loader:
         for data in batch.to_data_list():
             data = data.to(device)
             logits_per_task = model(data)
 
-            for task_idx, task_logits in enumerate(logits_per_task):
-                if task_logits.numel() == 0:
-                    continue
+            # Original CE loss
+            loss_ce, valid_ce = loss_original_ce(logits_per_task, data, device)
+            if valid_ce > 0:
+                total_loss_ce += loss_ce.item() * valid_ce
+                total += valid_ce
+                n_graphs += 1
+                
+                # Compute accuracy
+                for task_idx, task_logits in enumerate(logits_per_task):
+                    if task_logits.numel() == 0:
+                        continue
 
-                logits = task_logits.unsqueeze(0)        # (1, K)
+                    logits = task_logits.unsqueeze(0)        # (1, K)
 
-                target = data.y[task_idx].long()
-                if target.ndim == 0:
-                    target = target.unsqueeze(0)         # (1,)
-                # TODO: skip invalid labels (-1) and out-of-range labels 
-                if target.item() < 0 or target.item() >= logits.size(1):
-                    continue
+                    target = data.y[task_idx].long()
+                    if target.ndim == 0:
+                        target = target.unsqueeze(0)         # (1,)
+                    if target.item() < 0 or target.item() >= logits.size(1):
+                        continue
 
-                total_loss += F.cross_entropy(logits, target).item()
-                pred = logits.argmax(dim=1).item()       # int
-                correct += int(pred == target.item())
-                total += 1
+                    pred = logits.argmax(dim=1).item()       # int
+                    correct += int(pred == target.item())
+            
+            # Expected RTT loss (only if placement summaries available)
+            if hasattr(data, '_placement_summaries') and len(getattr(data, '_placement_summaries', [])) > 0:
+                loss_er, valid_er = loss_expected_rtt(logits_per_task, data, device)
+                if valid_er > 0:
+                    total_loss_expected_rtt += loss_er.item()
+            
+            # Conditional soft-label loss (only if placement summaries available)
+            if hasattr(data, '_placement_summaries') and len(getattr(data, '_placement_summaries', [])) > 0:
+                loss_sl, valid_sl = loss_conditional_soft_label(logits_per_task, data, device)
+                if valid_sl > 0:
+                    total_loss_soft_label += loss_sl.item()
 
-    avg_loss = total_loss / total if total else 0.0
+    avg_loss_ce = total_loss_ce / total if total else 0.0
+    avg_loss_expected_rtt = total_loss_expected_rtt / max(n_graphs, 1)
+    avg_loss_soft_label = total_loss_soft_label / max(n_graphs, 1)
     acc = correct / total if total else 0.0
     
-    return avg_loss, acc
+    return {
+        'ce': avg_loss_ce,
+        'expected_rtt': avg_loss_expected_rtt,
+        'soft_label': avg_loss_soft_label,
+        'acc': acc
+    }
 
 # %%
 # ========================================================================
@@ -712,13 +976,16 @@ dataset_ids = []
 
 
 # Use tqdm to show progress
-for dataset_id, dataframes in tqdm(all_datasets.items(), desc="Building graphs", unit="dataset"):
+for dataset_id, dataset_dict in tqdm(all_datasets.items(), desc="Building graphs", unit="dataset"):
     try:
         graph = build_graph(
-            dataframes['nodes'],
-            dataframes['tasks'],
-            dataframes['platforms']
+            dataset_dict['nodes'],
+            dataset_dict['tasks'],
+            dataset_dict['platforms']
         )
+        # Attach placement summaries as private attribute (PyG will skip during batching)
+        graph._placement_summaries = dataset_dict.get('placement_summaries', [])
+        graph._dataset_id = dataset_id
         graphs.append(graph)
         dataset_ids.append(dataset_id)
     except Exception as e:
@@ -801,33 +1068,43 @@ test_loader  = DataLoader(test_graphs,  batch_size=BATCH_SIZE, shuffle=False, nu
 
 for epoch in range(EPOCHS):
     # Train
-    train_loss = train_epoch(model, train_loader, optimizer, DEVICE, epoch)
+    train_losses = train_epoch(model, train_loader, optimizer, DEVICE, epoch)
     
     # Evaluate
-    val_loss, val_acc = evaluate(model, test_loader, DEVICE)
+    val_metrics = evaluate(model, test_loader, DEVICE)
     
-    # Wandb logging
+    # Wandb logging - all losses
     wandb.log({
         "epoch": epoch,
-        "train/loss": train_loss,
-        "val/loss":   val_loss,
-        "val/acc":    val_acc,
-        "lr":         optimizer.param_groups[0]["lr"],
+        "train/loss_ce": train_losses['ce'],
+        "train/loss_expected_rtt": train_losses['expected_rtt'],
+        "train/loss_soft_label": train_losses['soft_label'],
+        "val/loss_ce": val_metrics['ce'],
+        "val/loss_expected_rtt": val_metrics['expected_rtt'],
+        "val/loss_soft_label": val_metrics['soft_label'],
+        "val/acc": val_metrics['acc'],
+        "lr": optimizer.param_groups[0]["lr"],
     }, step=epoch)
 
     #if epoch % 5 == 0:
       #  for name, p in model.named_parameters():
         #    wandb.log({f"hist/{name}": wandb.Histogram(p.detach().cpu().numpy())})
     
-    if val_acc > best_val_acc:
-        best_val_acc = val_acc
+    if val_metrics['acc'] > best_val_acc:
+        best_val_acc = val_metrics['acc']
         # Save best model
         torch.save(model.state_dict(), 'best_gnn_placement_model.pt')
     
     # Print progress
     if epoch % 10 == 0 or epoch == EPOCHS - 1:
-        print(f"Epoch {epoch:3d}/{EPOCHS} | Train Loss: {train_loss:.4f} | "
-                f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc*100:.2f}%")
+        print(f"Epoch {epoch:3d}/{EPOCHS} | "
+              f"Train CE: {train_losses['ce']:.4f} | "
+              f"Train ERTT: {train_losses['expected_rtt']:.4f} | "
+              f"Train SL: {train_losses['soft_label']:.4f} | "
+              f"Val CE: {val_metrics['ce']:.4f} | "
+              f"Val ERTT: {val_metrics['expected_rtt']:.4f} | "
+              f"Val SL: {val_metrics['soft_label']:.4f} | "
+              f"Val Acc: {val_metrics['acc']*100:.2f}%")
 
 print()
 print(f"Best validation accuracy: {best_val_acc*100:.2f}%")
@@ -846,8 +1123,8 @@ model.load_state_dict(torch.load('best_gnn_placement_model.pt'))
 train_loader_eval = DataLoader(train_graphs, batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True)
 test_loader_eval  = DataLoader(test_graphs,  batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True)
 
-train_loss, train_acc = evaluate(model, train_loader_eval, DEVICE)
-test_loss,  test_acc  = evaluate(model, test_loader_eval,  DEVICE)
+train_metrics = evaluate(model, train_loader_eval, DEVICE)
+test_metrics  = evaluate(model, test_loader_eval,  DEVICE)
 
 # ========================================================================
 # WANDB
@@ -871,8 +1148,8 @@ wandb.finish()
 # local logging
 # ========================================================================
 
-print(f"\nTrain: Loss={train_loss:.4f}, Accuracy={train_acc*100:.2f}%")
-print(f"Test:  Loss={test_loss:.4f}, Accuracy={test_acc*100:.2f}%")
+print(f"\nTrain: CE={train_metrics['ce']:.4f}, ERTT={train_metrics['expected_rtt']:.4f}, SL={train_metrics['soft_label']:.4f}, Acc={train_metrics['acc']*100:.2f}%")
+print(f"Test:  CE={test_metrics['ce']:.4f}, ERTT={test_metrics['expected_rtt']:.4f}, SL={test_metrics['soft_label']:.4f}, Acc={test_metrics['acc']*100:.2f}%")
 
 print("\n" + "="*80)
 print("TRAINING COMPLETE!")

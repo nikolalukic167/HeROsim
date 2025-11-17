@@ -20,7 +20,7 @@ import logging
 import sys
 from pathlib import Path
 from timeit import default_timer
-from typing import Generator, Set, Tuple, TYPE_CHECKING, List, Dict, Any, Optional, cast
+from typing import Generator, Set, Tuple, TYPE_CHECKING, List, Dict, Any, Optional
 
 if TYPE_CHECKING:
     from src.placement.infrastructure import Node, Platform, Task
@@ -40,48 +40,76 @@ from src.placement.scheduler import Scheduler
 # ============================================================================
 
 class TaskEncoder(nn.Module):
-    """2-layer MLP encoder for task features."""
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    """2-layer MLP encoder for task features with LayerNorm + dropout."""
+    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
         super().__init__()
         self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.norm1 = nn.LayerNorm(hidden_dim)
+        self.dropout = nn.Dropout(p=0.1)
         self.fc2 = nn.Linear(hidden_dim, output_dim)
     
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.fc1(x)
+        x = self.norm1(x)
+        x = F.relu(x)
+        x = self.dropout(x)
         x = self.fc2(x)
         return x
 
 
 class PlatformEncoder(nn.Module):
-    """2-layer MLP encoder for platform features."""
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    """2-layer MLP encoder for platform features with LayerNorm + dropout."""
+    def __init__(self, input_dim: int, hidden_dim: int, output_dim: int):
         super().__init__()
         self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.norm1 = nn.LayerNorm(hidden_dim)
+        self.dropout = nn.Dropout(p=0.1)
         self.fc2 = nn.Linear(hidden_dim, output_dim)
     
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.fc1(x)
+        x = self.norm1(x)
+        x = F.relu(x)
+        x = self.dropout(x)
         x = self.fc2(x)
         return x
 
 
 class EdgeScorer(nn.Module):
     """2-layer MLP to score task-platform edges."""
-    def __init__(self, embedding_dim, hidden_dim):
+    def __init__(self, embedding_dim: int, hidden_dim: int, edge_dim: int = 0):
         super().__init__()
-        self.fc1 = nn.Linear(2 * embedding_dim, hidden_dim)
+        in_dim = 2 * embedding_dim + (edge_dim if edge_dim else 0)
+        self.fc1 = nn.Linear(in_dim, hidden_dim)
+        self.dropout = nn.Dropout(p=0.1)
         self.fc2 = nn.Linear(hidden_dim, 1)
     
-    def forward(self, e_task, e_platform):
-        x = torch.cat([e_task, e_platform], dim=-1)
+    def forward(
+        self,
+        e_task: torch.Tensor,
+        e_platform: torch.Tensor,
+        e_attr: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        components = [e_task, e_platform]
+        if e_attr is not None:
+            components.append(e_attr)
+        x = torch.cat(components, dim=-1)
         x = F.relu(self.fc1(x))
+        x = self.dropout(x)
         x = self.fc2(x)
         return x.squeeze(-1)
 
 
 class TaskPlacementGNN(nn.Module):
     """GNN for task-to-platform placement prediction."""
-    def __init__(self, task_feature_dim, platform_feature_dim, embedding_dim=64, hidden_dim=128):
+    def __init__(
+        self,
+        task_feature_dim: int,
+        platform_feature_dim: int,
+        embedding_dim: int = 64,
+        hidden_dim: int = 64,
+        num_layers: int = 3,
+    ):
         super().__init__()
         self.embedding_dim = embedding_dim
         self.task_encoder = TaskEncoder(task_feature_dim, hidden_dim, embedding_dim)
@@ -89,10 +117,11 @@ class TaskPlacementGNN(nn.Module):
         self.gin = GIN(
             in_channels=embedding_dim,
             hidden_channels=hidden_dim,
-            num_layers=3,
+            num_layers=num_layers,
             out_channels=embedding_dim
         )
-        self.edge_scorer = EdgeScorer(embedding_dim, hidden_dim)
+        self.post_gin_dropout = nn.Dropout(p=0.2)
+        self.edge_scorer = EdgeScorer(embedding_dim, hidden_dim, edge_dim=3)
 
     def forward(self, data):
         n_tasks = data.n_tasks
@@ -105,6 +134,7 @@ class TaskPlacementGNN(nn.Module):
         # Message passing
         x = torch.cat([task_embeddings, platform_embeddings], dim=0)
         x = self.gin(x, data.edge_index)
+        x = self.post_gin_dropout(x)
 
         task_emb = x[:n_tasks]
         platform_emb = x[n_tasks:]
@@ -124,7 +154,11 @@ class TaskPlacementGNN(nn.Module):
 
         e_task = task_emb[ti]
         e_platform = platform_emb[pj]
-        edge_scores = self.edge_scorer(e_task, e_platform)
+        edge_attr = None
+        if hasattr(data, "edge_attr") and data.edge_attr.numel() > 0:
+            edge_attr = data.edge_attr.to(x.device)[valid]
+
+        edge_scores = self.edge_scorer(e_task, e_platform, edge_attr)
 
         # Split scores per task
         logits_per_task = []
@@ -156,7 +190,7 @@ class EvaluatorScheduler(Scheduler):
     
     def _load_gnn_model(self):
         """Load the trained GNN model from disk."""
-        model_path = Path('/root/projects/my-herosim/src/policy/evaluator/best_gnn_placement_model.pt')
+        model_path = Path('/root/projects/my-herosim/src/notebooks/new/best_gnn_placement_model.pt')
         
         if not model_path.exists():
             print(f"ERROR: GNN model not found at {model_path}")
@@ -183,13 +217,14 @@ class EvaluatorScheduler(Scheduler):
             task_feature_dim=task_feature_dim,
             platform_feature_dim=platform_feature_dim,
             embedding_dim=64,
-            hidden_dim=128
+            hidden_dim=64,
+            num_layers=3,
         )
         
         # Load trained weights - load on CPU first to avoid CUDA initialization issues
         try:
             # Load state dict on CPU first
-            state_dict = torch.load(model_path, map_location='cpu')
+            state_dict = torch.load(model_path, weights_only=True, map_location='cpu')
             self.gnn_model.load_state_dict(state_dict)
             # Move model to appropriate device
             self.gnn_model = self.gnn_model.to(self.device)
@@ -227,9 +262,6 @@ class EvaluatorScheduler(Scheduler):
                 # No tasks available, wait a bit and try again
                 yield self.env.timeout(0.1)
                 continue
-
-            print(f"[ {self.env.now} ] DEBUG: Processing batch of {len(batch_tasks)} tasks simultaneously")
-
             # Process all tasks in the batch together
             yield self.env.process(self._process_task_batch(batch_tasks))
 
@@ -261,6 +293,7 @@ class EvaluatorScheduler(Scheduler):
     def _process_task_batch(self, batch_tasks: List[Task]) -> Generator:
         """Process multiple tasks simultaneously in a single operation"""
         print(f"[ {self.env.now} ] DEBUG: Processing {len(batch_tasks)} tasks in batch")
+        
         # DEBUG: dump current per-platform queue status including internal (prewarm) tasks
         """try:
             for node in self.nodes.items:
@@ -331,9 +364,7 @@ class EvaluatorScheduler(Scheduler):
             node.unused = False
             
             # Update platform
-            platform: Platform = yield node.platforms.get(
-                lambda platform: platform.id == sched_platform.id
-            )
+            platform : Platform = yield node.platforms.get(lambda platform: platform.id == sched_platform.id)
             task.platform = platform
 
             # contention-based pre-exec delay removed; rely on queues and warmth only
@@ -378,25 +409,47 @@ class EvaluatorScheduler(Scheduler):
             return None
         
         try:
+            total_start = default_timer()
+
             # Build graph for this single task
+            graph_start = default_timer()
             graph_data = self._build_graph_for_tasks([task], [valid_replicas], system_state)
+            graph_duration = default_timer() - graph_start
             
             # Move graph data to the same device as the model
             graph_data = graph_data.to(self.device)
             
             # Run GNN inference
+            inference_start = default_timer()
             with torch.no_grad():
                 logits_per_task = self.gnn_model(graph_data)
+            inference_duration = default_timer() - inference_start
             
             # Extract prediction for this task
+            decode_start = default_timer()
             if len(logits_per_task) == 0 or logits_per_task[0].numel() == 0:
                 raise ValueError("No logits returned from GNN")
             
             task_logits = logits_per_task[0]
             best_platform_idx = task_logits.argmax().item()
+            decode_duration = default_timer() - decode_start
             
             # Map back to actual Node/Platform tuple
+            decision_start = default_timer()
             selected_replica = valid_replicas[best_platform_idx]
+            decision_duration = default_timer() - decision_start
+            total_duration = default_timer() - total_start
+
+            task.construction_time = graph_duration
+            task.gnn_decision_time = total_duration
+            print(
+                f"[ {self.env.now} ] GNN timings for task {task.id}: "
+                f"graph={graph_duration:.6f}s, "
+                f"inference={inference_duration:.6f}s, "
+                f"decode={decode_duration:.6f}s, "
+                f"selection={decision_duration:.6f}s, "
+                f"total={total_duration:.6f}s"
+            )
             
             print(f"[ {self.env.now} ] GNN placed task {task.id} on {selected_replica[0].node_name}:{selected_replica[1].id}")
             return selected_replica
@@ -427,8 +480,8 @@ class EvaluatorScheduler(Scheduler):
         n_tasks = len(tasks)
         
         # Collect all unique platforms across all tasks
-        all_platforms = []
-        platform_to_idx = {}
+        all_platforms: List[Tuple[Node, Platform]] = []
+        platform_to_idx: Dict[Tuple[int, int], int] = {}
         for replicas in valid_replicas_per_task:
             for node, platform in replicas:
                 key = (node.id, platform.id)
@@ -437,11 +490,14 @@ class EvaluatorScheduler(Scheduler):
                     all_platforms.append((node, platform))
         
         n_platforms = len(all_platforms)
-        
-        # Build node name to ID mapping for source node normalization
-        all_nodes = list(set(node for node, _ in all_platforms))
-        node_name_to_id = {node.node_name: i for i, node in enumerate(all_nodes)}
-        max_node_id = len(all_nodes)
+
+        # Build node name vocabulary for normalization
+        node_name_set = {node.node_name for node, _ in all_platforms}
+        node_name_set.update(task.node_name for task in tasks if task.node_name)
+        node_name_to_id = {
+            name: idx for idx, name in enumerate(sorted(node_name_set))
+        }
+        denom = max(1, len(node_name_to_id))
         
         # Build task features: [task_type_onehot (2), source_node_id_norm (1)]
         task_features = []
@@ -450,7 +506,7 @@ class EvaluatorScheduler(Scheduler):
             task_type_onehot = [1.0 if task_type_name == tt else 0.0 for tt in self.task_types]
             
             source_node_id = node_name_to_id.get(task.node_name, 0)
-            source_node_id_norm = source_node_id / max(1, max_node_id)
+            source_node_id_norm = source_node_id / denom
             
             task_features.append(task_type_onehot + [source_node_id_norm])
         
@@ -471,23 +527,52 @@ class EvaluatorScheduler(Scheduler):
         platform_features = torch.tensor(platform_features, dtype=torch.float)
         
         # Build edge index: tasks (0..n_tasks-1) -> platforms (n_tasks..n_tasks+n_platforms-1)
-        edge_index = []
+        edge_index: List[List[int]] = []
+        edge_attrs: List[List[float]] = []
         for task_idx, replicas in enumerate(valid_replicas_per_task):
+            task = tasks[task_idx]
             for node, platform in replicas:
                 key = (node.id, platform.id)
                 platform_idx = platform_to_idx[key]
                 edge_index.append([task_idx, n_tasks + platform_idx])
+                
+                exec_time = float(
+                    task.type["executionTime"].get(platform.type["shortName"], 0.0)
+                )
+                latency_entry = None
+                if hasattr(node, "network_map"):
+                    latency_entry = node.network_map.get(task.node_name)
+
+                if isinstance(latency_entry, dict):
+                    latency = float(latency_entry.get("latency", 0.0))
+                elif latency_entry is not None:
+                    try:
+                        latency = float(latency_entry)
+                    except (TypeError, ValueError):
+                        latency = 0.0
+                else:
+                    latency = 0.0
+
+                replicas_for_task = system_state.replicas.get(task.type["name"])
+                is_warm = 1.0 if replicas_for_task and (node, platform) in replicas_for_task else 0.0
+                edge_attrs.append([exec_time, latency, is_warm])
         
-        edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+        if edge_index:
+            edge_index_tensor = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+            edge_attr_tensor = torch.tensor(edge_attrs, dtype=torch.float32)
+        else:
+            edge_index_tensor = torch.empty((2, 0), dtype=torch.long)
+            edge_attr_tensor = torch.empty((0, 3), dtype=torch.float32)
         
         # Create PyG Data object
         data = Data(
-            edge_index=edge_index,
+            edge_index=edge_index_tensor,
             n_tasks=n_tasks,
             n_platforms=n_platforms,
             task_features=task_features,
             platform_features=platform_features
         )
+        data.edge_attr = edge_attr_tensor
         
         return data
 
@@ -535,7 +620,7 @@ class EvaluatorScheduler(Scheduler):
                 return source_replicas
             else:
                 print(
-                    f"[ {self.env.now} ] DEBUG: _get_valid_replicas no valid replicas (kept_local={kept_local}, kept_server_connected={kept_server_connected}, skipped_client_other={skipped_client_other}, skipped_no_connectivity={skipped_no_connectivity})"
+                    f"[ {self.env.now} ] ERROR: _get_valid_replicas no valid replicas (kept_local={kept_local}, kept_server_connected={kept_server_connected}, skipped_client_other={skipped_client_other}, skipped_no_connectivity={skipped_no_connectivity})"
                 )
                 # Last resort: return empty list (will cause scaling from zero)
                 return []

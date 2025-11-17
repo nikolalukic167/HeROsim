@@ -329,7 +329,7 @@ for connection_probability in "${PROBS[@]}"; do
         workload_template_idx=$(( (workload_template_idx + 1) % 10 ))
         
         # Stop when reaching ~100000 datasets
-        if [ "$i" -ge 100000 ]; then
+        if [ "$i" -ge 10 ]; then
           break 5
         fi
       done

@@ -1004,7 +1004,15 @@ def execute_brute_force_placement_optimization(
                     task_results = stats.get('taskResults', [])
                     if not task_results:
                         return float('inf')
-                    return float(sum(tr.get('elapsedTime', 0) for tr in task_results))
+                    total = 0.0
+                    counted = False
+                    for tr in task_results:
+                        task_id = tr.get('taskId')
+                        if task_id is None or task_id < 0:
+                            continue
+                        total += float(tr.get('elapsedTime', 0))
+                        counted = True
+                    return float(total) if counted else float('inf')
                 except Exception:
                     return float('inf')
 
@@ -1200,8 +1208,13 @@ def execute_brute_force_placement_optimization(
             task_results = stats.get('taskResults', [])
             
             if task_results:
-                # Calculate total RTT across all tasks using elapsedTime
-                total_rtt = sum(task_result.get('elapsedTime', 0) for task_result in task_results)
+                # Calculate total RTT across workload tasks using elapsedTime
+                workload_elapsed = [
+                    float(task_result.get('elapsedTime', 0))
+                    for task_result in task_results
+                    if task_result.get('taskId') is not None and task_result.get('taskId') >= 0
+                ]
+                total_rtt = sum(workload_elapsed) if workload_elapsed else float('inf')
                 
                 # Check if this is the fastest so far
                 if total_rtt < fastest_rtt:

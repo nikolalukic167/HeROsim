@@ -1,0 +1,44 @@
+(my-herosim) root@mitrix:~/projects/my-herosim# python3 -m src.executeinitial > /root/projects/my-herosim/src/policy/evaluator/log
+2025-11-11 14:18:52,062 - INFO - Starting simulation preparation
+2025-11-11 14:18:52,063 - INFO - Loading simulation input files
+2025-11-11 14:18:52,063 - INFO - Loading samples and mapping
+2025-11-11 14:18:52,063 - INFO - Loading infrastructure configuration
+2025-11-11 14:18:52,064 - INFO - Loading workload base
+2025-11-11 14:18:53,000 - INFO - Processing sample 1
+2025-11-11 14:18:53,000 - INFO - Processing sample 1
+2025-11-11 17:25:31,526 - ERROR - Error in simulation 1: No scheduled events left but "until" event was not triggered: <Event() object at 0x7007f6065d60>
+2025-11-11 17:25:31,526 - ERROR - Error in simulation 1: No scheduled events left but "until" event was not triggered: <Event() object at 0x7007f6065d60>
+2025-11-11 17:25:31,526 - ERROR - No scheduled events left but "until" event was not triggered: <Event() object at 0x7007f6065d60>
+Traceback (most recent call last):
+  File "/root/projects/my-herosim/src/executeinitial.py", line 691, in process_sample
+    result = execute_simulation(full_config, sim_inputs, scheduling_strategy,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/projects/my-herosim/src/executeinitial.py", line 509, in execute_simulation
+    stats = execute_sim(simulation_data, config['infrastructure'], cache_policy, keep_alive, task_priority,
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/projects/my-herosim/src/placement/executor.py", line 31, in execute_sim
+    stats = start_simulation(simulation_data, simulation_policy, infrastructure, time_series, workload_trace_name, models)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/projects/my-herosim/src/placement/simulation.py", line 564, in start_simulation
+    env.run(until=finished)
+  File "/root/.local/share/virtualenvs/my-herosim-7iPRbgpb/lib/python3.12/site-packages/simpy/core.py", line 252, in run
+    raise RuntimeError(
+RuntimeError: No scheduled events left but "until" event was not triggered: <Event() object at 0x7007f6065d60>
+2025-11-11 17:25:31,526 - ERROR - No scheduled events left but "until" event was not triggered: <Event() object at 0x7007f6065d60>
+Traceback (most recent call last):
+  File "/root/projects/my-herosim/src/executeinitial.py", line 691, in process_sample
+    result = execute_simulation(full_config, sim_inputs, scheduling_strategy,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/projects/my-herosim/src/executeinitial.py", line 509, in execute_simulation
+    stats = execute_sim(simulation_data, config['infrastructure'], cache_policy, keep_alive, task_priority,
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/projects/my-herosim/src/placement/executor.py", line 31, in execute_sim
+    stats = start_simulation(simulation_data, simulation_policy, infrastructure, time_series, workload_trace_name, models)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/root/projects/my-herosim/src/placement/simulation.py", line 564, in start_simulation
+    env.run(until=finished)
+  File "/root/.local/share/virtualenvs/my-herosim-7iPRbgpb/lib/python3.12/site-packages/simpy/core.py", line 252, in run
+    raise RuntimeError(
+RuntimeError: No scheduled events left but "until" event was not triggered: <Event() object at 0x7007f6065d60>
+2025-11-11 17:25:31,664 - INFO - Completed all simulations
+2025-11-11 17:25:31,664 - INFO - All files can be found under simulation_data/initial_results_simple

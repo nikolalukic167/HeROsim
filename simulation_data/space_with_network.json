@@ -146,19 +146,19 @@
     },
     "topology": {
       "type": "sparse",
-      "connection_probability": 0.20,
+      "connection_probability": 0.10,
       "edges": [],
       "seed": 101
     }
   },
   "brute_force": {
-    "early_stop_patience": 100,
+    "early_stop_patience": 0,
     "early_stop_min_delta": 0.0,
     "save_only_optimal": true
   },
   "preinit": {
-    "client_percentage": 0.6,
-    "server_percentage": 0.8,
+    "client_percentage": 0.5,
+    "server_percentage": 0.7,
     "task_types": [
       "dnn1",
       "dnn2"
@@ -167,11 +167,11 @@
   "replicas": {
     "dnn1": {
       "per_server": 3,
-      "per_client": 2
+      "per_client": 3
     },
     "dnn2": {
       "per_server": 3,
-      "per_client": 2
+      "per_client": 3
     }
   },
   "prewarm": {
@@ -181,9 +181,9 @@
       "queue_distribution_params": {
         "type": "uniform",
         "low": 0,
-        "high": 24,
+        "high": 28,
         "min": 0,
-        "max": 24,
+        "max": 28,
         "step": 1
       }
     },
@@ -193,9 +193,9 @@
       "queue_distribution_params": {
         "type": "uniform",
         "low": 0,
-        "high": 24,
+        "high": 28,
         "min": 0,
-        "max": 24,
+        "max": 28,
         "step": 1
       }
     }

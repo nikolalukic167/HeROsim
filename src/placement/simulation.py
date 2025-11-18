@@ -165,26 +165,31 @@ def precreate_replicas(
     Args:
         nodes: All nodes in the simulation
         simulation_data: Task type and platform information
-        replica_plan: Replica placement plan from executecosimulation.py (preferred)
+        replica_plan: Replica placement plan from executecosimulation.py (required)
     
     PURPOSE:
     - Executes the replica creation plan determined by executecosimulation.py
     - Ensures immediate task execution without waiting for autoscaling
     - Creates replicas according to the provided specifications
+    - Creates warmup tasks for prewarmed replicas (co-simulation mode only)
     """
     print("\n=== Executing replica creation ===")
     
-    # Use replica_plan if provided, otherwise fall back to infrastructure config
-    if replica_plan:
-        preinit_clients = replica_plan['preinit_clients']
-        preinit_servers = replica_plan['preinit_servers']
-        preinit_task_types = replica_plan['preinit_task_types']
-        replicas_config = replica_plan['replicas_config']
-        prewarm_config = replica_plan.get('prewarm_config', {})
-        print("Using replica placement plan from executecosimulation.py")
-    else:
-        print("this should not happen in simulation.py")
-        sys.exit(1)
+    # Replica plan is REQUIRED for this function (co-simulation mode only)
+    # This function should NOT be called from executeinitial.py
+    if not replica_plan:
+        raise ValueError(
+            "replica_plan is required for precreate_replicas. "
+            "This function is only used by executecosimulation.py (co-simulation mode). "
+            "executeinitial.py should not call this function."
+        )
+    
+    preinit_clients = replica_plan['preinit_clients']
+    preinit_servers = replica_plan['preinit_servers']
+    preinit_task_types = replica_plan['preinit_task_types']
+    replicas_config = replica_plan['replicas_config']
+    prewarm_config = replica_plan.get('prewarm_config', {})
+    print("Using replica placement plan from executecosimulation.py (co-simulation mode)")
     
     # Get all nodes and their platforms
     all_nodes = list(nodes.items)
@@ -374,7 +379,7 @@ def create_warmup_tasks(
         count: Number of warmup tasks to create
     
     Returns:
-        List of created warmup tasks
+        List of created warmup tasks (marked with is_internal=True)
     """
     if count <= 0:
         return []
@@ -502,11 +507,19 @@ def start_simulation(
         print(f"[CONTENTION] Bound traces to {bound_count} platforms")
 
     # Pre-create replicas for each task type based on configuration
+    # NOTE: This is ONLY used by executecosimulation.py (co-simulation mode)
+    # executeinitial.py does NOT provide replica_plan and should not preinitialize platforms
     initial_replicas = {}
     if infrastructure.get("preinitialize_platforms", False):
-        # Accept optional replica plan embedded by executeinitial.py
+        # Replica plan is only provided by executecosimulation.py (co-simulation mode)
         replica_plan = infrastructure.get('replica_plan')
-        initial_replicas = precreate_replicas(nodes, simulation_data, replica_plan, env, simulation_policy)
+        if replica_plan is not None:
+            # Only create replicas and warmup tasks when replica_plan exists (co-sim mode)
+            initial_replicas = precreate_replicas(nodes, simulation_data, replica_plan, env, simulation_policy)
+        else:
+            # preinitialize_platforms=True but no replica_plan - skip replica creation
+            # This should not happen, but handle gracefully for executeinitial.py mode
+            print("Warning: preinitialize_platforms=True but no replica_plan provided. Skipping replica precreation.")
 
     policies: Dict[
         str, Tuple[Type[Orchestrator], Type[Autoscaler], Type[Scheduler]]

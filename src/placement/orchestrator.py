@@ -390,16 +390,25 @@ class Orchestrator:
         yield self.mutex.put(system_state)
 
         # Register any precreated warmup tasks so they can appear in logs/stats
+        # NOTE: Warmup tasks are ONLY created by executecosimulation.py (co-simulation mode)
+        # executeinitial.py does NOT create warmup tasks, so this code should find nothing
+        # when running from executeinitial.py
         try:
+            warmup_task_count = 0
             for node in self.nodes.items:
                 for plat in node.platforms.items:
-                    if hasattr(plat, '_warmup_tasks'):
+                    if hasattr(plat, '_warmup_tasks') and plat._warmup_tasks:
                         for t in plat._warmup_tasks:
                             # Archive task and its pseudo-application
+                            # Warmup tasks are marked with is_internal=True and excluded from completion wait
                             if t.application not in self.application_archive:
                                 self.application_archive.append(t.application)
                             if t not in self.task_archive:
                                 self.task_archive.append(t)
+                                warmup_task_count += 1
+            if warmup_task_count > 0:
+                logging.info(f"Registered {warmup_task_count} warmup tasks (co-simulation mode)")
+                print(f"Registered {warmup_task_count} warmup tasks (co-simulation mode)")
         except Exception:
             pass
 
@@ -457,12 +466,17 @@ class Orchestrator:
 
     def gateway_process(self) -> Generator:
         logging.info(f"[ {self.env.now} ] API Gateway started")
+        print(f"[ {self.env.now} ] API Gateway started with {len(self.time_series.events)} events")
 
         app_id = 0
         task_id = 0
 
         # TODO: maybe pop more tasks at once here?
+        events_processed = 0
         while self.time_series.events:
+            events_processed += 1
+            remaining = len(self.time_series.events)
+            print(f"[ {self.env.now} ] Gateway: Processing event {events_processed} ({remaining} remaining)")
             # Process workload events (FIFO)
             workload_event: WorkloadEvent = self.time_series.events.pop(0)
 
@@ -498,10 +512,51 @@ class Orchestrator:
             # See scheduler_process()
             yield self.scheduler.tasks.put(first_task)
 
+        # All workload events have been processed - gateway is done
+        print(f"[ {self.env.now} ] Gateway: All {len(self.task_archive)} tasks from {len(self.application_archive)} applications have been dispatched")
+        logging.info(f"[ {self.env.now} ] Gateway: All workload events processed, waiting for task completion")
+        
         # Simulation ends when:
         #  - all platforms are released
-        #  - all tasks are done
-        yield self.env.all_of([task.done for task in self.task_archive])
+        #  - all tasks are done (excluding internal warmup tasks which are not executed by scheduler)
+        real_tasks = [task for task in self.task_archive if not getattr(task, 'is_internal', False)]
+        warmup_tasks = [task for task in self.task_archive if getattr(task, 'is_internal', False)]
+        
+        print(f"[ {self.env.now} ] Task summary: {len(real_tasks)} real tasks, {len(warmup_tasks)} warmup tasks (excluded from wait)")
+        
+        if not real_tasks:
+            # No real tasks to wait for (only warmup tasks or empty workload)
+            # In SimPy, all_of([]) succeeds immediately, but we'll be explicit
+            logging.info(f"[ {self.env.now} ] No real tasks to wait for - simulation will end immediately")
+            print(f"[ {self.env.now} ] No real tasks to wait for - simulation will end immediately")
+        else:
+            # Wait for all real tasks to complete
+            completed_count = sum(1 for task in real_tasks if task.done.triggered)
+            logging.info(f"[ {self.env.now} ] Waiting for {len(real_tasks)} real tasks to complete ({completed_count} already completed)")
+            print(f"[ {self.env.now} ] Waiting for {len(real_tasks)} real tasks to complete ({completed_count}/{len(real_tasks)} already completed)")
+            
+            # Periodically log progress while waiting
+            def log_progress():
+                try:
+                    while True:
+                        yield self.env.timeout(10.0)  # Log every 10 simulation seconds
+                        completed = sum(1 for task in real_tasks if task.done.triggered)
+                        in_progress = [task for task in real_tasks if not task.done.triggered]
+                        if in_progress:
+                            print(f"[ {self.env.now} ] Progress: {completed}/{len(real_tasks)} tasks completed. Still waiting for: {[t.id for t in in_progress[:5]]}")
+                            #import sys
+                            #sys.exit(0)
+                except Exception:
+                    pass  # Process was interrupted or finished
+            
+            progress_logger = self.env.process(log_progress())
+            
+            yield self.env.all_of([task.done for task in real_tasks])
+            
+            # Progress logger will stop naturally when simulation ends
+            
+            logging.info(f"[ {self.env.now} ] All {len(real_tasks)} real tasks completed")
+            print(f"[ {self.env.now} ] All {len(real_tasks)} real tasks completed")
 
         # End simulation
         # Capture final system state

@@ -810,7 +810,7 @@ def execute_reactive_samples_parallel(apps, config_file, mapping_file, output_di
         print(f'Duration: {end_ts - start_ts}')
     return result_paths
 
-
+"""
 def execute_proactive_samples_parallel(apps, config_file, mapping_file, output_dir, samples, sim_input_path,
                                        workload_base_file, max_workers, model_paths):
     result_paths = []
@@ -836,7 +836,7 @@ def execute_proactive_samples_parallel(apps, config_file, mapping_file, output_d
     return result_paths
 
 
-"""def execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base):
+def execute_reactive_samples(apps, infra_config, logger, mapping, output_dir, samples, sim_inputs, workload_base):
     result_paths = []
     for i, sample in enumerate(samples):
         logger.info(f"Processing sample {i + 1}/{len(samples)}")

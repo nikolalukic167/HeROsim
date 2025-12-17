@@ -1,0 +1,27 @@
+{
+  "os":  "Linux-6.8.0-85-generic-x86_64-with-glibc2.39",
+  "python":  "CPython 3.12.3",
+  "startedAt":  "2025-12-14T17:04:18.411457Z",
+  "program":  "/root/projects/my-herosim/src/notebooks/new_new/14-12-17-52.py",
+  "codePath":  "src/notebooks/new_new/14-12-17-52.py",
+  "codePathLocal":  "14-12-17-52.py",
+  "git":  {
+    "commit":  "b5169cff0bbb037e2039eac7e231cfb0e3201c70"
+  },
+  "email":  "nikolalukic167@gmail.com",
+  "root":  "/root/projects/my-herosim/src/notebooks/new_new",
+  "host":  "mitrix",
+  "executable":  "/root/.local/share/virtualenvs/my-herosim-7iPRbgpb/bin/python3",
+  "cpu_count":  16,
+  "cpu_count_logical":  16,
+  "disk":  {
+    "/":  {
+      "total":  "211044827136",
+      "used":  "121840721920"
+    }
+  },
+  "memory":  {
+    "total":  "33652129792"
+  },
+  "writerId":  "k0d2vaetk15es3ivep3lmbld915doorg"
+}

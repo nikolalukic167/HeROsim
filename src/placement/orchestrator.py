@@ -109,8 +109,14 @@ class Orchestrator:
         self.task_archive: List[Task] = []
         self.trace_file = trace_file
         self.system_state_results: List[SystemStateResult] = []  # Store system state snapshots
+        
+        # Set orchestrator reference on all nodes for system state capture
+        for node in self.nodes.items:
+            node.orchestrator_ref = self
 
     def stats(self) -> SimulationStats:
+        logger = logging.getLogger('simulation')
+        
         try:
             application_results: List[ApplicationResult] = [
                 application.result() for application in self.application_archive
@@ -234,12 +240,54 @@ class Orchestrator:
             task_result["cacheHit"] for task_result in task_results
         ) / len(task_results)
 
-        task_response_time_quantiles = statistics.quantiles(
-            [task["elapsedTime"] for task in task_results], n=100
-        )
-        application_response_time_quantiles = statistics.quantiles(
-            [application["elapsedTime"] for application in application_results], n=100
-        )
+        # Compute quantiles with defensive checks
+        logger.info(f"[STATS] Computing task_response_time_quantiles from {len(task_results)} task results")
+        task_elapsed_times = [task["elapsedTime"] for task in task_results]
+        logger.info(f"[STATS] Task elapsed times: count={len(task_elapsed_times)}, values={task_elapsed_times[:10] if len(task_elapsed_times) > 0 else 'empty'}")
+        
+        if len(task_elapsed_times) < 2:
+            logger.warning(f"[STATS] Cannot compute quantiles: need at least 2 data points, got {len(task_elapsed_times)}")
+            logger.warning(f"[STATS] Using fallback: single value or empty list")
+            if len(task_elapsed_times) == 1:
+                # Single value: return list with that value repeated
+                task_response_time_quantiles = [task_elapsed_times[0]] * 100
+                logger.info(f"[STATS] Using single value {task_elapsed_times[0]} for all quantiles")
+            else:
+                # Empty list: return list of zeros
+                task_response_time_quantiles = [0.0] * 100
+                logger.warning(f"[STATS] No task results available, using zeros for quantiles")
+        else:
+            try:
+                task_response_time_quantiles = statistics.quantiles(task_elapsed_times, n=100)
+                logger.info(f"[STATS] Successfully computed task_response_time_quantiles: {len(task_response_time_quantiles)} quantiles")
+            except Exception as e:
+                logger.error(f"[STATS] Error computing task_response_time_quantiles: {e}")
+                logger.error(f"[STATS] Task elapsed times: {task_elapsed_times}")
+                raise
+        
+        logger.info(f"[STATS] Computing application_response_time_quantiles from {len(application_results)} application results")
+        application_elapsed_times = [application["elapsedTime"] for application in application_results]
+        logger.info(f"[STATS] Application elapsed times: count={len(application_elapsed_times)}, values={application_elapsed_times[:10] if len(application_elapsed_times) > 0 else 'empty'}")
+        
+        if len(application_elapsed_times) < 2:
+            logger.warning(f"[STATS] Cannot compute quantiles: need at least 2 data points, got {len(application_elapsed_times)}")
+            logger.warning(f"[STATS] Using fallback: single value or empty list")
+            if len(application_elapsed_times) == 1:
+                # Single value: return list with that value repeated
+                application_response_time_quantiles = [application_elapsed_times[0]] * 100
+                logger.info(f"[STATS] Using single value {application_elapsed_times[0]} for all quantiles")
+            else:
+                # Empty list: return list of zeros
+                application_response_time_quantiles = [0.0] * 100
+                logger.warning(f"[STATS] No application results available, using zeros for quantiles")
+        else:
+            try:
+                application_response_time_quantiles = statistics.quantiles(application_elapsed_times, n=100)
+                logger.info(f"[STATS] Successfully computed application_response_time_quantiles: {len(application_response_time_quantiles)} quantiles")
+            except Exception as e:
+                logger.error(f"[STATS] Error computing application_response_time_quantiles: {e}")
+                logger.error(f"[STATS] Application elapsed times: {application_elapsed_times}")
+                raise
 
         # Sort task results by arrival time
         # Filter out non-penalty tasks
@@ -465,7 +513,6 @@ class Orchestrator:
         self.env.process(self.workflow_process(next_task))
 
     def gateway_process(self) -> Generator:
-        logging.info(f"[ {self.env.now} ] API Gateway started")
         print(f"[ {self.env.now} ] API Gateway started with {len(self.time_series.events)} events")
 
         app_id = 0
@@ -518,46 +565,9 @@ class Orchestrator:
         
         # Simulation ends when:
         #  - all platforms are released
-        #  - all tasks are done (excluding internal warmup tasks which are not executed by scheduler)
-        real_tasks = [task for task in self.task_archive if not getattr(task, 'is_internal', False)]
-        warmup_tasks = [task for task in self.task_archive if getattr(task, 'is_internal', False)]
+        #  - all tasks are done
+        yield self.env.all_of([task.done for task in self.task_archive])
         
-        print(f"[ {self.env.now} ] Task summary: {len(real_tasks)} real tasks, {len(warmup_tasks)} warmup tasks (excluded from wait)")
-        
-        if not real_tasks:
-            # No real tasks to wait for (only warmup tasks or empty workload)
-            # In SimPy, all_of([]) succeeds immediately, but we'll be explicit
-            logging.info(f"[ {self.env.now} ] No real tasks to wait for - simulation will end immediately")
-            print(f"[ {self.env.now} ] No real tasks to wait for - simulation will end immediately")
-        else:
-            # Wait for all real tasks to complete
-            completed_count = sum(1 for task in real_tasks if task.done.triggered)
-            logging.info(f"[ {self.env.now} ] Waiting for {len(real_tasks)} real tasks to complete ({completed_count} already completed)")
-            print(f"[ {self.env.now} ] Waiting for {len(real_tasks)} real tasks to complete ({completed_count}/{len(real_tasks)} already completed)")
-            
-            # Periodically log progress while waiting
-            def log_progress():
-                try:
-                    while True:
-                        yield self.env.timeout(10.0)  # Log every 10 simulation seconds
-                        completed = sum(1 for task in real_tasks if task.done.triggered)
-                        in_progress = [task for task in real_tasks if not task.done.triggered]
-                        if in_progress:
-                            print(f"[ {self.env.now} ] Progress: {completed}/{len(real_tasks)} tasks completed. Still waiting for: {[t.id for t in in_progress[:5]]}")
-                            #import sys
-                            #sys.exit(0)
-                except Exception:
-                    pass  # Process was interrupted or finished
-            
-            progress_logger = self.env.process(log_progress())
-            
-            yield self.env.all_of([task.done for task in real_tasks])
-            
-            # Progress logger will stop naturally when simulation ends
-            
-            logging.info(f"[ {self.env.now} ] All {len(real_tasks)} real tasks completed")
-            print(f"[ {self.env.now} ] All {len(real_tasks)} real tasks completed")
-
         # End simulation
         # Capture final system state
         system_state = yield self.mutex.get()

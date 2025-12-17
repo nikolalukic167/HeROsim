@@ -473,7 +473,7 @@ def prepare_simulation_config(
         output_dir = Path("simulation_data")
         output_dir.mkdir(exist_ok=True)
         viz_path = output_dir / "network_topology.pdf"
-        visualize_network_topology(network_maps, str(viz_path))
+        # visualize_network_topology(network_maps, str(viz_path))
     except Exception as e:
         print(f"Warning: Could not create network topology visualization: {e}")
     
@@ -577,8 +577,8 @@ def main():
     mapping_file = base_dir / "lhs_samples_simple_mapping.pkl"
     config_file = base_dir / "space_with_network.json"
     # python -m src.generator -d data/nofs-ids --generate-traces --rps 10 --seconds 10
-    workload_base_file = "data/nofs-ids/traces/workload-10.json"
-    output_dir = base_dir / "initial_results_simple"
+    workload_base_file = "data/nofs-ids/traces/workload-50-50.json"
+    output_dir = base_dir / "initial_results_simple2"
     os.makedirs(output_dir, exist_ok=True)
     # todo: max_workers = int(sys.argv[1])
     cpu_count = os.cpu_count()

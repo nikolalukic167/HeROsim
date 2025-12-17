@@ -146,7 +146,7 @@
     },
     "topology": {
       "type": "sparse",
-      "connection_probability": 0.10,
+      "connection_probability": 0.65,
       "edges": [],
       "seed": 101
     }
@@ -179,11 +179,10 @@
       "distribution": "none",
       "queue_distribution": "statistical",
       "queue_distribution_params": {
-        "type": "uniform",
-        "low": 0,
-        "high": 28,
+        "type": "poisson",
+        "lambda": 16,
         "min": 0,
-        "max": 28,
+        "max": 32,
         "step": 1
       }
     },
@@ -191,11 +190,10 @@
       "distribution": "none",
       "queue_distribution": "statistical",
       "queue_distribution_params": {
-        "type": "uniform",
-        "low": 0,
-        "high": 28,
+        "type": "poisson",
+        "lambda": 16,
         "min": 0,
-        "max": 28,
+        "max": 32,
         "step": 1
       }
     }

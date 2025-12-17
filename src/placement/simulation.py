@@ -22,7 +22,7 @@ import os
 import sys
 
 from datetime import datetime
-from typing import Dict, Tuple, Type, Set, Any, List
+from typing import Dict, Tuple, Type, Set, Any, List, Optional
 
 from src.placement.infrastructure import Node, Platform, Storage, Application, Task
 
@@ -122,12 +122,6 @@ def create_nodes(
                 platform_type=simulation_data.platform_types[name],
                 node=current_node,
             )
-            # --- NEW: annotate for runtime contention ---
-            # A: slot for trace series & meta (populated later in start_simulation via infrastructure)
-            setattr(plat, "_contention_trace", None)
-            setattr(plat, "_contention_tick", 0.5)
-            setattr(plat, "_contention_scalars", {"slowdown": 1.0, "cold_start_boost": 1.0})
-            setattr(plat, "_burst_cfg", {"q_len": 3, "penalty": 0.15})
             platforms_store.put(plat)
             platform_id += 1
 
@@ -155,7 +149,10 @@ def precreate_replicas(
         simulation_data: SimulationData,
         replica_plan: Dict[str, Any] | None = None,
         env: Environment | None = None,
-        simulation_policy: SimulationPolicy | None = None
+        simulation_policy: SimulationPolicy | None = None,
+        seed: int | None = None,
+        deterministic_placements: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        deterministic_queues: Optional[Dict[str, Dict[str, int]]] = None
 ) -> Dict[str, Set[Tuple["Node", "Platform"]]]:
     """
     EXECUTE REPLICA CREATION:
@@ -208,9 +205,72 @@ def precreate_replicas(
     # Track which platforms have been assigned to avoid double-booking
     assigned_platforms = set()
     initial_replicas = {}
-    # Optional RNG seed from prewarm config
+    
+    # Use deterministic placements if provided
+    if deterministic_placements:
+        print("Using deterministic replica placements from infrastructure.json")
+        
+        # Create node and platform lookup maps
+        node_map = {node.node_name: node for node in all_nodes}
+        
+        for task_type_name, placements in deterministic_placements.items():
+            initial_replicas[task_type_name] = set()
+            
+            for placement in placements:
+                node_name = placement['node_name']
+                platform_id = placement['platform_id']
+                
+                # Find node and platform
+                node = node_map.get(node_name)
+                if not node:
+                    continue
+                
+                # Find platform by ID
+                platform = None
+                for p in node.platforms.items:
+                    if p.id == platform_id:
+                        platform = p
+                        break
+                
+                if platform and (node, platform) not in assigned_platforms:
+                    replica = (node, platform)
+                    initial_replicas[task_type_name].add(replica)
+                    assigned_platforms.add(replica)
+                    
+                    # Mark platform as initialized and warm
+                    platform.initialized.succeed()
+                    platform.previous_task = type('Task', (), {'type': {'name': task_type_name}})()
+                    
+                    # Use deterministic queue length if provided
+                    if env and simulation_policy and deterministic_queues:
+                        queue_key = f"{node_name}:{platform_id}"
+                        queue_length = deterministic_queues.get(task_type_name, {}).get(queue_key, 0)
+                        
+                        if queue_length > 0:
+                            warmup_tasks = create_warmup_tasks(
+                                env, platform, task_type_name, simulation_data,
+                                simulation_policy, queue_length
+                            )
+                            for warmup_task in warmup_tasks:
+                                platform.queue.put(warmup_task)
+                            print(f"    Enqueued {len(warmup_tasks)} warmup tasks to {node_name}:{platform_id}")
+        
+        print(f"\n=== Replica creation complete (deterministic) ===")
+        for task_type, replicas in initial_replicas.items():
+            print(f"{task_type}: {len(replicas)} replicas")
+        print(f"Total unique platforms assigned: {len(assigned_platforms)}")
+        
+        return initial_replicas
+    
+    # Legacy mode: use random sampling
+    # Use seed for deterministic RNG (same seed as network topology)
     import random
-    rng = random.Random()
+    if seed is not None:
+        rng = random.Random(seed)
+        print(f"Using seeded RNG (seed={seed}) for replica and queue distributions")
+    else:
+        rng = random.Random()
+        print("Warning: No seed provided for RNG - replica and queue distributions will be non-deterministic")
     
     # Create replicas for each task type according to configuration
     for task_type_name, replica_config in replicas_config.items():
@@ -464,6 +524,8 @@ def start_simulation(
         handlers=[console_handler],
     )
 
+    logger = logging.getLogger('simulation')
+
     # Simulation
     env = Environment()
     finished = env.event()
@@ -475,36 +537,7 @@ def start_simulation(
         simulation_policy=simulation_policy,
         infrastructure=infrastructure,
     )
-
-    # --- NEW: bind contention traces from infra to platforms ---
-    ctraces = infrastructure.get("contention_traces", {}) or {}
-    meta = ctraces.get("meta", {})
-    tick = float(meta.get("tick", 0.5))
-    per_ptype = meta.get("per_platform_type", {})
-    burst_cfg = meta.get("burst", {"q_len":3,"penalty":0.15})
-
-    # map node_name -> {platform_id -> series}
-    by_node = {k:v for k,v in ctraces.items() if k != "meta"}
-
-    # Debug: log trace binding
-    bound_count = 0
-    for node in list(nodes.items):
-        node_map = by_node.get(node.node_name, {})
-        for plat in node.platforms.items:
-            series = node_map.get(plat.id)
-            if series is not None:
-                plat._contention_trace = series
-                bound_count += 1
-            plat._contention_tick = tick
-            # scale factors by shortName (e.g., rpiCpu)
-            short = plat.type["shortName"]
-            scal = per_ptype.get(short, {"slowdown":1.0,"cold_start_boost":1.0})
-            plat._contention_scalars = {"slowdown": float(scal.get("slowdown",1.0)),
-                                        "cold_start_boost": float(scal.get("cold_start_boost",1.0))}
-            plat._burst_cfg = burst_cfg
-    
-    if bound_count > 0:
-        print(f"[CONTENTION] Bound traces to {bound_count} platforms")
+    print(f"[simulation] Created {len(nodes.items)} nodes for simulation '{simulation_policy.scheduling}'")
 
     # Pre-create replicas for each task type based on configuration
     # NOTE: This is ONLY used by executecosimulation.py (co-simulation mode)
@@ -514,8 +547,24 @@ def start_simulation(
         # Replica plan is only provided by executecosimulation.py (co-simulation mode)
         replica_plan = infrastructure.get('replica_plan')
         if replica_plan is not None:
+            # Get deterministic placements and queues if available
+            deterministic_placements = infrastructure.get('deterministic_replica_placements')
+            deterministic_queues = infrastructure.get('deterministic_queue_distributions')
+            
+            # Get seed from infrastructure (same seed used for network topology)
+            seed = None
+            network_config = infrastructure.get('network', {})
+            topology_config = network_config.get('topology', {})
+            if topology_config and 'seed' in topology_config:
+                seed = topology_config['seed']
+            
             # Only create replicas and warmup tasks when replica_plan exists (co-sim mode)
-            initial_replicas = precreate_replicas(nodes, simulation_data, replica_plan, env, simulation_policy)
+            initial_replicas = precreate_replicas(
+                nodes, simulation_data, replica_plan, env, simulation_policy,
+                seed=seed,
+                deterministic_placements=deterministic_placements,
+                deterministic_queues=deterministic_queues
+            )
         else:
             # preinitialize_platforms=True but no replica_plan - skip replica creation
             # This should not happen, but handle gracefully for executeinitial.py mode
@@ -573,21 +622,11 @@ def start_simulation(
         orchestrator_args['infrastructure'] = infrastructure
     
     orchestrator = orchestrator_type(**orchestrator_args)
-
     env.run(until=finished)
-
     logging.info(f"[ {orchestrator.end_time} ] ✨ Simulation finished")
 
     # Statistics
     stats = orchestrator.stats()
 
-    # with open(os.path.join("result", f"{simulation_time}.json"), "w") as outfile:
-    #     json.dump(stats, outfile, indent=2, cls=DataclassJSONEncoder)
-
-    # logging.warning(f"Total time: {env.now / 3600} hours")
-    # logging.warning(f"Average elapsed time: {stats['averageElapsedTime']}")
-    # logging.warning(f"Average compute time: {stats['averageComputeTime']}")
-    # logging.warning(f"Total energy: {stats['energy']}")
-    # logging.warning(f"Penalty proportion: {stats['penaltyProportion']}")
-    # logging.warning(f"Cold start proportion: {stats['coldStartProportion']}")
+    logger.info("start_simulation: Simulation completed")
     return stats

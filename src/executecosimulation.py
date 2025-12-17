@@ -371,7 +371,8 @@ def prepare_simulation_config(
         original_config: Dict[str, Any],
         placement_plan: Optional[Dict[int, Tuple[int, int]]] = None,
         replica_plan: Optional[Dict[str, Any]] = None,
-        base_nodes: Optional[List[Dict[str, Any]]] = None
+        base_nodes: Optional[List[Dict[str, Any]]] = None,
+        infrastructure_file: Optional[Path] = None
 ) -> Dict[str, Any]:
     """Prepare simulation configuration from a sample."""
     reverse_mapping = create_reverse_mapping(mapping)
@@ -401,10 +402,85 @@ def prepare_simulation_config(
         "scheduler": original_config.get('scheduler', {}),
     }
 
-    if base_nodes is not None and len(base_nodes) > 0:
+    # Load pre-generated infrastructure if available
+    if infrastructure_file:
+        if infrastructure_file.exists():
+            print(f"[executecosim] ✓ Infrastructure file provided: {infrastructure_file}")
+            print(f"[executecosim] Loading pre-generated deterministic infrastructure...")
+            with open(infrastructure_file, 'r') as f:
+                infra_data = json.load(f)
+
+            # Validate infrastructure file structure – in co-simulation mode we rely
+            # entirely on this file for determinism, so missing keys are fatal.
+            required_keys = ['network_maps', 'replica_placements', 'queue_distributions', 'metadata']
+            missing_keys = [k for k in required_keys if k not in infra_data]
+            if missing_keys:
+                raise RuntimeError(
+                    f"[executecosim] Infrastructure file {infrastructure_file} is missing "
+                    f"required keys for deterministic co-simulation: {missing_keys}"
+                )
+            print(f"[executecosim] ✓ Infrastructure file structure validated")
+            
+            network_maps = infra_data['network_maps']
+            deterministic_replica_placements = infra_data['replica_placements']
+            deterministic_queue_distributions = infra_data['queue_distributions']
+            metadata = infra_data.get('metadata', {})
+            
+            print(f"[executecosim] Infrastructure metadata:")
+            print(f"  Seed: {metadata.get('seed', 'N/A')}")
+            print(f"  Generation time: {metadata.get('generation_time', 'N/A')}")
+            
+            # Generate nodes (same order as infrastructure generation)
+            device_types = list(original_config['pci'].keys())
+            nodes = []
+            
+            for i in range(client_nodes_count):
+                device_type = device_types[i % len(device_types)]
+                device_specs = original_config['pci'][device_type]['specs']
+                node_config = device_specs.copy()
+                node_config['node_name'] = f"client_node{i}"
+                node_config['type'] = device_type
+                node_config['network_map'] = network_maps.get(node_config['node_name'], {})
+                nodes.append(node_config)
+            
+            for i in range(server_nodes_count):
+                device_type = device_types[i % len(device_types)]
+                device_specs = original_config['pci'][device_type]['specs']
+                node_config = device_specs.copy()
+                node_config['node_name'] = f"node{i}"
+                node_config['type'] = device_type
+                node_config['network_map'] = network_maps.get(node_config['node_name'], {})
+                nodes.append(node_config)
+            
+            infrastructure_config['nodes'] = nodes
+            
+            # Store deterministic infrastructure data for simulation.py
+            infrastructure_config['deterministic_replica_placements'] = deterministic_replica_placements
+            infrastructure_config['deterministic_queue_distributions'] = deterministic_queue_distributions
+            
+            print(f"[executecosim] ✓ Loaded deterministic infrastructure:")
+            print(f"  Network maps: {len(network_maps)} nodes")
+            print(f"  Replica placements: {sum(len(v) for v in deterministic_replica_placements.values())} total")
+            print(f"  Queue distributions: {sum(len(v) for v in deterministic_queue_distributions.values())} platforms")
+            
+            # Log sample of placements for verification
+            for task_type, placements in deterministic_replica_placements.items():
+                if placements:
+                    sample_placement = placements[0]
+                    print(f"  Sample {task_type} placement: {sample_placement['node_name']}:{sample_placement['platform_id']}")
+        else:
+            print(f"[executecosim] ⚠️  WARNING: Infrastructure file provided but not found: {infrastructure_file}")
+            print(f"[executecosim] Falling back to legacy (non-deterministic) infrastructure generation")
+            infrastructure_file = None  # Fall through to legacy path
+    elif base_nodes is not None and len(base_nodes) > 0:
         # Reuse provided nodes (and their network maps) to keep topology consistent
+        print(f"[executecosim] Reusing {len(base_nodes)} base nodes (from previous placement)")
         infrastructure_config['nodes'] = [deepcopy(n) for n in base_nodes]
     else:
+        # Legacy path: Generate infrastructure on-the-fly (non-deterministic)
+        print(f"[executecosim] ⚠️  Using LEGACY (non-deterministic) infrastructure generation")
+        print(f"[executecosim]   No infrastructure file provided - generating network topology on-the-fly")
+        
         # Generate client nodes
         device_types = list(original_config['pci'].keys())  # ['rpi', 'xavier', 'pyngFpga']
         for i in range(client_nodes_count):
@@ -425,11 +501,14 @@ def prepare_simulation_config(
             infrastructure_config['nodes'].append(node_config)
         
         # Generate network maps using configuration-based approach
+        print(f"[executecosim]   Generating network topology (may be non-deterministic)...")
         network_maps = generate_network_latencies(infrastructure_config['nodes'], original_config)
             
         # Assign network maps to nodes
         for node in infrastructure_config['nodes']:
             node['network_map'] = network_maps[node['node_name']]
+        
+        print(f"[executecosim]   Generated network topology with {len(network_maps)} nodes")
 
     # Debug: Print infrastructure node names
     # print(f"\nInfrastructure nodes created:")
@@ -537,30 +616,270 @@ def flatten_workloads(workloads: Dict[str, Dict]) -> Dict[str, Any]:
     }
 
 
+def capture_system_state_from_first_task(
+        sample: np.ndarray,
+        mapping: Dict[int, str],
+        infra_config: Dict[str, Any],
+        sim_inputs: Dict[str, Any],
+        workload_events: List[Dict],
+        replica_plan: Dict[str, Any],
+        output_dir: Path,
+        infrastructure_file: Optional[Path] = None
+) -> Optional[Dict[str, List[Tuple[str, int]]]]:
+    """
+    Capture system state after warmup tasks complete by running simulation with first real task.
+    
+    This function:
+    1. Extracts the first workload event
+    2. Creates a workload with only that first event
+    3. Sets up infrastructure with forced_placements = {0: (-1, -1)} for auto-resolve
+    4. Runs simulation and waits for completion
+    5. Extracts final system state from stats['systemStateResults'][-1]
+    6. Converts replicas format from [[node_name, platform_id], ...] to [(node_name, platform_id), ...]
+    
+    Args:
+        sample: Sample array for infrastructure configuration
+        mapping: Mapping from indices to parameter names
+        infra_config: Infrastructure configuration
+        sim_inputs: Simulation inputs
+        workload_events: Full list of workload events
+        replica_plan: Replica placement plan
+        output_dir: Output directory for saving the capture result
+        infrastructure_file: Optional infrastructure file path
+    
+    Returns:
+        Dict mapping task_type -> list of (node_name, platform_id) tuples, or None if capture fails
+    """
+    logger = logging.getLogger('simulation')
+    logger.info("=== Phase 1: Capturing System State from First Task ===")
+    print(f"\n=== Phase 1: Capturing System State from First Task ===")
+    
+    if not workload_events:
+        print("⚠️  No workload events available for state capture")
+        return None
+    
+    logger.info(f"Total workload events: {len(workload_events)}")
+    
+    # Extract first workload event (use 1 task for state capture)
+    # NOTE: We use 1 task but need to ensure replicas are warm before it arrives
+    num_events_to_use = 1
+    events_to_use = workload_events[:num_events_to_use]
+    
+    first_event = events_to_use[0]
+    first_event_timestamp = first_event.get('timestamp', 0)
+    
+    logger.info(f"Using first {num_events_to_use} workload event (timestamp: {first_event_timestamp})")
+    print(f"Using first {num_events_to_use} workload event")
+    print(f"First event node: {first_event.get('node_name', 'unknown')}")
+    
+    # Create workload with first event
+    single_event_workload = {
+        "rps": 1.0 / max(1, first_event_timestamp + 1),  # Approximate RPS
+        "duration": first_event_timestamp + 1,
+        "events": events_to_use
+    }
+    logger.info(f"Created workload with {len(single_event_workload['events'])} event(s)")
+    
+    # Prepare infrastructure configuration with auto-resolve for task 0
+    # Auto-resolve will find a warm replica that was created during precreate_replicas
+    placement_plan = {0: (-1, -1)}
+    logger.info(f"Preparing infrastructure configuration with auto-resolve placement for task 0...")
+    logger.info("NOTE: Replicas should be pre-created via replica_plan and warmed up before task 0 arrives")
+    sim_config = prepare_simulation_config(
+        sample,
+        mapping,
+        infra_config,
+        placement_plan=placement_plan,  # Auto-resolve for task 0
+        replica_plan=replica_plan,
+        infrastructure_file=infrastructure_file
+    )
+    logger.info("Infrastructure configuration prepared")
+    
+    # Set batch_size=1 for state capture (only 1 task available)
+    sim_config['scheduler'] = {
+        'batch_size': 1,
+        'batch_timeout': 0.1
+    }
+    logger.info("Set scheduler batch_size=1 for state capture simulation")
+    
+    # Verify replica_plan is present (required for warmup tasks)
+    if not sim_config.get('replica_plan'):
+        logger.warning("WARNING: No replica_plan in sim_config - replicas may not be pre-created!")
+        print("⚠️  WARNING: No replica_plan - replicas may not be pre-created")
+    else:
+        logger.info("✓ replica_plan is present in sim_config")
+    
+    # Combine infrastructure and workload configurations
+    full_config = {
+        "infrastructure": sim_config,
+        "workload": single_event_workload,
+    }
+    
+    logger.info("Starting state capture simulation with auto-resolve placement for task 0...")
+    logger.info("Expected flow: 1) precreate_replicas creates replicas, 2) warmup tasks execute, 3) task 0 arrives and finds warm replica")
+    print(f"Running state capture simulation with auto-resolve placement for task 0...")
+    
+    try:
+        # Execute simulation
+        cache_policy = 'fifo'
+        task_priority = 'fifo'
+        keep_alive = KEEP_ALIVE
+        queue_length = QUEUE_LENGTH
+        scheduling_strategy = 'determined_determined'
+        
+        logger.info("Executing simulation for state capture...")
+        result = execute_simulation(
+            full_config,
+            sim_inputs,
+            scheduling_strategy,
+            model_locations={},
+            models={},
+            cache_policy=cache_policy,
+            task_priority=task_priority,
+            keep_alive=keep_alive,
+            queue_length=queue_length,
+        )
+        logger.info("Simulation completed, extracting system state...")
+        
+        # Extract final system state
+        stats = result.get('stats', {})
+        system_state_results = stats.get('systemStateResults', [])
+        
+        logger.info(f"Found {len(system_state_results)} system state results")
+        if not system_state_results:
+            logger.warning("No systemStateResults found in simulation output")
+            print("⚠️  No systemStateResults found in simulation output")
+            return None
+        
+        # Get the last system state (after warmup and first task complete)
+        final_state = system_state_results[-1]
+        final_timestamp = final_state.get('timestamp', 0)
+        logger.info(f"Using final system state at timestamp: {final_timestamp}")
+        
+        replicas_dict = final_state.get('replicas', {})
+        
+        if not replicas_dict:
+            logger.warning("No replicas found in final system state")
+            print("⚠️  No replicas found in final system state")
+            return None
+        
+        logger.info(f"Found replicas for {len(replicas_dict)} task types")
+        
+        # Convert replicas format: {task_type: [[node_name, platform_id], ...]} -> {task_type: [(node_name, platform_id), ...]}
+        active_replicas = {}
+        for task_type, replica_list in replicas_dict.items():
+            active_replicas[task_type] = [
+                (replica[0], replica[1])  # Convert list to tuple
+                for replica in replica_list
+                if len(replica) >= 2
+            ]
+            logger.info(f"Task type {task_type}: {len(active_replicas[task_type])} active replicas")
+        
+        print(f"✓ Captured system state with active replicas:")
+        for task_type, replicas in active_replicas.items():
+            print(f"  {task_type}: {len(replicas)} active replicas")
+            for node_name, platform_id in replicas[:3]:  # Show first 3
+                print(f"    - {node_name}:{platform_id}")
+            if len(replicas) > 3:
+                print(f"    ... and {len(replicas) - 3} more")
+        
+        # Save capture result with specific name (not hash-based)
+        logger.info("Saving system state capture result...")
+        capture_result = {
+            "timestamp": final_state.get('timestamp', 0),
+            "active_replicas": active_replicas,
+            "system_state": final_state
+        }
+        capture_file = output_dir / "system_state_capture.json"
+        with open(capture_file, 'w') as f:
+            json.dump(capture_result, f, indent=2, cls=DataclassJSONEncoder)
+        
+        logger.info(f"Saved system state capture to: {capture_file}")
+        print(f"✓ Saved system state capture to: {capture_file}")
+        
+        # Save full simulation result with specific name (not hash-based)
+        logger.info("Saving full simulation result...")
+        result['sample'] = {
+            'apps': [],
+            'sample': sample.tolist() if hasattr(sample, 'tolist') else sample,
+            'mapping': mapping,
+            'infra_config': infra_config,
+            'sim_inputs': sim_inputs,
+            'scheduling_strategy': scheduling_strategy,
+            'cache_policy': cache_policy,
+            'task_priority': task_priority,
+            'keep_alive': keep_alive,
+            'queue_length': queue_length,
+            'placement_plan': {0: (-1, -1)},  # Auto-resolve placement
+        }
+        first_run_file = output_dir / "first_task_state_capture_simulation.json"
+        with open(first_run_file, 'w') as f:
+            json.dump(result, f, indent=2, cls=DataclassJSONEncoder)
+        
+        logger.info(f"Saved first task simulation result to: {first_run_file}")
+        print(f"✓ Saved first task simulation result to: {first_run_file}")
+        
+        logger.info("=== Phase 1 Complete: System State Captured Successfully ===")
+        return active_replicas
+        
+    except Exception as e:
+        logger.error(f"Error during system state capture: {str(e)}")
+        logger.exception(e)
+        print(f"❌ Error during system state capture: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 def generate_brute_force_placement_combinations(
         workload_events: List[Dict],
         infrastructure_config: Dict[str, Any],
         sim_inputs: Dict[str, Any],
         replica_plan: Dict[str, Any],
-        max_combinations: Optional[int] = 100
+        active_replicas: Optional[Dict[str, List[Tuple[str, int]]]] = None
 ) -> List[Dict[int, Tuple[int, int]]]:
     """
-    Generate all possible placement combinations for tasks, limited by max_combinations.
+    Generate all possible placement combinations for tasks.
     Applies both core filtering rules:
     1. Don't make topologies that offload from client->server that have no network connection
     2. Don't schedule on non-existent replicas for that function
+    3. Ensure all tasks have valid, unique replicas (no two tasks share the same replica)
+    
+    CRITICAL: active_replicas is REQUIRED for co-simulation mode. Legacy replica configs
+    are disabled because they don't accurately reflect post-warmup system state and cause
+    invalid placements (e.g., placing dnn2 tasks on platforms that only have dnn1 replicas).
     
     Args:
         workload_events: List of workload events with timestamps and node_name
         infrastructure_config: Infrastructure configuration with nodes and network maps
         sim_inputs: Simulation inputs containing task_types and platform_types
-        replica_plan: Replica placement plan
-        max_combinations: Maximum number of placement combinations to generate
+        replica_plan: Replica placement plan (used for reference, not for generating placements)
+        active_replicas: REQUIRED dict mapping task_type -> list of (node_name, platform_id) tuples.
+                        Must be provided from system state capture. If None, returns empty list.
     
     Returns:
-        List of placement plans, each mapping task_id to (node_id, platform_id) tuple
+        List of placement plans, each mapping task_id to (node_id, platform_id) tuple.
+        Each placement ensures all tasks have valid, unique replicas.
+        Returns empty list if active_replicas is None (state capture failed).
     """
-    print(f"\n=== Generating Brute Force Placement Combinations (max: {max_combinations if max_combinations is not None else 'ALL'}) ===")
+    logger = logging.getLogger('simulation')
+    logger.info(f"=== Generating Brute Force Placement Combinations (ALL combinations) ===")
+    print(f"\n=== Generating Brute Force Placement Combinations (ALL combinations) ===")
+    
+    if active_replicas is not None:
+        logger.info("Using captured active replicas from post-warmup system state")
+        print(f"✓ Using captured active replicas from post-warmup system state")
+        logger.info(f"=== Active replicas structure ===")
+        for task_type, replicas in active_replicas.items():
+            logger.info(f"  {task_type}: {len(replicas)} active replicas")
+            print(f"  {task_type}: {len(replicas)} active replicas")
+            for idx, replica in enumerate(replicas[:5]):  # Log first 5
+                logger.info(f"    [{idx}] {replica}")
+            if len(replicas) > 5:
+                logger.info(f"    ... and {len(replicas) - 5} more")
+    else:
+        logger.info("Using initial replica plan (no captured state provided)")
+        print(f"⚠️  Using initial replica plan (no captured state provided)")
     
     # Get task types and platform types
     task_types = sim_inputs['task_types']
@@ -577,86 +896,198 @@ def generate_brute_force_placement_combinations(
     preinit_clients = replica_plan.get('preinit_clients', [])
     preinit_servers = replica_plan.get('preinit_servers', [])
     
-    print(f"Using replica plan for placement decisions:")
-    print(f"  Preinit clients: {preinit_clients}")
-    print(f"  Preinit servers: {preinit_servers}")
-    print(f"  Replicas config: {replicas_config}")
+    # Check if we're using deterministic infrastructure
+    has_deterministic = 'deterministic_replica_placements' in infrastructure_config
+    if has_deterministic:
+        print(f"[executecosim] ✓ Using deterministic replica placements from infrastructure.json")
+        det_placements = infrastructure_config.get('deterministic_replica_placements', {})
+        for task_type, placements in det_placements.items():
+            print(f"  {task_type}: {len(placements)} pre-determined placements")
+    else:
+        print(f"[executecosim] ⚠️  Using replica plan for placement decisions (non-deterministic):")
+        print(f"  Preinit clients: {preinit_clients}")
+        print(f"  Preinit servers: {preinit_servers}")
+        print(f"  Replicas config: {replicas_config}")
     
     # Simulate platform creation (same logic as simulation.py)
     node_platforms = {}  # node_name -> list of platform IDs
     platform_id = 0
     
+    logger.info("=== Building node_platforms mapping ===")
     for node in nodes:
         node_name = node['node_name']
         node_platforms[node_name] = []
         
         # Get platforms for this node from infrastructure config
         node_platform_types = node.get('platforms', [])
+        logger.info(f"Node {node_name}: {len(node_platform_types)} platforms")
         
         for platform_type_name in node_platform_types:
             node_platforms[node_name].append({
                 'platform_id': platform_id,
                 'platform_type': platform_type_name
             })
+            logger.debug(f"  Added platform_id={platform_id}, type={platform_type_name} to {node_name}")
             platform_id += 1
+    
+    logger.info(f"Total platforms created: {platform_id}")
+    logger.info(f"Node platform mapping: {[(name, len(plats)) for name, plats in node_platforms.items()]}")
     
     # Simulate replica creation
     available_platforms = {}
     
-    for task_type_name, task_config in replicas_config.items():
-        if task_type_name not in available_platforms:
-            available_platforms[task_type_name] = []
-        
-        # Get supported platforms for this task type
-        supported_platforms = task_types[task_type_name].get('platforms', [])
-        
-        # Create server replicas
-        per_server = task_config.get('per_server', 0)
-        if per_server > 0:
-            for node in nodes:
-                node_name = node['node_name']
-                if node_name in preinit_servers:
-                    suitable_platforms = [
-                        p for p in node_platforms[node_name]
-                        if p['platform_type'] in supported_platforms
-                    ]
+    if active_replicas is not None:
+        # Use captured active replicas instead of initial replica plan
+        print(f"Converting captured active replicas to platform_info format...")
+        logger.info("=== Starting replica matching process ===")
+        for task_type_name, replica_tuples in active_replicas.items():
+            logger.info(f"Processing task_type: {task_type_name} with {len(replica_tuples)} replicas")
+            print(f"Processing task_type: {task_type_name} with {len(replica_tuples)} replicas")
+            if task_type_name not in available_platforms:
+                available_platforms[task_type_name] = []
+            
+            for replica_idx, (node_name, first_sim_platform_id) in enumerate(replica_tuples):
+                logger.info(f"  Replica {replica_idx+1}/{len(replica_tuples)}: {task_type_name} on {node_name}:{first_sim_platform_id}")
+                
+                # Find node config by name
+                node_config = next((n for n in nodes if n['node_name'] == node_name), None)
+                if node_config is None:
+                    logger.error(f"  ❌ Node {node_name} not found in infrastructure for replica {task_type_name}:{node_name}:{first_sim_platform_id}")
+                    print(f"  ❌ Warning: Node {node_name} not found in infrastructure for replica {task_type_name}:{node_name}:{first_sim_platform_id}")
+                    continue
+                
+                # Get platforms for this node in current simulation
+                node_platforms_list = node_platforms.get(node_name, [])
+                logger.info(f"  Node {node_name} has {len(node_platforms_list)} platforms in current simulation")
+                if not node_platforms_list:
+                    logger.error(f"  ❌ No platforms found on node {node_name} for replica {task_type_name}:{node_name}:{first_sim_platform_id}")
+                    print(f"  ❌ Warning: No platforms found on node {node_name} for replica {task_type_name}:{node_name}:{first_sim_platform_id}")
+                    continue
+                
+                # Log all platforms on this node
+                logger.info(f"  Platforms on {node_name}: {[(p['platform_id'], p['platform_type']) for p in node_platforms_list]}")
+                
+                # Try to find platform by matching platform_id first (if order is consistent)
+                platform_info = None
+                logger.info(f"  Attempting direct platform_id match: looking for platform_id={first_sim_platform_id}")
+                for p_info in node_platforms_list:
+                    if p_info['platform_id'] == first_sim_platform_id:
+                        platform_info = p_info
+                        logger.info(f"  ✓ Direct match found: platform_id={first_sim_platform_id}, type={p_info['platform_type']}")
+                        break
+                
+                # If not found by platform_id, try to find by relative position within node
+                if platform_info is None:
+                    logger.info(f"  Direct match failed, trying relative position matching...")
+                    # Calculate platform_id offset for this node (sum of platforms in previous nodes)
+                    node_index = next((i for i, n in enumerate(nodes) if n['node_name'] == node_name), -1)
+                    logger.info(f"  Node {node_name} is at index {node_index} in nodes list")
                     
-                    replicas_created = 0
-                    for platform_info in suitable_platforms:
-                        if replicas_created >= per_server:
-                            break
+                    if node_index >= 0:
+                        platform_id_offset = 0
+                        for i in range(node_index):
+                            prev_node_name = nodes[i]['node_name']
+                            prev_node_platform_count = len(node_platforms.get(prev_node_name, []))
+                            platform_id_offset += prev_node_platform_count
+                            logger.debug(f"    Previous node {prev_node_name}: {prev_node_platform_count} platforms (offset now: {platform_id_offset})")
                         
-                        available_platforms[task_type_name].append({
-                            'node_name': node_name,
-                            'node_id': node_id_map[node_name],
-                            'platform_type': platform_info['platform_type'],
-                            'platform_id': platform_info['platform_id']
-                        })
-                        replicas_created += 1
-        
-        # Create client replicas
-        per_client = task_config.get('per_client', 0)
-        if per_client > 0:
-            for node in nodes:
-                node_name = node['node_name']
-                if node_name in preinit_clients:
-                    suitable_platforms = [
-                        p for p in node_platforms[node_name]
-                        if p['platform_type'] in supported_platforms
-                    ]
+                        logger.info(f"  Platform ID offset for node {node_name}: {platform_id_offset}")
+                        
+                        # Calculate relative position within node
+                        relative_position = first_sim_platform_id - platform_id_offset
+                        logger.info(f"  Calculated relative position: {first_sim_platform_id} - {platform_id_offset} = {relative_position}")
+                        logger.info(f"  Node has {len(node_platforms_list)} platforms, valid range: 0-{len(node_platforms_list)-1}")
+                        
+                        # If relative position is valid, use it
+                        if 0 <= relative_position < len(node_platforms_list):
+                            platform_info = node_platforms_list[relative_position]
+                            logger.info(f"  ✓ Matched by relative position {relative_position}: platform_id={platform_info['platform_id']}, type={platform_info['platform_type']}")
+                        else:
+                            logger.warning(f"  Relative position {relative_position} is out of range [0, {len(node_platforms_list)-1}]")
+                            # Fallback: find first platform that supports the task type
+                            task_type = task_types.get(task_type_name)
+                            if task_type:
+                                supported_platforms = task_type.get('platforms', [])
+                                logger.info(f"  Trying fallback: looking for platform type in {supported_platforms}")
+                                for p_info in node_platforms_list:
+                                    if p_info['platform_type'] in supported_platforms:
+                                        platform_info = p_info
+                                        logger.warning(f"  ⚠ Matched by type fallback: platform_id={p_info['platform_id']}, type={p_info['platform_type']}")
+                                        break
+                    else:
+                        logger.error(f"  Could not find node {node_name} in nodes list")
+                        # Fallback: find first platform that supports the task type
+                        task_type = task_types.get(task_type_name)
+                        if task_type:
+                            supported_platforms = task_type.get('platforms', [])
+                            logger.info(f"  Trying fallback: looking for platform type in {supported_platforms}")
+                            for p_info in node_platforms_list:
+                                if p_info['platform_type'] in supported_platforms:
+                                    platform_info = p_info
+                                    logger.warning(f"  ⚠ Matched by type fallback: platform_id={p_info['platform_id']}, type={p_info['platform_type']}")
+                                    break
                     
-                    replicas_created = 0
-                    for platform_info in suitable_platforms:
-                        if replicas_created >= per_client:
-                            break
-                        
-                        available_platforms[task_type_name].append({
-                            'node_name': node_name,
-                            'node_id': node_id_map[node_name],
-                            'platform_type': platform_info['platform_type'],
-                            'platform_id': platform_info['platform_id']
-                        })
-                        replicas_created += 1
+                    if platform_info is None:
+                        logger.error(f"  ❌ FAILED: Could not match platform {first_sim_platform_id} on node {node_name} for replica {task_type_name}")
+                        logger.error(f"     Node platforms: {[(p['platform_id'], p['platform_type']) for p in node_platforms_list]}")
+                        logger.error(f"     Task type: {task_type_name}, Supported platforms: {task_types.get(task_type_name, {}).get('platforms', []) if task_type_name in task_types else 'N/A'}")
+                        print(f"  ❌ Error: Could not match platform {first_sim_platform_id} on node {node_name} for replica {task_type_name}")
+                        continue
+                
+                # Create platform_info dict with the matched platform_id from current simulation
+                matched_platform_id = platform_info['platform_id']
+                matched_platform_type = platform_info['platform_type']
+                
+                # CRITICAL: Verify that the matched platform actually supports this task type
+                task_type = task_types.get(task_type_name)
+                if not task_type:
+                    logger.error(f"  ❌ Task type {task_type_name} not found in task_types")
+                    print(f"  ❌ Error: Task type {task_type_name} not found")
+                    continue
+                
+                supported_platforms = task_type.get('platforms', [])
+                if matched_platform_type not in supported_platforms:
+                    logger.error(f"  ❌ Platform type {matched_platform_type} does not support task type {task_type_name}")
+                    logger.error(f"     Supported platform types for {task_type_name}: {supported_platforms}")
+                    logger.error(f"     Matched platform: {node_name}:{matched_platform_id} (type: {matched_platform_type})")
+                    print(f"  ❌ Error: Platform type {matched_platform_type} does not support task type {task_type_name}")
+                    print(f"     Supported types: {supported_platforms}")
+                    continue
+                
+                logger.info(f"  ✓ Final match: {task_type_name} on {node_name}:{first_sim_platform_id} -> {matched_platform_id} (type: {matched_platform_type}, verified supports {task_type_name})")
+                
+                # Verify node_name exists in node_id_map (safety check)
+                if node_name not in node_id_map:
+                    logger.error(f"  ❌ Node {node_name} not found in node_id_map for replica {task_type_name}:{node_name}:{matched_platform_id}")
+                    logger.error(f"     Available nodes in node_id_map: {list(node_id_map.keys())[:10]}...")
+                    print(f"  ❌ Error: Node {node_name} not found in node_id_map")
+                    continue
+                
+                available_platforms[task_type_name].append({
+                    'node_name': node_name,
+                    'node_id': node_id_map[node_name],
+                    'platform_type': matched_platform_type,
+                    'platform_id': matched_platform_id  # Use platform_id from current simulation
+                })
+            
+            logger.info(f"Task type {task_type_name}: matched {len(available_platforms[task_type_name])}/{len(replica_tuples)} replicas")
+            print(f"Task type {task_type_name}: matched {len(available_platforms[task_type_name])}/{len(replica_tuples)} replicas")
+        
+        print(f"Converted {sum(len(v) for v in available_platforms.values())} active replicas to platform_info format")
+        
+        # CRITICAL: Log summary of available_platforms by task type
+        logger.info(f"[PLACEMENT] Summary of available_platforms: {[(k, len(v)) for k, v in available_platforms.items()]}")
+        print(f"[PLACEMENT] Summary of available_platforms: {[(k, len(v)) for k, v in available_platforms.items()]}")
+    else:
+        error_msg = (
+            "❌ CRITICAL: active_replicas is None but legacy fallback is disabled. "
+            "State capture MUST succeed for co-simulation mode. "
+            "Legacy replica configs are inaccurate and will generate invalid placements. "
+            "Returning empty list to abort placement generation."
+        )
+        logger.error(error_msg)
+        print(error_msg)
+        return []  # Abort - don't generate any placements
     
     # Extract tasks from workload events and apply filtering rules
     tasks = []
@@ -689,25 +1120,31 @@ def generate_brute_force_placement_combinations(
             # Get available platforms for this task type
             task_platforms = available_platforms.get(task_type_name, [])
             
-            # Filter platforms based on network connectivity
+            # Filter platforms based on network connectivity and client node restrictions
             feasible_platforms = []
             for platform_info in task_platforms:
                 node_name = platform_info['node_name']
                 
-                # Check network connectivity first
-                is_network_feasible = False
+                # Rule 1: Local execution always allowed
                 if source_node_name == node_name:
-                    # Local execution always possible
-                    is_network_feasible = True
-                else:
-                    # Check network connectivity
-                    node_config = next((n for n in nodes if n['node_name'] == node_name), None)
-                    if node_config and source_node_name in node_config.get('network_map', {}):
-                        is_network_feasible = True
-                
-                # Both rules must pass
-                if is_network_feasible:
                     feasible_platforms.append(platform_info)
+                    continue
+                
+                # Rule 2: Server nodes with network connectivity are allowed
+                # Rule 3: Other client nodes are NOT allowed (must be rejected)
+                if node_name.startswith('client_node'):
+                    # This is another client node - reject it (matches scheduler logic)
+                    logger.debug(f"  Rejecting platform on {node_name} - tasks cannot be placed on other client nodes")
+                    continue
+                
+                # Check network connectivity for server nodes
+                node_config = next((n for n in nodes if n['node_name'] == node_name), None)
+                if node_config and source_node_name in node_config.get('network_map', {}):
+                    # Server node with network connectivity - allow it
+                    feasible_platforms.append(platform_info)
+                else:
+                    # Server node without network connectivity - reject it
+                    logger.debug(f"  Rejecting platform on {node_name} - no network connectivity from {source_node_name}")
             
             if feasible_platforms:
                 tasks.append({
@@ -718,7 +1155,6 @@ def generate_brute_force_placement_combinations(
                 })
                 task_id += 1
             else:
-                # Abort-on-infeasible-task: skip entire sample to keep runs fully determined
                 print(f"❌ Abort: No feasible platforms for workload task index {task_id} ({task_type_name}). Skipping this sample.")
                 return []
     
@@ -727,95 +1163,180 @@ def generate_brute_force_placement_combinations(
         print(f"this is shit and should not happen ❌ Abort: Determinism check failed. Expected {expected_task_count} tasks, built {len(tasks)} tasks. Skipping this sample.")
         return []
 
+    logger.info(f"Found {len(tasks)} tasks with feasible placements")
     print(f"Found {len(tasks)} tasks with feasible placements")
     for task in tasks:
-        print(f"  Task {task['task_id']} ({task['task_type']}): {len(task['feasible_platforms'])} feasible platforms")
+        feasible_replicas = [(p['node_id'], p['platform_id']) for p in task['feasible_platforms']]
+        logger.info(f"  Task {task['task_id']} ({task['task_type']}): {len(task['feasible_platforms'])} feasible platforms: {feasible_replicas}")
+        print(f"  Task {task['task_id']} ({task['task_type']}): {len(task['feasible_platforms'])} feasible platforms: {feasible_replicas}")
     
-    # Generate combinations with proper max_combinations enforcement
-    combinations = generate_all_combinations_with_limit(tasks, max_combinations)
+    # Analyze overlap between tasks
+    logger.info("=== Analyzing replica overlap between tasks ===")
+    all_replicas = {}  # replica -> list of task_ids that can use it
+    for task in tasks:
+        for platform_info in task['feasible_platforms']:
+            replica = (platform_info['node_id'], platform_info['platform_id'])
+            if replica not in all_replicas:
+                all_replicas[replica] = []
+            all_replicas[replica].append(task['task_id'])
     
-    print(f"Generated {len(combinations)} placement combinations")
+    # Find replicas that are shared by multiple tasks
+    shared_replicas = {replica: task_ids for replica, task_ids in all_replicas.items() if len(task_ids) > 1}
+    if shared_replicas:
+        logger.warning(f"Found {len(shared_replicas)} replicas shared by multiple tasks:")
+        for replica, task_ids in shared_replicas.items():
+            logger.warning(f"  Replica {replica} is feasible for tasks: {task_ids}")
+        print(f"⚠️  Found {len(shared_replicas)} replicas shared by multiple tasks (this can cause uniqueness constraint failures)")
+    else:
+        logger.info("No replicas are shared between tasks - uniqueness constraint should be satisfiable")
+    
+    # Check if there are enough unique replicas for all tasks
+    unique_replicas_count = len(all_replicas)
+    if unique_replicas_count < len(tasks):
+        logger.error(f"❌ CRITICAL: Only {unique_replicas_count} unique replicas available for {len(tasks)} tasks")
+        logger.error(f"   This makes it IMPOSSIBLE to satisfy the uniqueness constraint")
+        print(f"❌ CRITICAL: Only {unique_replicas_count} unique replicas available for {len(tasks)} tasks")
+        print(f"   Uniqueness constraint requires {len(tasks)} unique replicas, but only {unique_replicas_count} are available")
+    else:
+        logger.info(f"✓ {unique_replicas_count} unique replicas available for {len(tasks)} tasks (sufficient for uniqueness constraint)")
+    
+    # Generate all combinations ensuring each task has a unique replica
+    logger.info("Generating placement combinations with unique replica constraint...")
+    combinations = generate_all_combinations_with_unique_replicas(tasks)
+    
+    logger.info(f"Generated {len(combinations)} valid placement combinations (all tasks have unique replicas)")
+    print(f"Generated {len(combinations)} valid placement combinations (all tasks have unique replicas)")
     return combinations
 
 
-def generate_all_combinations_with_limit(tasks: List[Dict], max_combinations: Optional[int] = None) -> List[Dict[int, Tuple[int, int]]]:
-    """Generate all possible placement combinations for tasks, with optional limit."""
+def generate_all_combinations_with_unique_replicas(tasks: List[Dict]) -> List[Dict[int, Tuple[int, int]]]:
+    """
+    Generate all possible placement combinations for tasks.
+    Ensures that each task gets a unique replica (no two tasks share the same (node_id, platform_id)).
+    Only returns placements where ALL tasks have valid replicas.
+    """
     if not tasks:
         return [{}]
     
-    # Calculate total possible combinations
-    total_combinations = 1
+    # Calculate total possible combinations (before uniqueness constraint)
+    total_possible = 1
     for task in tasks:
-        total_combinations *= len(task['feasible_platforms'])
+        total_possible *= len(task['feasible_platforms'])
     
-    print(f"Total possible combinations: {total_combinations}")
-    
-    # If no limit or limit is higher than total, generate all
-    if max_combinations is None or max_combinations >= total_combinations:
-        return generate_all_combinations_recursive(tasks)
-    
-    # Otherwise, sample combinations up to the limit
-    print(f"Sampling {max_combinations} combinations from {total_combinations} possible")
-    return generate_sampled_combinations(tasks, max_combinations)
-
-
-def generate_all_combinations_recursive(tasks: List[Dict]) -> List[Dict[int, Tuple[int, int]]]:
-    """Generate all possible placement combinations for tasks."""
-    if not tasks:
-        return [{}]
-    
-    # Recursive function to generate combinations
-    def generate_recursive(task_index: int, current_placement: Dict[int, Tuple[int, int]]) -> List[Dict[int, Tuple[int, int]]]:
-        if task_index >= len(tasks):
-            return [current_placement.copy()]
-        
-        task = tasks[task_index]
-        combinations = []
-        
-        for platform_info in task['feasible_platforms']:
-            placement = (platform_info['node_id'], platform_info['platform_id'])
-            current_placement[task['task_id']] = placement
-            combinations.extend(generate_recursive(task_index + 1, current_placement))
-            # Clean up: remove the current task's placement before trying the next platform
-            del current_placement[task['task_id']]
-        
-        return combinations
-    
-    return generate_recursive(0, {})
-
-
-def generate_sampled_combinations(tasks: List[Dict], max_combinations: int) -> List[Dict[int, Tuple[int, int]]]:
-    """Generate a sampled set of placement combinations up to max_combinations."""
-    import random
+    print(f"Total possible combinations (before uniqueness constraint): {total_possible}")
     
     combinations = []
-    seen_combinations = set()
+    used_replicas = set()  # Track (node_id, platform_id) tuples that are already used
     
-    # Generate random combinations until we have enough or run out of unique ones
-    while len(combinations) < max_combinations:
-        placement = {}
-        valid = True
-        
-        # Generate a random combination
-        for task in tasks:
-            if not task['feasible_platforms']:
-                valid = False
-                break
+    # Recursive function to generate combinations with uniqueness constraint
+    def generate_recursive(task_index: int, current_placement: Dict[int, Tuple[int, int]], used: set) -> None:
+        if task_index >= len(tasks):
+            # All tasks have been assigned unique replicas
+            # Verify that all tasks are in the placement and all values are valid
+            if len(current_placement) != len(tasks):
+                print(f"⚠️  WARNING: Incomplete placement generated: {len(current_placement)}/{len(tasks)} tasks assigned")
+                return
             
-            platform_info = random.choice(task['feasible_platforms'])
-            placement[task['task_id']] = (platform_info['node_id'], platform_info['platform_id'])
+            # Validate all placements have valid integer values
+            for task_id, (node_id, platform_id) in current_placement.items():
+                if not isinstance(node_id, int) or not isinstance(platform_id, int):
+                    print(f"⚠️  WARNING: Invalid placement for task {task_id}: node_id={node_id} (type: {type(node_id)}), platform_id={platform_id} (type: {type(platform_id)})")
+                    return
+                if node_id < 0 or platform_id < 0:
+                    print(f"⚠️  WARNING: Invalid placement for task {task_id}: negative values node_id={node_id}, platform_id={platform_id}")
+                    return
+            
+            combinations.append(current_placement.copy())
+            return
         
-        if not valid:
-            break
+        task = tasks[task_index]
         
-        # Check if this combination is unique
-        placement_key = tuple(sorted(placement.items()))
-        if placement_key not in seen_combinations:
-            seen_combinations.add(placement_key)
-            combinations.append(placement)
+        # CRITICAL: If this task has no feasible platforms, we cannot generate valid placements
+        if not task['feasible_platforms']:
+            print(f"  ❌ Task {task['task_id']} ({task['task_type']}) has no feasible platforms - cannot generate valid placement")
+            return  # Backtrack - this path cannot lead to a valid placement
+        
+        # Try each feasible platform for this task
+        found_valid_replica = False
+        for platform_info in task['feasible_platforms']:
+            # Validate platform_info has valid node_id and platform_id
+            node_id = platform_info.get('node_id')
+            platform_id = platform_info.get('platform_id')
+            
+            if node_id is None or platform_id is None:
+                print(f"  ❌ Task {task['task_id']} ({task['task_type']}): Invalid platform_info with None values: {platform_info}")
+                continue
+            
+            if not isinstance(node_id, int) or not isinstance(platform_id, int):
+                print(f"  ❌ Task {task['task_id']} ({task['task_type']}): Invalid platform_info with non-integer values: node_id={node_id} (type: {type(node_id)}), platform_id={platform_id} (type: {type(platform_id)})")
+                continue
+            
+            replica = (node_id, platform_id)
+            
+            # Skip if this replica is already used by another task
+            if replica in used:
+                continue
+            
+            # Add this replica to the current placement and used set
+            current_placement[task['task_id']] = replica
+            used.add(replica)
+            found_valid_replica = True
+            
+            # Recursively generate placements for remaining tasks
+            generate_recursive(task_index + 1, current_placement, used)
+            
+            # Backtrack: remove this replica before trying the next one
+            del current_placement[task['task_id']]
+            used.remove(replica)
+        
+        # If no valid replica was found for this task (all were used), backtrack
+        if not found_valid_replica:
+            # This is expected when exploring the search space - no need to log
+            return  # Backtrack - this path cannot lead to a valid placement
     
-    print(f"Generated {len(combinations)} sampled combinations")
+    # Start recursive generation
+    generate_recursive(0, {}, used_replicas)
+    
+    print(f"Valid combinations after uniqueness constraint: {len(combinations)}")
     return combinations
+
+
+def process_capture_system_state(args):
+    """Process system state capture in a separate process to avoid blocking."""
+    (
+        sample,
+        mapping,
+        infra_config,
+        sim_inputs,
+        workload_events,
+        replica_plan,
+        output_dir,
+        infrastructure_file,
+    ) = args
+
+    logger = setup_logging(output_dir)
+    logger.info("=== Starting system state capture in separate process ===")
+    
+    try:
+        # Call the actual capture function
+        active_replicas = capture_system_state_from_first_task(
+            sample,
+            mapping,
+            infra_config,
+            sim_inputs,
+            workload_events,
+            replica_plan,
+            output_dir,
+            infrastructure_file=infrastructure_file
+        )
+        
+        logger.info("=== System state capture completed in separate process ===")
+        return active_replicas
+        
+    except Exception as e:
+        logger.error(f"Error in system state capture process: {str(e)}")
+        logger.exception(e)
+        return None
 
 
 def process_sample_with_placement(args):
@@ -832,14 +1353,25 @@ def process_sample_with_placement(args):
         flattened_workloads,
         replica_plan,
         apps,
+        infrastructure_file,
     ) = args
 
     logger = setup_logging(output_dir)
     logger.info(f"Processing sample {i + 1} with placement plan {len(placement_plan)} tasks")
+    print(f"[executecosim] Sample {i + 1}: launching placement with {len(placement_plan)} tasks")
+    if infrastructure_file:
+        print(f"[executecosim] Sample {i + 1}: Infrastructure file: {infrastructure_file}")
+        if infrastructure_file.exists():
+            print(f"[executecosim] Sample {i + 1}: ✓ Infrastructure file exists")
+        else:
+            print(f"[executecosim] Sample {i + 1}: ⚠️  Infrastructure file missing!")
+    else:
+        print(f"[executecosim] Sample {i + 1}: ⚠️  No infrastructure file - using non-deterministic mode")
 
     try:
         # Prepare infrastructure configuration with the specific placement plan
         # Reuse the same node/network topology via base_nodes and keep the same replica plan
+        logger.info(f"Sample {i + 1}: Preparing simulation configuration...")
         sim_config = prepare_simulation_config(
             sample,
             mapping,
@@ -847,7 +1379,17 @@ def process_sample_with_placement(args):
             placement_plan,
             replica_plan=replica_plan,
             base_nodes=base_nodes,
+            infrastructure_file=infrastructure_file,
         )
+        logger.info(f"Sample {i + 1}: Simulation configuration prepared")
+        
+        # Verify deterministic infrastructure was loaded
+        if 'deterministic_replica_placements' in sim_config:
+            logger.info(f"Sample {i + 1}: Deterministic infrastructure loaded successfully")
+            print(f"[executecosim] Sample {i + 1}: ✓ Deterministic infrastructure loaded successfully")
+        else:
+            logger.warning(f"Sample {i + 1}: No deterministic infrastructure in config (using legacy mode)")
+            print(f"[executecosim] Sample {i + 1}: ⚠️  No deterministic infrastructure in config (using legacy mode)")
 
         # Combine infrastructure and workload configurations
         full_config = {
@@ -862,6 +1404,7 @@ def process_sample_with_placement(args):
         queue_length = QUEUE_LENGTH
         scheduling_strategy = 'determined_determined'
 
+        logger.info(f"Sample {i + 1}: Starting simulation execution...")
         result = execute_simulation(
             full_config,
             sim_inputs,
@@ -873,6 +1416,7 @@ def process_sample_with_placement(args):
             keep_alive=keep_alive,
             queue_length=queue_length,
         )
+        logger.info(f"Sample {i + 1}: Simulation execution completed")
         result['sample'] = {
             'apps': apps,
             'sample': sample.tolist(),
@@ -887,22 +1431,34 @@ def process_sample_with_placement(args):
             'placement_plan': placement_plan,
         }
 
-        # Save result with collision-resistant placement identifier
+        # Calculate RTT directly from stats (avoid file read later)
+        stats = result.get('stats', {})
+        task_results = stats.get('taskResults', [])
+        rtt = 0.0
+        counted = False
+        for tr in task_results:
+            task_id = tr.get('taskId')
+            if task_id is not None and task_id >= 0:
+                rtt += float(tr.get('elapsedTime', 0))
+                counted = True
+        rtt_value = float(rtt) if counted else float('inf')
+
+        # Prepare result file path (but don't write yet - will batch write)
         import hashlib, uuid
         placement_key = json.dumps(sorted(placement_plan.items()))
         placement_hash = hashlib.sha1(placement_key.encode('utf-8')).hexdigest()[:16]
         unique_suffix = uuid.uuid4().hex[:8]
         result_file = output_dir / f"simulation_{i + 1}_placement_{placement_hash}_{unique_suffix}.json"
-        with open(result_file, 'w') as f:
-            json.dump(result, f, indent=2, cls=DataclassJSONEncoder)
 
-        logger.info(f"Completed simulation {i + 1} with placement {placement_hash}_{unique_suffix}")
-        return result_file
+        logger.info(f"Sample {i + 1}: Completed simulation (RTT: {rtt_value:.3f}s)")
+        logger.info(f"=== Completed simulation for sample {i + 1} ===")
+        # Return both file path and RTT, plus result data for batching
+        return result_file, rtt_value, result
 
     except Exception as e:
-        logger.error(f"Error in simulation {i + 1}: {str(e)}")
+        logger.error(f"Sample {i + 1}: Error in simulation: {str(e)}")
         logger.exception(e)
-        return None
+        return None, float('inf'), None
 
 
 def execute_brute_force_placement_optimization(
@@ -914,10 +1470,11 @@ def execute_brute_force_placement_optimization(
         sim_input_path: Path,
         workload_base_file: str,
         max_workers: int,
-        max_combinations: Optional[int] = 100
+        infrastructure_file: Optional[Path] = None
 ) -> List[str]:
     """
     Execute brute force placement optimization by testing different placement combinations.
+    Generates all valid placement combinations where each task has a unique replica.
     
     Args:
         apps: List of application names
@@ -928,16 +1485,29 @@ def execute_brute_force_placement_optimization(
         sim_input_path: Path to simulation input files
         workload_base_file: Path to workload base file
         max_workers: Maximum number of parallel workers
-        max_combinations: Maximum number of placement combinations to test
     
     Returns:
         List of result file paths
     """
     print(f"\n=== Starting Brute Force Placement Optimization ===")
-    print(f"Max combinations per sample: {max_combinations if max_combinations is not None else 'ALL'}")
+    print(f"Generating ALL valid placement combinations (each task gets unique replica)")
     print(f"Number of samples: {len(samples)}")
     print(f"Max workers: {max_workers}")
+    if infrastructure_file:
+        print(f"Infrastructure file: {infrastructure_file}")
+        if infrastructure_file.exists():
+            print(f"✓ Infrastructure file exists - deterministic mode enabled")
+        else:
+            print(f"⚠️  WARNING: Infrastructure file does not exist - will use legacy mode")
+    else:
+        print(f"⚠️  No infrastructure file provided - using legacy (non-deterministic) mode")
 
+    logger = logging.getLogger('simulation')
+    logger.info("=== Starting Brute Force Placement Optimization ===")
+    logger.info(f"Generating ALL valid placement combinations (each task gets unique replica)")
+    logger.info(f"Number of samples: {len(samples)}")
+    logger.info(f"Max workers: {max_workers}")
+    
     time_started = time.time()
     result_paths = []
     # Track all RTTs across all placement combinations for plotting at the end
@@ -946,175 +1516,324 @@ def execute_brute_force_placement_optimization(
     
     # Process each sample with multiple placement combinations
     for sample_idx, sample in enumerate(samples):
+        logger.info(f"--- Processing Sample {sample_idx + 1}/{len(samples)} ---")
         print(f"\n--- Processing Sample {sample_idx + 1}/{len(samples)} ---")
         
         try:
             # Load required data for this sample
+            logger.info(f"Sample {sample_idx + 1}: Loading simulation inputs...")
             sim_inputs = load_simulation_inputs(sim_input_path)
+            logger.info(f"Sample {sample_idx + 1}: Simulation inputs loaded")
             
+            logger.info(f"Sample {sample_idx + 1}: Loading mapping file...")
             with open(mapping_file, 'rb') as f:
                 mapping = pickle.load(f)
+            logger.info(f"Sample {sample_idx + 1}: Mapping file loaded")
             
+            logger.info(f"Sample {sample_idx + 1}: Loading infrastructure config...")
             with open(config_file, 'r') as f:
                 infra_config = json.load(f)
+            logger.info(f"Sample {sample_idx + 1}: Infrastructure config loaded")
             
+            logger.info(f"Sample {sample_idx + 1}: Loading workload base...")
             with open(workload_base_file, 'r') as f:
                 workload_base = json.load(f)
+            logger.info(f"Sample {sample_idx + 1}: Workload base loaded")
             
             # Prepare workloads
+            logger.info(f"Sample {sample_idx + 1}: Preparing workloads...")
             workloads = prepare_workloads(sample, mapping, workload_base, apps)
             flattened_workloads = flatten_workloads(workloads)
+            logger.info(f"Sample {sample_idx + 1}: Prepared {len(flattened_workloads['events'])} workload events")
             
             # Prepare infrastructure configuration (without placement plan)
-            sim_config = prepare_simulation_config(sample, mapping, infra_config)
+            print(f"[executecosim] Sample {sample_idx + 1}: Preparing infrastructure configuration...")
+            if infrastructure_file:
+                print(f"[executecosim] Sample {sample_idx + 1}: Using infrastructure file: {infrastructure_file}")
+            else:
+                print(f"[executecosim] Sample {sample_idx + 1}: ⚠️  No infrastructure file - using legacy generation")
+            
+            sim_config = prepare_simulation_config(sample, mapping, infra_config, infrastructure_file=infrastructure_file)
+            
+            # Check if deterministic infrastructure was loaded
+            has_deterministic = 'deterministic_replica_placements' in sim_config
+            if has_deterministic:
+                print(f"[executecosim] Sample {sample_idx + 1}: ✓ Using deterministic infrastructure")
+            else:
+                print(f"[executecosim] Sample {sample_idx + 1}: ⚠️  Using non-deterministic infrastructure")
             
             # Generate replica plan
+            logger.info(f"Sample {sample_idx + 1}: Generating replica plan...")
             replica_plan = determine_replica_placement(sim_config, sim_inputs)
+            logger.info(f"Sample {sample_idx + 1}: Replica plan generated")
             
-            # Generate placement combinations
+            # Phase 1: Capture system state from first task
+            # Run in ProcessPoolExecutor to avoid blocking (like process_sample_with_placement)
+            logger.info(f"Sample {sample_idx + 1}: Phase 1 - Capturing system state from first task...")
+            print(f"\n[executecosim] Sample {sample_idx + 1}: Phase 1 - Capturing system state from first task...")
+            
+            capture_tuple = (
+                sample,
+                mapping,
+                infra_config,
+                sim_inputs,
+                flattened_workloads['events'],
+                replica_plan,
+                output_dir,
+                infrastructure_file,
+            )
+            
+            logger.info(f"Sample {sample_idx + 1}: Submitting system state capture to ProcessPoolExecutor...")
+            with concurrent.futures.ProcessPoolExecutor(max_workers=1) as capture_executor:
+                future = capture_executor.submit(process_capture_system_state, capture_tuple)
+                logger.info(f"Sample {sample_idx + 1}: Waiting for system state capture to complete...")
+                try:
+                    active_replicas = future.result(timeout=3600)  # 1 hour timeout
+                    logger.info(f"Sample {sample_idx + 1}: System state capture completed")
+                except concurrent.futures.TimeoutError:
+                    logger.error(f"Sample {sample_idx + 1}: System state capture timed out after 1 hour")
+                    active_replicas = None
+                except Exception as e:
+                    logger.error(f"Sample {sample_idx + 1}: System state capture failed with exception: {e}")
+                    active_replicas = None
+            
+            if active_replicas is None:
+                error_msg = (
+                    f"❌ CRITICAL: System state capture FAILED for sample {sample_idx + 1}. "
+                    f"Cannot proceed - state capture is REQUIRED for co-simulation mode. "
+                    f"Legacy replica configs are not accurate and will cause invalid placements. "
+                    f"Skipping this sample entirely."
+                )
+                logger.error(error_msg)
+                print(error_msg)
+                continue  # Skip this sample entirely - don't run simulation
+            else:
+                logger.info(f"Sample {sample_idx + 1}: System state captured successfully")
+                print(f"✓ Sample {sample_idx + 1}: System state captured successfully")
+            
+            # Phase 2: Generate placement combinations using captured state
+            logger.info(f"Sample {sample_idx + 1}: Phase 2 - Generating placement combinations...")
+            print(f"\n[executecosim] Sample {sample_idx + 1}: Phase 2 - Generating placement combinations...")
             placement_combinations = generate_brute_force_placement_combinations(
                 flattened_workloads['events'],
                 sim_config,
                 sim_inputs,
                 replica_plan,
-                max_combinations
+                active_replicas=active_replicas
             )
             
+            logger.info(f"Sample {sample_idx + 1}: Generated {len(placement_combinations)} placement combinations")
             print(f"Generated {len(placement_combinations)} placement combinations for sample {sample_idx + 1}")
             
             if not placement_combinations:
+                logger.warning(f"Sample {sample_idx + 1}: No valid placement combinations found, skipping sample")
                 print(f"⚠️  WARNING: No valid placement combinations found for sample {sample_idx + 1}")
                 print(f"   This sample will be skipped")
                 continue
             
             # Execute simulations in parallel for this sample with early stopping
             # Early-stopping config from infra JSON (optional)
+            logger.info(f"Sample {sample_idx + 1}: Phase 3 - Executing {len(placement_combinations)} simulations...")
+            print(f"\n[executecosim] Sample {sample_idx + 1}: Phase 3 - Executing {len(placement_combinations)} simulations...")
+            
+            # Early stopping configuration (optional)
             bf_cfg = infra_config.get('brute_force', {}) if isinstance(infra_config, dict) else {}
             early_stop_patience = int(bf_cfg.get('early_stop_patience', 0))  # 0 disables
             early_stop_min_delta = float(bf_cfg.get('early_stop_min_delta', 0.0))
-            save_only_optimal = bool(bf_cfg.get('save_only_optimal', True))  # Default: save only optimal
+            logger.info(f"Sample {sample_idx + 1}: Early stop patience: {early_stop_patience}, min delta: {early_stop_min_delta}")
 
             base_nodes = sim_config['nodes']
 
-            def _total_rtt(path: str) -> float:
-                try:
-                    with open(path, 'r') as f:
-                        data = json.load(f)
-                    stats = data.get('stats', {})
-                    task_results = stats.get('taskResults', [])
-                    if not task_results:
-                        return float('inf')
-                    total = 0.0
-                    counted = False
-                    for tr in task_results:
-                        task_id = tr.get('taskId')
-                        if task_id is None or task_id < 0:
-                            continue
-                        total += float(tr.get('elapsedTime', 0))
-                        counted = True
-                    return float(total) if counted else float('inf')
-                except Exception:
-                    return float('inf')
-
-            def _placement_plan_and_rtt(path: str):
-                try:
-                    with open(path, 'r') as f:
-                        data = json.load(f)
-                    rtt = _total_rtt(path)
-                    placement = data.get('sample', {}).get('placement_plan', {})
-                    return placement, rtt
-                except Exception:
-                    return None, float('inf')
-
-            # Iterate placement combinations in batches to allow early stopping
+            # Continuous parallel processing - submit new tasks as workers become available
             placements_iter = iter(placement_combinations)
             best_file: Optional[str] = None
             best_rtt: float = float('inf')
+            best_result_data: Optional[Dict[str, Any]] = None  # Keep best result in memory
             no_improve_count = 0
             sample_rtts = []
+            
+            # Keep all placement summaries in memory (write to single file at end)
+            placement_summaries: List[Dict[str, Any]] = []
 
+            logger.info(f"Sample {sample_idx + 1}: Starting ProcessPoolExecutor with {max_workers} workers (continuous parallel processing)...")
             with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
-                while True:
-                    batch = list(islice(placements_iter, max_workers))
-                    if not batch:
+                futures = {}
+                next_placement_idx = 0
+                total_submitted = 0
+                total_completed = 0
+                
+                # Submit initial batch to fill worker pool
+                for _ in range(min(max_workers, len(placement_combinations))):
+                    if next_placement_idx >= len(placement_combinations):
                         break
-
-                    futures = []
-                    for placement_plan in batch:
-                        placement_tuple = (
-                            sample_idx,
-                            sample,
-                            placement_plan,
-                            base_nodes,
-                            output_dir,
-                            sim_inputs,
-                            mapping,
-                            infra_config,
-                            flattened_workloads,
-                            replica_plan,
-                            apps,
-                        )
-                        futures.append(executor.submit(process_sample_with_placement, placement_tuple))
-
-                    # Collect this batch
-                    batch_improved = False
-                    for future in concurrent.futures.as_completed(futures):
+                    placement_plan = placement_combinations[next_placement_idx]
+                    placement_tuple = (
+                        sample_idx,
+                        sample,
+                        placement_plan,
+                        base_nodes,
+                        output_dir,
+                        sim_inputs,
+                        mapping,
+                        infra_config,
+                        flattened_workloads,
+                        replica_plan,
+                        apps,
+                        infrastructure_file,
+                    )
+                    future = executor.submit(process_sample_with_placement, placement_tuple)
+                    futures[future] = next_placement_idx
+                    next_placement_idx += 1
+                    total_submitted += 1
+                
+                logger.info(f"Sample {sample_idx + 1}: Submitted initial {len(futures)} simulations, processing continuously...")
+                
+                # Process results as they complete and submit new tasks immediately
+                # Keep processing until all tasks are completed
+                while futures:
+                    # Wait for at least one future to complete
+                    done, not_done = concurrent.futures.wait(futures, return_when=concurrent.futures.FIRST_COMPLETED)
+                    
+                    for future in done:
+                        total_completed += 1
+                        placement_idx = futures.pop(future)
+                        
                         try:
-                            result_file = future.result()
-                        except Exception as e:
-                            # Skip crashed/failed workers and continue with remaining
-                            print(f"Worker failed during placement run: {e}")
-                            continue
-                        if result_file is None:
-                            continue
-                        current_path = str(result_file)
-                        cur_rtt_value = _total_rtt(current_path)
-                        sample_rtts.append(cur_rtt_value)
+                            result_file, cur_rtt_value, result_data = future.result()
+                            if result_file is None or result_data is None:
+                                # Still submit next task even if this one failed
+                                if next_placement_idx < len(placement_combinations):
+                                    placement_plan = placement_combinations[next_placement_idx]
+                                    placement_tuple = (
+                                        sample_idx,
+                                        sample,
+                                        placement_plan,
+                                        base_nodes,
+                                        output_dir,
+                                        sim_inputs,
+                                        mapping,
+                                        infra_config,
+                                        flattened_workloads,
+                                        replica_plan,
+                                        apps,
+                                        infrastructure_file,
+                                    )
+                                    new_future = executor.submit(process_sample_with_placement, placement_tuple)
+                                    futures[new_future] = next_placement_idx
+                                    next_placement_idx += 1
+                                    total_submitted += 1
+                                continue
+                            
+                            current_path = str(result_file)
+                            sample_rtts.append(cur_rtt_value)
+                            logger.debug(f"Sample {sample_idx + 1}: Placement {placement_idx + 1} completed: RTT={cur_rtt_value:.3f}s ({total_completed}/{len(placement_combinations)})")
 
-                        if cur_rtt_value + early_stop_min_delta < best_rtt:
-                            # New best: remove previous best file if save_only_optimal enabled
-                            if save_only_optimal and best_file is not None and os.path.exists(best_file):
-                                try:
-                                    os.remove(best_file)
-                                except Exception:
-                                    pass
-                            best_file = current_path
-                            best_rtt = cur_rtt_value
-                            batch_improved = True
-                        else:
-                            # Not better => persist lightweight summary (placement + RTT), then delete heavy file if enabled
-                            placement, rtt_val = _placement_plan_and_rtt(current_path)
+                            # Track best result (keep in memory, don't write yet)
+                            if cur_rtt_value + early_stop_min_delta < best_rtt:
+                                best_rtt = cur_rtt_value
+                                best_result_data = result_data
+                                best_file = current_path  # Keep path for reference
+                                no_improve_count = 0
+                            else:
+                                no_improve_count += 1
+                            
+                            # Keep placement summary in memory (write all at end)
                             try:
-                                import hashlib, uuid
-                                placement_key = json.dumps(sorted((placement or {}).items()))
-                                placement_hash = hashlib.sha1(placement_key.encode('utf-8')).hexdigest()[:16]
-                                unique_suffix = uuid.uuid4().hex[:8]
-                                summary_name = f"placement_summary_{placement_hash}_{unique_suffix}.json"
-                                summary_path = os.path.join(output_dir, summary_name)
-                                with open(summary_path, 'w') as sf:
-                                    json.dump({
-                                        "placement_plan": placement or {},
-                                        "rtt": rtt_val
-                                    }, sf, indent=2)
-                            except Exception:
-                                pass
-                            if save_only_optimal:
-                                try:
-                                    os.remove(current_path)
-                                except Exception:
-                                    pass
-
-                    if early_stop_patience > 0:
-                        if batch_improved:
-                            no_improve_count = 0
-                        else:
-                            no_improve_count += 1
-                            if no_improve_count >= early_stop_patience:
-                                print(f"Early stopping triggered after {no_improve_count} non-improving batches. Best RTT so far: {best_rtt:.3f}s")
-                                break
+                                placement = result_data.get('sample', {}).get('placement_plan', {})
+                                placement_summaries.append({
+                                    "placement_plan": placement,
+                                    "rtt": cur_rtt_value
+                                })
+                            except Exception as e:
+                                logger.debug(f"Sample {sample_idx + 1}: Failed to create placement summary: {e}")
+                            
+                            # Don't write any files during processing - keep everything in memory
+                            
+                            # Submit next task immediately if available
+                            if next_placement_idx < len(placement_combinations):
+                                placement_plan = placement_combinations[next_placement_idx]
+                                placement_tuple = (
+                                    sample_idx,
+                                    sample,
+                                    placement_plan,
+                                    base_nodes,
+                                    output_dir,
+                                    sim_inputs,
+                                    mapping,
+                                    infra_config,
+                                    flattened_workloads,
+                                    replica_plan,
+                                    apps,
+                                    infrastructure_file,
+                                )
+                                new_future = executor.submit(process_sample_with_placement, placement_tuple)
+                                futures[new_future] = next_placement_idx
+                                next_placement_idx += 1
+                                total_submitted += 1
+                                
+                        except Exception as e:
+                            logger.error(f"Sample {sample_idx + 1}: Worker failed for placement {placement_idx + 1}: {e}")
+                            print(f"Worker failed during placement run: {e}")
+                            # Still try to submit next task
+                            if next_placement_idx < len(placement_combinations):
+                                placement_plan = placement_combinations[next_placement_idx]
+                                placement_tuple = (
+                                    sample_idx,
+                                    sample,
+                                    placement_plan,
+                                    base_nodes,
+                                    output_dir,
+                                    sim_inputs,
+                                    mapping,
+                                    infra_config,
+                                    flattened_workloads,
+                                    replica_plan,
+                                    apps,
+                                    infrastructure_file,
+                                )
+                                new_future = executor.submit(process_sample_with_placement, placement_tuple)
+                                futures[new_future] = next_placement_idx
+                                next_placement_idx += 1
+                                total_submitted += 1
+                
+                logger.info(f"Sample {sample_idx + 1}: Completed {total_completed}/{len(placement_combinations)} simulations")
+                
+                # Write all placement summaries to a single JSONL file (one JSON object per line - fast I/O)
+                if placement_summaries:
+                    logger.info(f"Sample {sample_idx + 1}: Writing {len(placement_summaries)} placement summaries to single file...")
+                    try:
+                        placements_file = output_dir / "placements.jsonl"
+                        with open(placements_file, 'w') as f:
+                            for summary in placement_summaries:
+                                # Write as compact JSON (one line per placement)
+                                f.write(json.dumps(summary, separators=(',', ':')) + '\n')
+                        logger.info(f"Sample {sample_idx + 1}: Saved {len(placement_summaries)} placement summaries to {placements_file}")
+                    except Exception as e:
+                        logger.error(f"Sample {sample_idx + 1}: Failed to write placement summaries: {e}")
+                
+                # Write only the best result file at the end
+                if best_result_data is not None:
+                    logger.info(f"Sample {sample_idx + 1}: Writing optimal result file (RTT: {best_rtt:.3f}s)...")
+                    try:
+                        # Use the original file path from best_result_data
+                        optimal_file_path = output_dir / f"simulation_{sample_idx + 1}_optimal.json"
+                        with open(optimal_file_path, 'w') as f:
+                            json.dump(best_result_data, f, indent=2, cls=DataclassJSONEncoder)
+                        best_file = str(optimal_file_path)
+                        logger.info(f"Sample {sample_idx + 1}: Saved optimal result to {optimal_file_path}")
+                    except Exception as e:
+                        logger.error(f"Sample {sample_idx + 1}: Failed to write optimal result file: {e}")
+                else:
+                    logger.warning(f"Sample {sample_idx + 1}: No best result data to write")
+                
+                # Early stopping check (after all completed)
+                if early_stop_patience > 0 and no_improve_count >= early_stop_patience:
+                    logger.info(f"Sample {sample_idx + 1}: Early stopping condition met (no improvement for {no_improve_count} simulations). Best RTT: {best_rtt:.3f}s")
+                    print(f"Early stopping condition met. Best RTT so far: {best_rtt:.3f}s")
 
             # Record the surviving best file for this sample
-            if best_file is not None:
+            if best_file is not None and best_result_data is not None:
+                logger.info(f"Sample {sample_idx + 1}: Best result file: {best_file} (RTT: {best_rtt:.3f}s)")
                 result_paths.append(best_file)
                 
                 # Write best result info to sidecar file for bash script
@@ -1125,74 +1844,34 @@ def execute_brute_force_placement_optimization(
                 best_json_path = output_dir / "best.json"
                 with open(best_json_path, 'w') as f:
                     json.dump(best_info, f)
+                logger.info(f"Sample {sample_idx + 1}: Saved best.json pointing to {os.path.basename(best_file)}")
+            else:
+                logger.warning(f"Sample {sample_idx + 1}: No best file found")
             
             # Persist per-sample RTTs for final plotting
             if sample_rtts:
                 per_sample_rtts.append(sample_rtts)
                 all_rtts.extend(sample_rtts)
+                logger.info(f"Sample {sample_idx + 1}: Collected {len(sample_rtts)} RTT values")
 
-            if save_only_optimal:
-                print(f"Completed {len(placement_combinations)} simulations for sample {sample_idx + 1} (kept 1 best file)")
-            else:
-                print(f"Completed {len(placement_combinations)} simulations for sample {sample_idx + 1} (kept all {len(placement_combinations)} files)")
+            # Only write optimal result file - all placements saved in summaries
+            logger.info(f"Sample {sample_idx + 1}: Completed all {len(placement_combinations)} simulations (saved {len(placement_combinations)} placement summaries + 1 optimal result)")
+            print(f"Completed {len(placement_combinations)} simulations for sample {sample_idx + 1} (saved {len(placement_combinations)} placement summaries + 1 optimal result)")
             
         except Exception as e:
+            logger.error(f"Error processing sample {sample_idx + 1}: {str(e)}")
+            logger.exception(e)
             print(f"Error processing sample {sample_idx + 1}: {str(e)}")
             continue
     
-    print(f"Elapsed time: {time.time() - time_started:.2f} seconds")
+    elapsed_time = time.time() - time_started
+    logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
+    print(f"Elapsed time: {elapsed_time:.2f} seconds")
 
+    logger.info("=== Brute Force Placement Optimization Complete ===")
+    logger.info(f"Total result files generated: {len(result_paths)}")
     print(f"\n=== Brute Force Placement Optimization Complete ===")
     print(f"Total result files generated: {len(result_paths)}")
-    
-    """
-    # Plot RTT distributions to a PDF
-    if all_rtts:
-        try:
-            import matplotlib  # type: ignore[import-not-found]
-            matplotlib.use('Agg')
-            import matplotlib.pyplot as plt  # type: ignore[import-not-found]
-            from matplotlib.backends.backend_pdf import PdfPages  # type: ignore[import-not-found]
-
-            pdf_path = output_dir / "rtt_summary.pdf"
-            with PdfPages(pdf_path) as pdf:
-                # Page 1: Overall histogram
-                plt.figure(figsize=(10, 6))
-                finite_rtts = [r for r in all_rtts if math.isfinite(r)]
-                if finite_rtts:
-                    plt.hist(finite_rtts, bins=min(50, max(10, len(finite_rtts)//5)), color='#4C78A8', edgecolor='white')
-                    plt.title('RTT Histogram (All Placement Runs)')
-                    plt.xlabel('Total RTT (s)')
-                    plt.ylabel('Count')
-                    plt.grid(True, alpha=0.3)
-                else:
-                    plt.text(0.5, 0.5, 'No finite RTT values to plot', ha='center', va='center')
-                    plt.axis('off')
-                pdf.savefig(bbox_inches='tight')
-                plt.close()
-
-                # Page 2: Per-sample boxplot
-                if per_sample_rtts:
-                    plt.figure(figsize=(12, 6))
-                    data = [
-                        [r for r in sample if math.isfinite(r)] or [float('nan')]
-                        for sample in per_sample_rtts
-                    ]
-                    plt.boxplot(data, showfliers=False)
-                    plt.title('Per-Sample RTT Distribution (Boxplot)')
-                    plt.xlabel('Sample Index')
-                    plt.ylabel('Total RTT (s)')
-                    plt.grid(True, axis='y', alpha=0.3)
-                    pdf.savefig(bbox_inches='tight')
-                    plt.close()
-            print(f"Saved RTT summary PDF to {pdf_path}")
-        except Exception as e:
-            print(f"Matplotlib not available or plotting failed, skipping PDF: {str(e)}")
-            
-    else:
-        print("No RTTs collected; skipping PDF generation")
-    """
-
     # Analyze results to find the fastest simulation
     print(f"\n=== Analyzing Results for Fastest Simulation ===")
     fastest_simulation = None
@@ -1291,24 +1970,40 @@ def main():
         # Process each sample
         # Choose between regular execution and brute force placement optimization
         use_brute_force = len(sys.argv) > 1 and sys.argv[1] == '--brute-force'
-        max_combinations: Optional[int] = 50  # Default cap; None means all
-
-        # Parse command line arguments (only max_combinations)
-        if use_brute_force:
-            if len(sys.argv) == 2:
-                # No number provided → generate ALL combinations (no cap)
-                max_combinations = None
-            elif len(sys.argv) > 2:
-                try:
-                    max_combinations = int(sys.argv[2])
-                except ValueError:
-                    print(f"Warning: Invalid max_combinations value '{sys.argv[2]}', using default {max_combinations}")
         
+        # Parse infrastructure file argument if provided
+        infrastructure_file = None
+        if '--infrastructure' in sys.argv:
+            idx = sys.argv.index('--infrastructure')
+            if idx + 1 < len(sys.argv):
+                infrastructure_file = Path(sys.argv[idx + 1])
+                logger.info(f"Using infrastructure file: {infrastructure_file}")
+                print(f"[executecosim] Infrastructure file argument provided: {infrastructure_file}")
+                if infrastructure_file.exists():
+                    print(f"[executecosim] ✓ Infrastructure file exists and will be used")
+                else:
+                    print(f"[executecosim] ⚠️  WARNING: Infrastructure file does not exist: {infrastructure_file}")
+            else:
+                print(f"[executecosim] ⚠️  WARNING: --infrastructure flag provided but no file path given")
+        else:
+            print(f"[executecosim] No --infrastructure argument provided - will use legacy (non-deterministic) generation")
+
         if use_brute_force:
-            logger.info(f"Using brute force placement optimization with max {max_combinations if max_combinations is not None else 'ALL'} combinations per sample")
+            # In co-simulation / brute-force mode we require a deterministic
+            # infrastructure file. Falling back to legacy, on-the-fly topology
+            # generation would reintroduce non-determinism into the training pipeline.
+            if infrastructure_file is None or not infrastructure_file.exists():
+                raise RuntimeError(
+                    "[executecosim] Brute-force co-simulation requires a valid "
+                    "--infrastructure JSON file with deterministic network, replicas "
+                    "and queues. No usable file was provided."
+                )
+
+            logger.info(f"Using brute force placement optimization (generating ALL valid combinations)")
             reactive_results_paths = execute_brute_force_placement_optimization(
                 apps, str(config_file), str(mapping_file), output_dir, samples,
-                sim_input_path, workload_base_file, max_workers, max_combinations
+                sim_input_path, workload_base_file, max_workers,
+                infrastructure_file=infrastructure_file
             )
 
         # print(reactive_results_paths)

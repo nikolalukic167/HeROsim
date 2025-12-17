@@ -29,20 +29,46 @@ from src.placement.orchestrator import Orchestrator
 
 class DeterminedOrchestrator(Orchestrator):
     def __init__(self, *args, **kwargs):
+        logger = logging.getLogger('simulation')
+        logger.info("DeterminedOrchestrator: Starting initialization")
         # Extract infrastructure config if provided
         self.infrastructure = kwargs.pop('infrastructure', None) if 'infrastructure' in kwargs else None
+        logger.info("DeterminedOrchestrator: Calling super().__init__")
         super().__init__(*args, **kwargs)
+        logger.info("DeterminedOrchestrator: super().__init__ completed")
         
         # Pass forced placements to scheduler if available
         if self.infrastructure and 'forced_placements' in self.infrastructure:
+            logger.info(f"DeterminedOrchestrator: Passing {len(self.infrastructure['forced_placements'])} forced placements to scheduler")
             self.scheduler.forced_placements = self.infrastructure['forced_placements']
+            # CRITICAL: Log forced placements for debugging dnn2 issue
+            if self.infrastructure.get('forced_placements'):
+                print(f"[ORCHESTRATOR] Setting forced_placements: {self.infrastructure['forced_placements']}")
+                logger = logging.getLogger('simulation')
+                logger.info(f"[ORCHESTRATOR] Forced placements: {self.infrastructure['forced_placements']}")
             # print(f"[ {self.env.now} ] DeterminedOrchestrator: Passed {len(self.infrastructure['forced_placements'])} forced placements to scheduler")
         else:
+            logger.error("DeterminedOrchestrator: No forced placements found in infrastructure")
             print(f"[ {self.env.now} ] DeterminedOrchestrator: No forced placements found in infrastructure")
             sys.exit(1)
+        
+        # Pass scheduler config (batch_size, batch_timeout) if available
+        if self.infrastructure and 'scheduler' in self.infrastructure:
+            scheduler_config = self.infrastructure['scheduler']
+            if 'batch_size' in scheduler_config:
+                self.scheduler.batch_size = scheduler_config['batch_size']
+                logger.info(f"DeterminedOrchestrator: Set scheduler batch_size={self.scheduler.batch_size}")
+            if 'batch_timeout' in scheduler_config:
+                self.scheduler.batch_timeout = scheduler_config['batch_timeout']
+                logger.info(f"DeterminedOrchestrator: Set scheduler batch_timeout={self.scheduler.batch_timeout}")
+        
+        logger.info("DeterminedOrchestrator: Initialization completed")
     
     def initialize_state(self) -> DeterminedSystemState:
+        logger = logging.getLogger('simulation')
+        logger.info("DeterminedOrchestrator: initialize_state called")
         # Initialize scheduler state
+        logger.info("DeterminedOrchestrator: Creating DeterminedSchedulerState")
         scheduler_state = DeterminedSchedulerState(
             average_contention={task_type: {} for task_type in self.data.task_types},
             panic_contention={task_type: {} for task_type in self.data.task_types},
@@ -67,7 +93,9 @@ class DeterminedOrchestrator(Orchestrator):
         
         # Todo: remove this after testing
         # Seed initial replicas if provided
+        logger.info(f"DeterminedOrchestrator: Checking initial_replicas (count: {len(self.initial_replicas) if self.initial_replicas else 0})")
         if self.initial_replicas:
+            logger.info(f"DeterminedOrchestrator: Using {len(self.initial_replicas)} pre-seeded replica sets")
             print(f"\n=== Using {len(self.initial_replicas)} pre-seeded replica sets ===")
             for task_type, replica_set in self.initial_replicas.items():
                 if task_type in replicas:
@@ -89,6 +117,7 @@ class DeterminedOrchestrator(Orchestrator):
                             # print(f"    Initialized contention tracking for {node.node_name}:{platform.id}")
             print("=== Initial replicas integrated ===\n")
         
+        logger.info("DeterminedOrchestrator: Creating DeterminedSystemState")
         system_state = DeterminedSystemState(
             scheduler_state=scheduler_state,
             available_resources=available_resources,
@@ -96,16 +125,19 @@ class DeterminedOrchestrator(Orchestrator):
             tasks=self.task_archive,
             time_series=self.time_series
         )
-
+        logger.info("DeterminedOrchestrator: initialize_state completed")
         return system_state
 
     def monitor_process(self):
         # TODO: State initialization and update methods should be made abstract
         # and moved to policy package
+        logger = logging.getLogger('simulation')
+        logger.info(f"DeterminedOrchestrator: monitor_process started at time {self.env.now}")
         logging.info(f"[ {self.env.now} ] Orchestrator Monitor started")
 
         # Initialize time-window average
         latest_window_start = self.env.now
+        logger.info("DeterminedOrchestrator: monitor_process entering main loop")
 
         while True:
             # Step

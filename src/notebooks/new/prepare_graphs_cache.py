@@ -4,6 +4,7 @@ Pre-generate and cache graphs for GNN training.
 This script builds all graphs and saves them to pickle files for faster training iterations.
 """
 
+import argparse
 import os
 import json
 import pickle
@@ -31,8 +32,8 @@ torch.manual_seed(42)
 # ============================================================================
 # Configuration
 # ============================================================================
-BASE_DIR = Path("/root/projects/my-herosim/simulation_data/artifacts/run9_all/gnn_datasets")
-CACHE_DIR = BASE_DIR.parent / "graphs_cache"
+BASE_DIR = Path("/root/projects/my-herosim/simulation_data/artifacts/run1100_copy/gnn_datasets")
+CACHE_DIR = BASE_DIR.parent / "graphs_cache_old"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Cache file paths
@@ -207,7 +208,7 @@ def load_all_datasets(base_dir: Path) -> Dict[str, Dict[str, pd.DataFrame]]:
 # RTT HASH TABLE BUILDING
 # ============================================================================
 
-def build_placement_rtt_hash_table(base_dir: Path, n_jobs: int = -1) -> Dict[Tuple[str, Tuple[Tuple[int, int], ...]], float]:
+def build_placement_rtt_hash_table(base_dir: Path, n_jobs: int = -1, use_jsonl: bool = False) -> Dict[Tuple[str, Tuple[Tuple[int, int], ...]], float]:
     """Parallel build of placement RTT hash table."""
     
     def _parse_csv_file(csv_path: Path) -> Optional[Tuple[str, Tuple[Tuple[int, int], ...], float]]:
@@ -242,29 +243,68 @@ def build_placement_rtt_hash_table(base_dir: Path, n_jobs: int = -1) -> Dict[Tup
         except Exception:
             return None
     
-    all_csv_files = list(base_dir.glob("ds_*/placements_csv/placement_summary_*.csv"))
+    def _parse_jsonl_file(jsonl_path: Path) -> List[Tuple[str, Tuple[Tuple[int, int], ...], float]]:
+        """Parse JSONL where each line is: {"placement_plan": {"task_id": [node, platform], ...}, "rtt": float}"""
+        results = []
+        try:
+            dataset_id = jsonl_path.parent.parent.name
+            with open(jsonl_path, 'r') as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    row = json.loads(line)
+                    placement_plan = row.get("placement_plan", {})
+                    rtt_val = row.get("rtt")
+                    if not placement_plan or rtt_val is None:
+                        continue
+                    # Sort by task_id and extract (node, platform) tuples
+                    sorted_tasks = sorted(placement_plan.items(), key=lambda x: int(x[0]))
+                    combo: Tuple[Tuple[int, int], ...] = tuple(
+                        (int(v[0]), int(v[1])) for k, v in sorted_tasks
+                    )
+                    if combo:
+                        results.append((dataset_id, combo, float(rtt_val)))
+        except Exception:
+            pass
+        return results
     
-    print(f"Building placement RTT hash table from {len(all_csv_files)} CSV files using n_jobs={n_jobs}...")
+    if use_jsonl:
+        all_files = list(base_dir.glob("ds_*/placements/placements.jsonl"))
+        file_type = "JSONL"
+    else:
+        all_files = list(base_dir.glob("ds_*/placements_csv/placement_summary_*.csv"))
+        file_type = "CSV"
+    
+    print(f"Building placement RTT hash table from {len(all_files)} {file_type} files using n_jobs={n_jobs}...")
     start_time = time.perf_counter()
     
-    parsed: List[Optional[Tuple[str, Tuple[Tuple[int, int], ...], float]]] = Parallel(n_jobs=n_jobs, prefer="processes")(
-        delayed(_parse_csv_file)(Path(p)) for p in all_csv_files
-    )
+    if use_jsonl:
+        parsed_lists = Parallel(n_jobs=n_jobs, prefer="processes")(
+            delayed(_parse_jsonl_file)(Path(p)) for p in all_files
+        )
+    else:
+        parsed_lists = Parallel(n_jobs=n_jobs, prefer="processes")(
+            delayed(_parse_csv_file)(Path(p)) for p in all_files
+        )
     
     merge_start = time.perf_counter()
     placement_rtt_map: Dict[Tuple[str, Tuple[Tuple[int, int], ...]], float] = {}
     num_valid = 0
     num_duplicates = 0
-    for item in tqdm(parsed, desc="Merging results", unit="entry", leave=False):
+    
+    for item in tqdm(parsed_lists, desc="Merging results", unit="entry", leave=False):
         if not item:
             continue
-        dataset_id, combo, rtt_val = item
-        key = (dataset_id, combo)
-        if key not in placement_rtt_map:
-            placement_rtt_map[key] = rtt_val
-        else:
-            num_duplicates += 1
-        num_valid += 1
+        # JSONL returns list of tuples, CSV returns single tuple
+        items = item if use_jsonl else [item]
+        for entry in items:
+            dataset_id, combo, rtt_val = entry
+            key = (dataset_id, combo)
+            if key not in placement_rtt_map:
+                placement_rtt_map[key] = rtt_val
+            else:
+                num_duplicates += 1
+            num_valid += 1
     
     elapsed = time.perf_counter() - start_time
     merge_time = time.perf_counter() - merge_start
@@ -281,7 +321,7 @@ def build_placement_rtt_hash_table(base_dir: Path, n_jobs: int = -1) -> Dict[Tup
 # ============================================================================
 
 TASK_PLATFORM_COMPATIBILITY = {
-    'dnn1': ['rpiCpu', 'xavierGpu', 'xavierCpu'],
+    'dnn1': ['rpiCpu', 'xavierGpu', 'xavierCpu', 'pynqFpga'],
     'dnn2': ['rpiCpu', 'xavierGpu', 'xavierCpu']
 }
 
@@ -483,6 +523,10 @@ def build_graph(df_nodes, df_tasks, df_platforms) -> Data:
 # ============================================================================
 
 def main():
+    parser = argparse.ArgumentParser(description="Pre-generate and cache graphs for GNN training.")
+    parser.add_argument("--jsonl", action="store_true", help="Parse placements from JSONL files instead of CSV")
+    args = parser.parse_args()
+    
     script_start_time = time.perf_counter()
     
     print("="*80)
@@ -522,7 +566,7 @@ def main():
     # Build RTT hash table
     print("\nStep 3: Building placement RTT hash table...")
     step3_start = time.perf_counter()
-    placement_rtt_hash_table = build_placement_rtt_hash_table(BASE_DIR, n_jobs=12)
+    placement_rtt_hash_table = build_placement_rtt_hash_table(BASE_DIR, n_jobs=12, use_jsonl=args.jsonl)
     step3_time = time.perf_counter() - step3_start
     
     # Build graphs

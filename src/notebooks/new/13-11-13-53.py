@@ -40,7 +40,7 @@ torch.backends.cudnn.benchmark = False
 # %%
 # Configuration
 # BASE_DIR = Path("/root/projects/my-herosim/simulation_data/artifacts/run10_all/gnn_datasets")
-CACHE_DIR = Path("/root/projects/my-herosim/simulation_data/artifacts/run10_all/graphs_cache")
+CACHE_DIR = Path("/root/projects/my-herosim/simulation_data/artifacts/run1650/graphs_cache_old")
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Cache file paths
@@ -548,7 +548,11 @@ def decode_predicted_placement(logits_per_task, data):
 def evaluate(model, loader, device, is_last_epoch=False):
     model.eval()
     total_loss_ce = 0.0
-    correct, total = 0, 0
+    total_valid_tasks_for_loss = 0  # Total valid tasks for loss calculation
+    correct_graphs = 0  # Count graphs where ALL tasks are correct
+    total_graphs = 0    # Total number of graphs evaluated
+    total_tasks_correct = 0  # For debugging: total tasks correct across all graphs
+    total_tasks = 0     # For debugging: total tasks across all graphs
     n_graphs = 0
     dataset_ids_processed = set()
     sum_regret = 0.0
@@ -588,10 +592,14 @@ def evaluate(model, loader, device, is_last_epoch=False):
             loss_ce, valid_ce = loss_original_ce(logits_per_task, data, device)
             if valid_ce > 0:
                 total_loss_ce += loss_ce.item() * valid_ce
-                total += valid_ce
+                total_valid_tasks_for_loss += valid_ce
                 n_graphs += 1
+                total_graphs += 1
 
-                # Compute accuracy
+                # Compute accuracy: graph is correct only if ALL tasks are correct
+                graph_all_correct = True
+                graph_valid_tasks = 0
+                
                 for task_idx, task_logits in enumerate(logits_per_task):
                     if task_logits.numel() == 0:
                         continue
@@ -605,7 +613,19 @@ def evaluate(model, loader, device, is_last_epoch=False):
                         continue
 
                     pred = logits.argmax(dim=1).item()       # int
-                    correct += int(pred == target.item())
+                    is_correct = int(pred == target.item())
+                    total_tasks_correct += is_correct
+                    total_tasks += 1
+                    graph_valid_tasks += 1
+                    
+                    # If any task is wrong, the graph is not fully correct
+                    if not is_correct:
+                        graph_all_correct = False
+                
+                # Only count graph as correct if ALL valid tasks are correct AND exactly 5 tasks
+                # (per simulation logic: exactly 5 tasks need to be placed)
+                if graph_all_correct and graph_valid_tasks == 5:
+                    correct_graphs += 1
 
                 # Compute regret for visualization only (not used for training)
                 try:
@@ -644,15 +664,24 @@ def evaluate(model, loader, device, is_last_epoch=False):
                     traceback.print_exc()
                     pass
 
-    avg_loss_ce = total_loss_ce / total if total else 0.0
-    acc = correct / total if total else 0.0
+    # Calculate average loss per task (for backward compatibility)
+    avg_loss_ce = total_loss_ce / total_valid_tasks_for_loss if total_valid_tasks_for_loss > 0 else 0.0
+    
+    # Accuracy: fraction of graphs where ALL tasks are correctly placed
+    acc = correct_graphs / total_graphs if total_graphs > 0 else 0.0
+    
     regret = (sum_regret / count_regret) if count_regret else 0.0
     regret_pct = (sum_regret_pct / count_regret_pct) if count_regret_pct else 0.0
     
     # Log dataset_ids processed during evaluation (every evaluation)
     print(f"\n[Evaluation] Processed {len(dataset_ids_processed)} unique dataset_ids:")
     
-    # Debug: Summary of regret calculation
+    # Debug: Summary of accuracy and regret calculation
+    print(f"[DEBUG] Accuracy calculation summary:")
+    print(f"  Total graphs processed: {total_graphs}")
+    print(f"  Graphs with ALL tasks correct: {correct_graphs} ({correct_graphs/total_graphs*100:.1f}%)")
+    print(f"  Total tasks processed: {total_tasks}")
+    print(f"  Total tasks correct: {total_tasks_correct} ({total_tasks_correct/total_tasks*100:.1f}% per-task accuracy)")
     print(f"[DEBUG] Regret calculation summary:")
     print(f"  Total graphs processed: {n_graphs}")
     print(f"  Successful regret calculations: {count_regret} ({count_regret/n_graphs*100:.1f}%)")

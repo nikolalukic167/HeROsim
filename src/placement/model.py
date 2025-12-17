@@ -263,6 +263,7 @@ class TaskResult(TypedDict):
     executionNode: str
     executionPlatform: str
     gnn_decision_time: DurationSecond
+    systemStateResult: SystemStateResult | None
 
 
 @final

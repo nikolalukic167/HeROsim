@@ -29,10 +29,13 @@ from src.placement.scheduler import Scheduler
 
 class DeterminedScheduler(Scheduler):
     def __init__(self, *args, **kwargs):
+        logger = logging.getLogger('simulation')
+        logger.info("DeterminedScheduler: Starting initialization")
         super().__init__(*args, **kwargs)
-        # Get batch size from policy or use default
-        self.batch_size = getattr(self.policy, 'batch_size', 5)  # Process 10tasks at once by default
-        self.batch_timeout = getattr(self.policy, 'batch_timeout', 0.1)  # Wait up to 0.1 seconds to fill batch
+        # Default batch size (can be overridden by orchestrator via infrastructure config)
+        self.batch_size = 5  # Default: process 5 tasks at once
+        self.batch_timeout = 0.1  # Default: wait up to 0.1 seconds to fill batch
+        logger.info(f"DeterminedScheduler: Initialized with default batch_size={self.batch_size}, batch_timeout={self.batch_timeout}")
 
     def scheduler_process(self) -> Generator:
         # keep this for the simpy generator 
@@ -40,12 +43,15 @@ class DeterminedScheduler(Scheduler):
             yield
 
         """Override to process multiple tasks simultaneously in batches"""
+        logger = logging.getLogger('simulation')
+        logger.info(f"DeterminedScheduler: scheduler_process started at time {self.env.now}")
         print(
             f"[ {self.env.now} ] Determined Scheduler started with policy"
             f" {self.policy} (batch_size={self.batch_size})"
         )
 
         while True:
+            logger.info(f"DeterminedScheduler: Starting batch collection at time {self.env.now}")
             # Collect a batch of tasks
             batch_tasks = yield self.env.process(self._collect_task_batch())
             
@@ -61,13 +67,16 @@ class DeterminedScheduler(Scheduler):
 
     def _collect_task_batch(self) -> Generator[Any, Any, List[Task]]:
         """Collect a batch of tasks that are ready for scheduling"""
+        logger = logging.getLogger('simulation')
         batch = []
         
+        logger.info(f"DeterminedScheduler: _collect_task_batch starting (batch_size={self.batch_size})")
         print(f"[ {self.env.now} ] DEBUG: Starting batch collection (size={self.batch_size})")
         
         # Try to get up to batch_size tasks
         for i in range(self.batch_size):
             try:
+                logger.info(f"DeterminedScheduler: Attempting to get task {i+1}/{self.batch_size}")
                 # Try to get a task (this will block until a task is available)
                 task: Task = yield self.tasks.get(
                     lambda queued_task: all(
@@ -75,12 +84,15 @@ class DeterminedScheduler(Scheduler):
                     )
                 )
                 batch.append(task)
+                logger.info(f"DeterminedScheduler: Added task {task.id} to batch (size={len(batch)})")
                 print(f"[ {self.env.now} ] DEBUG: Added task {task.id} to batch (size={len(batch)})")
             except:
                 # No more tasks available
+                logger.info(f"DeterminedScheduler: No more tasks available after {len(batch)} tasks")
                 print(f"[ {self.env.now} ] DEBUG: No more tasks available after {len(batch)} tasks")
                 break
         
+        logger.info(f"DeterminedScheduler: Batch collection complete, returning {len(batch)} tasks")
         print(f"[ {self.env.now} ] DEBUG: Batch collection complete, returning {len(batch)} tasks")
         return batch
 
@@ -157,9 +169,7 @@ class DeterminedScheduler(Scheduler):
             node.unused = False
             
             # Update platform
-            platform: Platform = yield node.platforms.get(
-                lambda platform: platform.id == sched_platform.id
-            )
+            platform: Platform = yield node.platforms.get(lambda platform: platform.id == sched_platform.id)
             task.platform = platform
 
             # contention-based pre-exec delay removed; rely on queues and warmth only
@@ -198,6 +208,40 @@ class DeterminedScheduler(Scheduler):
         # Check for forced placements first
         if self.forced_placements and task.id in self.forced_placements:
             forced_node_id, forced_platform_id = self.forced_placements[task.id]
+            
+            # Special marker (-1, -1) means auto-resolve to an available replica
+            if forced_node_id == -1 and forced_platform_id == -1:
+                logger = logging.getLogger('simulation')
+                logger.info(f"Auto-resolving forced placement for task {task.id} ({task.type['name']}) at time {self.env.now}")
+                print(f"[ {self.env.now} ] DEBUG: Auto-resolving forced placement for task {task.id} ({task.type['name']})")
+                # Get available replicas and auto-select one
+                replicas_for_task = system_state.replicas.get(task.type["name"], set())
+                logger.info(f"Found {len(replicas_for_task)} total replicas for task type {task.type['name']}")
+                if not replicas_for_task:
+                    logger.error(f"No replicas available for task {task.id} ({task.type['name']})")
+                    print(f"[ {self.env.now} ] ERROR: No replicas available for task {task.id} ({task.type['name']})")
+                    return None
+                
+                # Get valid replicas (respecting network connectivity)
+                logger.info(f"Getting valid replicas for task {task.id} from source node {task.node_name}")
+                valid_replicas = self._get_valid_replicas(replicas_for_task, task)
+                logger.info(f"Found {len(valid_replicas)} valid replicas for task {task.id}")
+                if not valid_replicas:
+                    logger.error(f"No valid replicas for task {task.id} ({task.type['name']}) from source {task.node_name}")
+                    print(f"[ {self.env.now} ] ERROR: No valid replicas for task {task.id} ({task.type['name']})")
+                    return None
+                
+                # Select least loaded replica
+                target_node, target_platform = min(
+                    valid_replicas, key=lambda couple: len(couple[1].queue.items)
+                )
+                
+                print(f"[ {self.env.now} ] DEBUG: Auto-resolved to node {target_node.id}, platform {target_platform.id}")
+                task.execution_node = target_node.node_name
+                task.execution_platform = str(target_platform.id)
+                return (target_node, target_platform)
+            
+            # Normal forced placement
             print(f"[ {self.env.now} ] DEBUG: Using forced placement for task {task.id}: node {forced_node_id}, platform {forced_platform_id}")
             
             # Find the node and platform by ID
@@ -212,9 +256,51 @@ class DeterminedScheduler(Scheduler):
                             target_platform = platform
                             break
                     break
-            
+
+            # Safety 1: the forced (node, platform) must exist in the replica set
             if target_node is not None and target_platform is not None:
-                # print(f"[ {self.env.now} ] DEBUG: Found forced placement: {target_node.node_name}:{target_platform.id}")
+                replicas_for_task = system_state.replicas.get(task.type["name"], set())
+                if (target_node, target_platform) not in replicas_for_task:
+                    # Collect some info information to help diagnose infra / placement mismatches
+                    replica_ids = [(n.id, p.id) for (n, p) in replicas_for_task]
+                    replica_names = [(n.node_name, p.id) for (n, p) in replicas_for_task]
+                    print(
+                        f"[ {self.env.now} ] ERROR: Forced placement for task {task.id} "
+                        f"({task.type['name']}) points to (node_id={forced_node_id}, "
+                        f"platform_id={forced_platform_id}), which is not an active replica "
+                        f"for this task type. Active replica ids: {replica_ids}"
+                    )
+                    print(
+                        f"[ {self.env.now} ] ERROR DETAILS: "
+                        f"Requested: node_id={forced_node_id}, platform_id={forced_platform_id}, "
+                        f"node_name={target_node.node_name if target_node else 'None'}; "
+                        f"Active replicas (node_name:platform_id): {replica_names}"
+                    )
+                    # CRITICAL: Log full system state for dnn2
+                    if task.type["name"] == "dnn2":
+                        print(f"[ {self.env.now} ] [DEBUG] All replicas in system_state.replicas: {[(task_type, [(n.node_name, n.id, p.id) for (n, p) in replicas]) for task_type, replicas in system_state.replicas.items()]}")
+                    raise RuntimeError(
+                        f"Invalid forced placement for task {task.id}: "
+                        f"(node_id={forced_node_id}, platform_id={forced_platform_id}) "
+                        f"is not in replicas for task type '{task.type['name']}'"
+                    )
+
+                # Safety 2: platform must be initialized, otherwise the platform_process
+                # will block forever on `yield self.initialized`.
+                if not target_platform.initialized.triggered:
+                    print(
+                        f"[ {self.env.now} ] ERROR: Forced placement for task {task.id} "
+                        f"({task.type['name']}) targets platform {forced_platform_id} on "
+                        f"node {forced_node_id}, but that platform has not been initialized."
+                    )
+                    raise RuntimeError(
+                        f"Forced placement for task {task.id} targets an uninitialized "
+                        f"platform (node_id={forced_node_id}, platform_id={forced_platform_id})"
+                    )
+
+                # All checks passed – this is a valid deterministic replica
+                task.execution_node = target_node.node_name
+                task.execution_platform = str(target_platform.id)
                 return (target_node, target_platform)
             else:
                 print(f"[ {self.env.now} ] ERROR: Forced placement not found: node {forced_node_id}, platform {forced_platform_id}")
@@ -222,8 +308,10 @@ class DeterminedScheduler(Scheduler):
                 # Instead, return None to indicate placement failure, which should trigger proper error handling
                 print(f"[ {self.env.now} ] ERROR: Forced placement failed - simulation should abort to prevent invalid results")
                 return None
+        
+        # No forced placement - this should not happen in brute-force mode
         import sys
-        print(f"[ {self.env.now} ] DEBUG: Exiting because no forced placement found")
+        print(f"[ {self.env.now} ] ERROR: No forced placement found for task {task.id}")
         sys.exit(1)
         """
         replicas: Set[Tuple[Node, Platform]] = system_state.replicas[task.type["name"]]

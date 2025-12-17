@@ -43,6 +43,7 @@ from src.placement.model import (
     SpeedMBps,
     StorageResult,
     StorageType,
+    SystemStateResult,
     TaskType,
     TaskResult,
     IOVector,
@@ -152,6 +153,7 @@ class Task:
         self.source_node: str = node_name
         self.execution_node: str = ""
         self.execution_platform: str = ""
+        self.system_state_snapshot: Optional[SystemStateResult] = None
 
         self.run = env.process(self.task_process())
 
@@ -329,6 +331,7 @@ class Task:
             "executionNode": self.execution_node,
             "executionPlatform": self.execution_platform,
             "gnn_decision_time": self.gnn_decision_time,
+            "systemStateResult": self.system_state_snapshot,
         }
 
 
@@ -814,6 +817,14 @@ class Platform:
 
             # Notify scheduler of task completion
             yield task.done.succeed()
+            
+            # Capture system state snapshot for real tasks
+            if (hasattr(self.node, 'orchestrator_ref') and 
+                self.node.orchestrator_ref and 
+                not getattr(task, 'is_internal', False)):
+                system_state = yield self.node.orchestrator_ref.mutex.get()
+                task.system_state_snapshot = system_state.result(self.env.now)
+                yield self.node.orchestrator_ref.mutex.put(system_state)
 
 
 class Node:
@@ -841,6 +852,7 @@ class Node:
         self.data = data
         self.node_type = node_type
         self.node_name = node_name
+        self.orchestrator_ref = None
 
         self.env = env
 

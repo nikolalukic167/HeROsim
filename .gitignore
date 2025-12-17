@@ -187,6 +187,7 @@ logs/
 # wandb
 src/wandb
 src/notebooks/new/wandb
+src/notebooks/new_new/wandb
 
 # gnn datasets
 simulation_data/gnn_datasets/
@@ -201,4 +202,3 @@ src/notebooks/new/models/
 analysis_results/
 simulation_data/network_topology.pdf
 src/notebooks/new/best_gnn_placement_model.pt
-src/notebooks/new/wandb/

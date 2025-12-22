@@ -1,4 +1,5 @@
 {
   "python.analysis.typeCheckingMode": "basic",
   "cursorpyright.analysis.typeCheckingMode": "basic",
+  "python.terminal.activateEnvironment": false
 }

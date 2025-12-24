@@ -4,7 +4,6 @@ Pre-generate and cache graphs for GNN training.
 This script builds all graphs and saves them to pickle files for faster training iterations.
 """
 
-import argparse
 import os
 import json
 import pickle
@@ -32,8 +31,8 @@ torch.manual_seed(42)
 # ============================================================================
 # Configuration
 # ============================================================================
-BASE_DIR = Path("/root/projects/my-herosim/simulation_data/artifacts/run1100_copy/gnn_datasets")
-CACHE_DIR = BASE_DIR.parent / "graphs_cache_old"
+BASE_DIR = Path("/root/projects/my-herosim/simulation_data/artifacts/run2000/gnn_datasets")
+CACHE_DIR = BASE_DIR.parent / "graphs_cache_with_queues"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 # Cache file paths
@@ -44,8 +43,11 @@ PLAT_NODE_MAP_CACHE_PATH = CACHE_DIR / "plat_node_map.pkl"
 OPTIMAL_RTT_CACHE_PATH = CACHE_DIR / "optimal_rtt.pkl"
 METADATA_CACHE_PATH = CACHE_DIR / "metadata.json"
 
+# Queue normalization constant (queue_length / QUEUE_NORM_FACTOR)
+QUEUE_NORM_FACTOR = 10.0
+
 # Version for cache invalidation (increment when graph construction logic changes)
-CACHE_VERSION = "1.0"
+CACHE_VERSION = "2.0"  # Bumped for queue features
 
 # ============================================================================
 # DATA LOADING (same as main script)
@@ -177,142 +179,240 @@ def extract_dataset_to_dataframes(optimal_result_path: Path) -> Dict[str, pd.Dat
     }
 
 
-def load_all_datasets(base_dir: Path) -> Dict[str, Dict[str, pd.DataFrame]]:
-    """Load all datasets from gnn_datasets directory."""
+def load_queue_snapshot(dataset_dir: Path) -> Dict[str, int]:
+    """
+    Load full_queue_snapshot from system_state_captured_unique.json.
+    Returns: Dict mapping "node_name:platform_id" -> queue_length
+    
+    We use the first task's full_queue_snapshot since all tasks in a batch
+    see the same queue state at scheduling time.
+    """
+    ssc_path = dataset_dir / "system_state_captured_unique.json"
+    if not ssc_path.exists():
+        return {}
+    
+    try:
+        with open(ssc_path, 'r') as f:
+            data = json.load(f)
+        
+        task_placements = data.get('task_placements', [])
+        if not task_placements:
+            return {}
+        
+        # Use first task's full_queue_snapshot (same for all tasks in batch)
+        full_queue_snapshot = task_placements[0].get('full_queue_snapshot', {})
+        
+        # Convert to int values (they should already be int, but ensure consistency)
+        return {k: int(v) for k, v in full_queue_snapshot.items()}
+    
+    except Exception as e:
+        print(f"[WARN] Failed to load queue snapshot from {ssc_path}: {e}")
+        return {}
+
+
+def load_all_datasets(base_dir: Path, require_queue_data: bool = True) -> Dict[str, Dict[str, pd.DataFrame]]:
+    """
+    Load all datasets from gnn_datasets directory.
+    
+    Args:
+        base_dir: Path to gnn_datasets directory
+        require_queue_data: If True, skip datasets without system_state_captured_unique.json
+    """
     all_datasets = {}
     dataset_dirs = sorted(base_dir.glob("ds_*"))
     
     print(f"Loading {len(dataset_dirs)} datasets...")
     start_time = time.perf_counter()
     
+    skipped_no_queue = 0
+    
     for dataset_dir in tqdm(dataset_dirs, desc="Loading datasets", unit="dataset"):
         optimal_result_path = dataset_dir / "optimal_result.json"
         if not optimal_result_path.exists():
+            continue
+        
+        # Load queue snapshot
+        queue_snapshot = load_queue_snapshot(dataset_dir)
+        
+        # Skip if queue data is required but not available
+        if require_queue_data and not queue_snapshot:
+            skipped_no_queue += 1
             continue
         
         try:
             dataframes = extract_dataset_to_dataframes(optimal_result_path)
             all_datasets[dataset_dir.name] = {
                 **dataframes,
-                'dataset_dir': dataset_dir
+                'dataset_dir': dataset_dir,
+                'queue_snapshot': queue_snapshot  # Add queue data
             }
         except Exception as e:
             tqdm.write(f"  Error loading {dataset_dir.name}: {e}")
     
     elapsed = time.perf_counter() - start_time
     print(f"Loaded {len(all_datasets)} datasets successfully in {elapsed:.2f}s")
+    if skipped_no_queue > 0:
+        print(f"  Skipped {skipped_no_queue} datasets without queue data")
     return all_datasets
 
 
 # ============================================================================
-# RTT HASH TABLE BUILDING
+# RTT HASH TABLE BUILDING (Parallel + Chunked Saving)
 # ============================================================================
 
-def build_placement_rtt_hash_table(base_dir: Path, n_jobs: int = -1, use_jsonl: bool = False) -> Dict[Tuple[str, Tuple[Tuple[int, int], ...]], float]:
-    """Parallel build of placement RTT hash table."""
-    
-    def _parse_csv_file(csv_path: Path) -> Optional[Tuple[str, Tuple[Tuple[int, int], ...], float]]:
-        try:
-            df = pd.read_csv(
-                csv_path,
-                usecols=["task", "node", "platform", "rtt"],
-                dtype={"task": "Int64", "node": "int64", "platform": "int64", "rtt": "float64"},
-                engine="c",
-                memory_map=True,
-            )
-            
-            df = df.dropna(subset=["node", "platform", "rtt"])
-            
-            if df.empty:
-                return None
-            
-            if "task" in df.columns and df["task"].notna().any():
-                df = df.sort_values(by=["task"])
-            else:
-                df = df.sort_values(by=["node", "platform"])
-            
-            combo: Tuple[Tuple[int, int], ...] = tuple(
-                (int(row.node), int(row.platform)) for row in df.itertuples(index=False)
-            )
-            if len(combo) == 0:
-                return None
-            
-            rtt_val = float(df["rtt"].iloc[0])
-            dataset_id = csv_path.parent.parent.name
-            return dataset_id, combo, rtt_val
-        except Exception:
-            return None
-    
-    def _parse_jsonl_file(jsonl_path: Path) -> List[Tuple[str, Tuple[Tuple[int, int], ...], float]]:
-        """Parse JSONL where each line is: {"placement_plan": {"task_id": [node, platform], ...}, "rtt": float}"""
-        results = []
-        try:
-            dataset_id = jsonl_path.parent.parent.name
-            with open(jsonl_path, 'r') as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-                    row = json.loads(line)
-                    placement_plan = row.get("placement_plan", {})
-                    rtt_val = row.get("rtt")
+def _parse_jsonl_file_to_dict(jsonl_path: Path) -> Dict[Tuple[str, Tuple[Tuple[int, int], ...]], float]:
+    """Parse a single JSONL file and return dict of (dataset_id, combo) -> rtt."""
+    results = {}
+    try:
+        dataset_id = jsonl_path.parent.parent.name
+        with open(jsonl_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                try:
+                    data = json.loads(line)
+                    placement_plan = data.get("placement_plan", {})
+                    rtt_val = data.get("rtt")
+                    
                     if not placement_plan or rtt_val is None:
                         continue
-                    # Sort by task_id and extract (node, platform) tuples
-                    sorted_tasks = sorted(placement_plan.items(), key=lambda x: int(x[0]))
+                    
+                    sorted_tasks = sorted(placement_plan.keys(), key=lambda x: int(x))
                     combo: Tuple[Tuple[int, int], ...] = tuple(
-                        (int(v[0]), int(v[1])) for k, v in sorted_tasks
+                        (int(placement_plan[task][0]), int(placement_plan[task][1]))
+                        for task in sorted_tasks
+                        if isinstance(placement_plan[task], list) and len(placement_plan[task]) >= 2
                     )
-                    if combo:
-                        results.append((dataset_id, combo, float(rtt_val)))
-        except Exception:
-            pass
-        return results
+                    
+                    if len(combo) == 0:
+                        continue
+                    
+                    key = (dataset_id, combo)
+                    if key not in results:
+                        results[key] = float(rtt_val)
+                        
+                except (json.JSONDecodeError, ValueError, KeyError, IndexError):
+                    continue
+    except Exception:
+        pass
     
-    if use_jsonl:
-        all_files = list(base_dir.glob("ds_*/placements/placements.jsonl"))
-        file_type = "JSONL"
-    else:
-        all_files = list(base_dir.glob("ds_*/placements_csv/placement_summary_*.csv"))
-        file_type = "CSV"
+    return results
+
+
+def build_and_save_rtt_hash_table_chunked(
+    base_dir: Path, 
+    cache_dir: Path,
+    n_jobs: int = 8,
+    chunk_size: int = 5_000_000
+) -> int:
+    """
+    Build RTT hash table in parallel and save in chunks to avoid OOM during pickle.
     
-    print(f"Building placement RTT hash table from {len(all_files)} {file_type} files using n_jobs={n_jobs}...")
+    Returns the total number of entries saved.
+    """
+    all_jsonl_files = sorted(base_dir.glob("ds_*/placements/placements.jsonl"))
+    
+    print(f"Building placement RTT hash table from {len(all_jsonl_files)} JSONL files using n_jobs={n_jobs}...")
     start_time = time.perf_counter()
     
-    if use_jsonl:
-        parsed_lists = Parallel(n_jobs=n_jobs, prefer="processes")(
-            delayed(_parse_jsonl_file)(Path(p)) for p in all_files
-        )
-    else:
-        parsed_lists = Parallel(n_jobs=n_jobs, prefer="processes")(
-            delayed(_parse_csv_file)(Path(p)) for p in all_files
-        )
+    # Parse all files in parallel - each returns a small dict
+    parsed_dicts: List[Dict] = Parallel(n_jobs=n_jobs, prefer="processes")(
+        delayed(_parse_jsonl_file_to_dict)(Path(p)) for p in tqdm(all_jsonl_files, desc="Parsing JSONL files")
+    )
     
+    parse_time = time.perf_counter() - start_time
+    print(f"Parsed {len(all_jsonl_files)} files in {parse_time:.2f}s")
+    
+    # Merge and save in chunks
+    print("Merging results and saving in chunks...")
     merge_start = time.perf_counter()
-    placement_rtt_map: Dict[Tuple[str, Tuple[Tuple[int, int], ...]], float] = {}
-    num_valid = 0
+    
+    chunk_idx = 0
+    current_chunk: Dict[Tuple[str, Tuple[Tuple[int, int], ...]], float] = {}
+    total_entries = 0
     num_duplicates = 0
     
-    for item in tqdm(parsed_lists, desc="Merging results", unit="entry", leave=False):
-        if not item:
-            continue
-        # JSONL returns list of tuples, CSV returns single tuple
-        items = item if use_jsonl else [item]
-        for entry in items:
-            dataset_id, combo, rtt_val = entry
-            key = (dataset_id, combo)
-            if key not in placement_rtt_map:
-                placement_rtt_map[key] = rtt_val
+    for parsed_dict in tqdm(parsed_dicts, desc="Merging"):
+        for key, rtt in parsed_dict.items():
+            if key not in current_chunk:
+                current_chunk[key] = rtt
+                total_entries += 1
             else:
                 num_duplicates += 1
-            num_valid += 1
+            
+            # Save chunk when it reaches chunk_size
+            if len(current_chunk) >= chunk_size:
+                chunk_path = cache_dir / f"rtt_chunk_{chunk_idx}.pkl"
+                with open(chunk_path, 'wb') as f:
+                    pickle.dump(current_chunk, f, protocol=pickle.HIGHEST_PROTOCOL)
+                print(f"  Saved chunk {chunk_idx} ({len(current_chunk):,} entries) to {chunk_path}")
+                chunk_idx += 1
+                current_chunk = {}
+        
+        # Clear parsed dict to free memory
+        parsed_dict.clear()
     
-    elapsed = time.perf_counter() - start_time
+    # Save remaining entries
+    if current_chunk:
+        chunk_path = cache_dir / f"rtt_chunk_{chunk_idx}.pkl"
+        with open(chunk_path, 'wb') as f:
+            pickle.dump(current_chunk, f, protocol=pickle.HIGHEST_PROTOCOL)
+        print(f"  Saved chunk {chunk_idx} ({len(current_chunk):,} entries) to {chunk_path}")
+        chunk_idx += 1
+    
+    # Save metadata about chunks
+    chunk_meta = {
+        'num_chunks': chunk_idx,
+        'total_entries': total_entries,
+        'chunk_size': chunk_size,
+    }
+    meta_path = cache_dir / "rtt_chunks_meta.json"
+    with open(meta_path, 'w') as f:
+        json.dump(chunk_meta, f)
+    
     merge_time = time.perf_counter() - merge_start
-    print(f"Loaded {num_valid} placement combinations in {elapsed:.2f}s (merge: {merge_time:.2f}s)")
-    print(f"Hash table contains {len(placement_rtt_map)} unique (dataset_id, combo) placement entries")
-    if num_duplicates > 0:
-        print(f"WARNING: Found {num_duplicates} duplicate (dataset_id, combo) keys - kept first occurrence for each")
+    total_time = time.perf_counter() - start_time
     
+    print(f"\nSaved {total_entries:,} entries in {chunk_idx} chunks")
+    print(f"Timing: parse={parse_time:.2f}s, merge+save={merge_time:.2f}s, total={total_time:.2f}s")
+    if num_duplicates > 0:
+        print(f"Note: Found {num_duplicates:,} duplicate keys (kept first occurrence)")
+    
+    return total_entries
+
+
+def load_rtt_hash_table_chunked(cache_dir: Path) -> Dict[Tuple[str, Tuple[Tuple[int, int], ...]], float]:
+    """Load RTT hash table from chunks."""
+    meta_path = cache_dir / "rtt_chunks_meta.json"
+    
+    if not meta_path.exists():
+        # Fall back to single file if it exists
+        single_path = cache_dir / "placement_rtt_hash_table.pkl"
+        if single_path.exists():
+            print(f"Loading RTT hash table from single file: {single_path}")
+            with open(single_path, 'rb') as f:
+                return pickle.load(f)
+        raise FileNotFoundError(f"No RTT hash table found in {cache_dir}")
+    
+    with open(meta_path, 'r') as f:
+        meta = json.load(f)
+    
+    num_chunks = meta['num_chunks']
+    total_entries = meta['total_entries']
+    
+    print(f"Loading RTT hash table from {num_chunks} chunks ({total_entries:,} entries)...")
+    
+    placement_rtt_map: Dict[Tuple[str, Tuple[Tuple[int, int], ...]], float] = {}
+    
+    for i in tqdm(range(num_chunks), desc="Loading chunks"):
+        chunk_path = cache_dir / f"rtt_chunk_{i}.pkl"
+        with open(chunk_path, 'rb') as f:
+            chunk = pickle.load(f)
+        placement_rtt_map.update(chunk)
+    
+    print(f"Loaded {len(placement_rtt_map):,} entries")
     return placement_rtt_map
 
 
@@ -325,8 +425,16 @@ TASK_PLATFORM_COMPATIBILITY = {
     'dnn2': ['rpiCpu', 'xavierGpu', 'xavierCpu']
 }
 
-def build_graph(df_nodes, df_tasks, df_platforms) -> Data:
-    """Build a bipartite graph with tasks and platforms as nodes."""
+def build_graph(df_nodes, df_tasks, df_platforms, queue_snapshot: Optional[Dict[str, int]] = None) -> Data:
+    """
+    Build a bipartite graph with tasks and platforms as nodes.
+    
+    Args:
+        df_nodes: DataFrame with node information
+        df_tasks: DataFrame with task information
+        df_platforms: DataFrame with platform information
+        queue_snapshot: Dict mapping "node_name:platform_id" -> queue_length (from full_queue_snapshot)
+    """
     
     # Load priors (task-types) used for edge features
     _cached = globals().get("_CACHED_TASK_PRIORS", None)
@@ -363,6 +471,7 @@ def build_graph(df_nodes, df_tasks, df_platforms) -> Data:
     
     plat_types_by_pos = df_platforms['platform_type'].to_numpy()
     plat_node_by_pos = df_platforms['node_name'].to_numpy()
+    plat_ids_arr = df_platforms['platform_id'].to_numpy()
     
     # TASK FEATURES
     task_types_vocab = np.array(['dnn1', 'dnn2'])
@@ -377,7 +486,7 @@ def build_graph(df_nodes, df_tasks, df_platforms) -> Data:
     task_features = np.concatenate([task_onehot, src_norm], axis=1)
     task_features_tensor = torch.from_numpy(task_features).to(torch.float32)
     
-    # PLATFORM FEATURES
+    # PLATFORM FEATURES (now 8 dims: 5 type + 2 replica + 1 queue)
     platform_types_vocab = np.array(['rpiCpu','xavierCpu','xavierGpu','xavierDla','pynqFpga'])
     plat_type_arr = df_platforms['platform_type'].to_numpy()
     plat_onehot = (plat_type_arr[:, None] == platform_types_vocab[None, :]).astype(float)
@@ -388,7 +497,20 @@ def build_graph(df_nodes, df_tasks, df_platforms) -> Data:
     has_dnn1 = has_dnn1_arr.astype(float).reshape(-1, 1)
     has_dnn2 = has_dnn2_arr.astype(float).reshape(-1, 1)
     
-    platform_features = np.concatenate([plat_onehot, has_dnn1, has_dnn2], axis=1)
+    # QUEUE LENGTH FEATURE (normalized by QUEUE_NORM_FACTOR)
+    queue_lengths = np.zeros(n_platforms, dtype=np.float64)
+    if queue_snapshot:
+        for pos in range(n_platforms):
+            node_name = str(plat_node_by_pos[pos])
+            plat_id = int(plat_ids_arr[pos])
+            key = f"{node_name}:{plat_id}"
+            queue_lengths[pos] = queue_snapshot.get(key, 0)
+    
+    # Normalize queue lengths
+    queue_lengths_norm = (queue_lengths / QUEUE_NORM_FACTOR).reshape(-1, 1)
+    
+    # Concatenate all platform features: [type_onehot(5), has_dnn1(1), has_dnn2(1), queue_length(1)]
+    platform_features = np.concatenate([plat_onehot, has_dnn1, has_dnn2, queue_lengths_norm], axis=1)
     platform_features_tensor = torch.from_numpy(platform_features).to(torch.float32)
     
     # Cache feasible platforms per source node
@@ -437,6 +559,14 @@ def build_graph(df_nodes, df_tasks, df_platforms) -> Data:
     edge_attrs = []
     y_list = []
     
+    # NEW: Build per-task mapping from logit index -> (node_id, platform_id)
+    # This is needed for StructuredRegretLoss to look up RTT in hash table
+    # task_logit_to_placement[task_idx][logit_idx] = (node_id, platform_id)
+    task_logit_to_placement: Dict[int, List[Tuple[int, int]]] = {}
+    
+    # Build node_name -> node_id mapping
+    node_name_to_id = {row.node_name: row.node_id for row in df_nodes.itertuples(index=False)}
+    
     optimal_platform_ids = df_tasks['optimal_platform_id'].to_numpy()
     task_types_arr = df_tasks['task_type'].to_numpy()
     
@@ -450,13 +580,22 @@ def build_graph(df_nodes, df_tasks, df_platforms) -> Data:
             dst_list = (platform_offset + compat_plats).tolist()
             edge_dst.extend(dst_list)
             
+            # Build logit_idx -> (node_id, platform_id) mapping for this task
+            task_logit_to_placement[t_pos] = []
+            
             task_type = str(task_type)
             task_priors = _CACHED_TASK_PRIORS.get(task_type, {})
             exec_map = task_priors.get("executionTime", {})
             src_nm = network_map_by_node.get(src_name, {})
-            for plat_pos in compat_plats.tolist():
+            for logit_idx, plat_pos in enumerate(compat_plats.tolist()):
                 plat_type = str(plat_types_by_pos[plat_pos])
                 plat_node_name = str(plat_node_by_pos[plat_pos])
+                plat_id = int(plat_ids_arr[plat_pos])
+                node_id = node_name_to_id.get(plat_node_name, -1)
+                
+                # Store mapping: logit_idx -> (node_id, platform_id)
+                task_logit_to_placement[t_pos].append((node_id, plat_id))
+                
                 exec_time = float(exec_map.get(plat_type, 0.0)) if isinstance(exec_map, dict) else 0.0
                 lat_entry = src_nm.get(plat_node_name, {}) if isinstance(src_nm, dict) else {}
                 if isinstance(lat_entry, dict):
@@ -514,6 +653,8 @@ def build_graph(df_nodes, df_tasks, df_platforms) -> Data:
     data.edge_attr = edge_attr_tensor
     data._plat_pos_by_id = plat_pos_by_id
     data._task_idx_to_task_id = task_idx_to_task_id
+    # NEW: Per-task mapping from logit index -> (node_id, platform_id) for regret loss
+    data._task_logit_to_placement = task_logit_to_placement
     
     return data
 
@@ -523,10 +664,6 @@ def build_graph(df_nodes, df_tasks, df_platforms) -> Data:
 # ============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description="Pre-generate and cache graphs for GNN training.")
-    parser.add_argument("--jsonl", action="store_true", help="Parse placements from JSONL files instead of CSV")
-    args = parser.parse_args()
-    
     script_start_time = time.perf_counter()
     
     print("="*80)
@@ -563,10 +700,10 @@ def main():
     step2_time = time.perf_counter() - step2_start
     print(f"Built helper maps for {len(plat_node_map)} datasets")
     
-    # Build RTT hash table
-    print("\nStep 3: Building placement RTT hash table...")
+    # Build RTT hash table (parallel + chunked saving)
+    print("\nStep 3: Building and saving RTT hash table in chunks...")
     step3_start = time.perf_counter()
-    placement_rtt_hash_table = build_placement_rtt_hash_table(BASE_DIR, n_jobs=12, use_jsonl=args.jsonl)
+    num_rtt_entries = build_and_save_rtt_hash_table_chunked(BASE_DIR, CACHE_DIR, n_jobs=8)
     step3_time = time.perf_counter() - step3_start
     
     # Build graphs
@@ -580,7 +717,8 @@ def main():
             graph = build_graph(
                 dataset_dict['nodes'],
                 dataset_dict['tasks'],
-                dataset_dict['platforms']
+                dataset_dict['platforms'],
+                queue_snapshot=dataset_dict.get('queue_snapshot', {})  # Pass queue data
             )
             graph.dataset_id = dataset_id
             graphs.append(graph)
@@ -620,12 +758,8 @@ def main():
     ids_save_time = time.perf_counter() - save_start
     print(f"  Saved dataset IDs to {DATASET_IDS_CACHE_PATH} ({ids_save_time:.2f}s)")
     
-    # Save RTT hash table
-    save_start = time.perf_counter()
-    with open(RTT_HASH_CACHE_PATH, 'wb') as f:
-        pickle.dump(placement_rtt_hash_table, f, protocol=pickle.HIGHEST_PROTOCOL)
-    rtt_save_time = time.perf_counter() - save_start
-    print(f"  Saved RTT hash table ({len(placement_rtt_hash_table)} entries) to {RTT_HASH_CACHE_PATH} ({rtt_save_time:.2f}s)")
+    # RTT hash table already saved in chunks during Step 3
+    print(f"  RTT hash table already saved in chunks ({num_rtt_entries:,} entries)")
     
     # Save helper maps
     save_start = time.perf_counter()
@@ -647,7 +781,7 @@ def main():
         'base_dir': str(BASE_DIR),
         'num_graphs': len(graphs),
         'num_datasets': len(all_datasets),
-        'num_rtt_entries': len(placement_rtt_hash_table),
+        'num_rtt_entries': num_rtt_entries,
         'dataset_ids': dataset_ids,
         'statistics': {
             'valid_labels': int(np.sum(ys >= 0)),
@@ -676,7 +810,12 @@ def main():
     
     # Compute file sizes
     graphs_size = GRAPHS_CACHE_PATH.stat().st_size / (1024 * 1024)  # MB
-    rtt_size = RTT_HASH_CACHE_PATH.stat().st_size / (1024 * 1024)  # MB
+    
+    # Sum up all RTT chunk sizes
+    rtt_size = 0.0
+    for chunk_file in CACHE_DIR.glob("rtt_chunk_*.pkl"):
+        rtt_size += chunk_file.stat().st_size / (1024 * 1024)
+    
     plat_node_size = PLAT_NODE_MAP_CACHE_PATH.stat().st_size / (1024 * 1024)  # MB
     optimal_rtt_size = OPTIMAL_RTT_CACHE_PATH.stat().st_size / (1024 * 1024)  # MB
     
@@ -685,7 +824,7 @@ def main():
     print("="*80)
     print(f"Cache directory: {CACHE_DIR}")
     print(f"Graphs cache: {GRAPHS_CACHE_PATH} ({graphs_size:.2f} MB)")
-    print(f"RTT hash cache: {RTT_HASH_CACHE_PATH} ({rtt_size:.2f} MB)")
+    print(f"RTT hash cache: {len(list(CACHE_DIR.glob('rtt_chunk_*.pkl')))} chunks ({rtt_size:.2f} MB total)")
     print(f"Platform->node mapping cache: {PLAT_NODE_MAP_CACHE_PATH} ({plat_node_size:.2f} MB)")
     print(f"Optimal RTT cache: {OPTIMAL_RTT_CACHE_PATH} ({optimal_rtt_size:.2f} MB)")
     print(f"Total cache size: {graphs_size + rtt_size + plat_node_size + optimal_rtt_size:.2f} MB")

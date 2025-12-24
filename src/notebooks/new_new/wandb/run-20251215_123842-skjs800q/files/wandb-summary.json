@@ -1,1 +1,0 @@
-{"val/acc":0,"epoch":1,"val/regret_pct":0,"val/regret":0,"val/loss_ce":1.2697302030794548,"_wandb":{"runtime":9},"train/loss_ce":1.1071334451436996,"_runtime":9.829119041,"_step":1,"_timestamp":1.7658023315038223e+09,"lr":0.001}

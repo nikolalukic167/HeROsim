@@ -62,6 +62,9 @@ from src.policy.heteroproactiveknative.scheduler import HeteroProactiveKnativeSc
 from src.policy.knative.orchestrator import KnativeOrchestrator
 from src.policy.knative.autoscaler import KnativeAutoscaler
 from src.policy.knative.scheduler import KnativeScheduler
+from src.policy.knative_network.orchestrator import KnativeNetworkOrchestrator as KnativeNetworkOrchestrator
+from src.policy.knative_network.autoscaler import KnativeAutoscaler as KnativeNetworkAutoscaler
+from src.policy.knative_network.scheduler import KnativeNetworkScheduler as KnativeNetworkScheduler
 from src.policy.proactiveknative.autoscaler import ProactiveKnativeAutoscaler
 from src.policy.proactiveknative.orchestrator import ProactiveKnativeOrchestrator
 from src.policy.proactiveknative.scheduler import ProactiveKnativeScheduler
@@ -79,6 +82,10 @@ from src.policy.determined.scheduler import DeterminedScheduler
 from src.policy.evaluator.orchestrator import EvaluatorOrchestrator
 from src.policy.evaluator.autoscaler import EvaluatorAutoscaler
 from src.policy.evaluator.scheduler import EvaluatorScheduler
+
+from src.policy.knative_network.orchestrator import KnativeNetworkOrchestrator
+from src.policy.knative_network.autoscaler import KnativeAutoscaler as KnativeNetworkAutoscaler
+from src.policy.knative_network.scheduler import KnativeNetworkScheduler
 
 from src.utils.distributions import sample_bounded_int, sample_replica_count
 
@@ -593,7 +600,8 @@ def start_simulation(
         "gnn_gnn": (GNNOrchestrator, GNNAutoscaler, GNNScheduler),
         "multiloop_multiloop": (MultiLoopOrchestrator, MultiLoopAutoscaler, MultiLoopScheduler),
         "determined_determined": (DeterminedOrchestrator, DeterminedAutoscaler, DeterminedScheduler),
-        "evaluator_evaluator": (EvaluatorOrchestrator, EvaluatorAutoscaler, EvaluatorScheduler)
+        "evaluator_evaluator": (EvaluatorOrchestrator, EvaluatorAutoscaler, EvaluatorScheduler),
+        "kn_network_kn_network": (KnativeNetworkOrchestrator, KnativeNetworkAutoscaler, KnativeNetworkScheduler),
     }
 
     # Retrieve relevant Autoscaler and Scheduler classes

@@ -99,20 +99,13 @@ class DeterminedScheduler(Scheduler):
     def _process_task_batch(self, batch_tasks: List[Task]) -> Generator:
         """Process multiple tasks simultaneously in a single operation"""
         print(f"[ {self.env.now} ] DEBUG: Processing {len(batch_tasks)} tasks in batch")
-        # DEBUG: dump current per-platform queue status including internal (prewarm) tasks
-        try:
-            for node in self.nodes.items:
-                for plat in node.platforms.items:
-                    q_len = len(plat.queue.items)
-                    if q_len > 0:
-                        internal = sum(1 for t in plat.queue.items if getattr(t, 'is_internal', False))
-                        print(f"[ {self.env.now} ] DEBUG: Platform {plat.id}@{node.node_name} q_len={q_len} internal={internal}")
-        except Exception:
-            pass
         
         # Get system state once for all tasks
         system_state: SystemState = yield self.mutex.get()
         replicas: Dict[str, Set[Tuple[Node, Platform]]] = system_state.replicas
+        
+        # Capture queue snapshot ONCE for the entire batch (before any placements)
+        batch_queue_snapshot = self._capture_batch_queue_snapshot(system_state, batch_tasks)
         
         # Process all tasks in the batch
         for task in batch_tasks:
@@ -163,6 +156,14 @@ class DeterminedScheduler(Scheduler):
 
             sched_node, sched_platform = placement_result
 
+            # Set queue snapshot for this task (from the batch snapshot, filtered to valid replicas)
+            task_replicas = replicas.get(task.type["name"], set())
+            valid_replicas = self._get_valid_replicas(task_replicas, task)
+            task.queue_snapshot_at_scheduling = {
+                f"{node.node_name}:{plat.id}": batch_queue_snapshot.get(f"{node.node_name}:{plat.id}", 0)
+                for node, plat in valid_replicas
+            }
+
             # Update node
             node: Node = yield self.nodes.get(lambda node: node.id == sched_node.id)
             task.node = node
@@ -196,6 +197,23 @@ class DeterminedScheduler(Scheduler):
         
         print(f"[ {self.env.now} ] DEBUG: Batch processing complete for {len(batch_tasks)} tasks")
 
+    def _capture_batch_queue_snapshot(self, system_state: SystemState, batch_tasks: List[Task]) -> Dict[str, int]:
+        """Capture queue lengths for all platforms across all task types in the batch.
+        This is done ONCE before any placements so all tasks see the same queue state."""
+        queue_snapshot = {}
+        
+        # Get all unique task types in the batch
+        task_types = set(task.type["name"] for task in batch_tasks)
+        
+        # Capture queue lengths for all replicas of all task types
+        for task_type in task_types:
+            replicas = system_state.replicas.get(task_type, set())
+            for node, platform in replicas:
+                key = f"{node.node_name}:{platform.id}"
+                if key not in queue_snapshot:
+                    queue_snapshot[key] = len(platform.queue.items)
+        
+        return queue_snapshot
 
 
 

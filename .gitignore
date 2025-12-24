@@ -185,6 +185,7 @@ src/notebooks/data/results_sim/
 logs/
 
 # wandb
+wandb
 src/wandb
 src/notebooks/new/wandb
 src/notebooks/new_new/wandb
@@ -196,9 +197,11 @@ simulation_data/artifacts/
 
 # gnn model
 src/notebooks/new/best_gnn_placement_model.pt
+src/notebooks/new_new/best_gnn_placement_model.pt
+src/notebooks/new_new/best_gnn_regret_model.pt
 src/notebooks/new/models/
+src/notebooks/new_new/models/
 
 # datasets
 analysis_results/
 simulation_data/network_topology.pdf
-src/notebooks/new/best_gnn_placement_model.pt

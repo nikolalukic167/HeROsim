@@ -354,6 +354,7 @@ class SystemStateResult(TypedDict):
     scheduler_state: dict
     available_resources: Dict[str, List[int]]  # node_name -> list of platform ids
     replicas: Dict[str, List[List[str, int]]]  # task_type -> list of [node_name, platform_id]
+    queue_occupancy: Dict[str, Dict[str, int]]  # task_type -> {"node_name:platform_id" -> queue_length}
 
 
 @dataclass
@@ -398,11 +399,21 @@ class SystemState:
             ]
             for task_type, replica_set in self.replicas.items()
         }
+        # Serialize queue_occupancy: task_type -> {"node_name:platform_id" -> queue_length}
+        # This captures the queue length at scheduling time for each platform
+        queue_occupancy_dict = {
+            task_type: {
+                f"{node.node_name}:{platform.id}": len(platform.queue.items)
+                for node, platform in replica_set
+            }
+            for task_type, replica_set in self.replicas.items()
+        }
         return {
             "timestamp": timestamp,
             "scheduler_state": scheduler_state_dict,
             "available_resources": available_resources_dict,
             "replicas": replicas_dict,
+            "queue_occupancy": queue_occupancy_dict,
         }
 
 
@@ -529,7 +540,8 @@ scheduling_strategies: Dict[str, str] = {
     "gnn_gnn": "GNN-GNN",
     "multiloop_multiloop": "MULTILOOP-MULTILOOP",
     "determined_determined": "DETERMINED-DETERMINED",
-    "evaluator_evaluator": "EVALUATOR-EVALUATOR"
+    "evaluator_evaluator": "EVALUATOR-EVALUATOR",
+    "kn_network_kn_network": "KN-NETWORK-KN-NETWORK",
 }
 
 cache_policies: Set[str] = {

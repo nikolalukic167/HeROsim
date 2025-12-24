@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 from src.placement.orchestrator import Orchestrator
 
 
-class KnativeOrchestrator(Orchestrator):
+class KnativeNetworkOrchestrator(Orchestrator):
     def initialize_state(self) -> KnativeSystemState:
         # Initialize scheduler state
         scheduler_state = KnativeSchedulerState(
@@ -50,6 +50,29 @@ class KnativeOrchestrator(Orchestrator):
         replicas: Dict[str, Set[Tuple[Node, Platform]]] = {
             task_type: set() for task_type in self.data.task_types
         }
+        
+        # Seed initial replicas if provided (from precreate_replicas in co-simulation mode)
+        if self.initial_replicas:
+            logging.info(f"KnativeNetworkOrchestrator: Using {len(self.initial_replicas)} pre-seeded replica sets")
+            print(f"\n=== Using {len(self.initial_replicas)} pre-seeded replica sets ===")
+            for task_type, replica_set in self.initial_replicas.items():
+                if task_type in replicas:
+                    replicas[task_type] = replica_set.copy()
+                    print(f"  {task_type}: {len(replica_set)} replicas")
+                    
+                    # Remove these platforms from available resources since they're now allocated
+                    for node, platform in replica_set:
+                        if node in available_resources and platform in available_resources[node]:
+                            available_resources[node].remove(platform)
+                            node.available_platforms -= 1
+                            # Allocate memory for this replica
+                            memory_required = self.data.task_types[task_type]["memoryRequirements"][platform.type["shortName"]]
+                            node.available_memory -= memory_required
+                            
+                            # Initialize average_contention for this replica to prevent KeyError
+                            scheduler_state.average_contention[task_type][(node.id, platform.id)] = 0.0
+            print("=== Initial replicas integrated ===\n")
+        
         system_state = KnativeSystemState(
             scheduler_state=scheduler_state,
             available_resources=available_resources,

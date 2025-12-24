@@ -154,6 +154,8 @@ class Task:
         self.execution_node: str = ""
         self.execution_platform: str = ""
         self.system_state_snapshot: Optional[SystemStateResult] = None
+        self.queue_snapshot_at_scheduling: Optional[Dict[str, int]] = None  # {node:platform -> queue_length}
+        self.full_queue_snapshot: Optional[Dict[str, int]] = None  # All platforms, for verification
 
         self.run = env.process(self.task_process())
 
@@ -332,6 +334,8 @@ class Task:
             "executionPlatform": self.execution_platform,
             "gnn_decision_time": self.gnn_decision_time,
             "systemStateResult": self.system_state_snapshot,
+            "queueSnapshotAtScheduling": self.queue_snapshot_at_scheduling,
+            "fullQueueSnapshot": self.full_queue_snapshot,
         }
 
 

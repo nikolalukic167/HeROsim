@@ -40,7 +40,8 @@ torch.backends.cudnn.benchmark = False
 
 # %%
 # Configuration
-CACHE_DIR = Path("/root/projects/my-herosim/simulation_data/artifacts/run1650/graphs_cache_old")
+# Use the new cache with queue features
+CACHE_DIR = Path("/root/projects/my-herosim/simulation_data/artifacts/run1650/graphs_cache_with_queues")
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Cache file paths
@@ -971,9 +972,9 @@ wandb.init(
 # Initialize model
 # ========================================================================
 # Task features: 2 (task types) + 1 (source node ID) = 3
-# Platform features: 5 (platform types) + 2 (replica flags) = 7 (old)
+# Platform features: 5 (platform types) + 2 (replica flags) + 1 (queue length) = 8
 task_feature_dim = 3
-platform_feature_dim = 7
+platform_feature_dim = 8  # Updated: added queue_length feature
 
 model = TaskPlacementGNN(
     task_feature_dim=task_feature_dim,

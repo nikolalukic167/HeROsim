@@ -196,6 +196,8 @@ src/notebooks/new/wandb
 simulation_data/gnn_datasets/
 simulation_data/initial_results_simple/
 simulation_data/artifacts/
+simulation_data/results/
+simulation_data/archive_results/
 
 # gnn model
 src/notebooks/old/best_gnn_placement_model.pt

@@ -91,6 +91,7 @@ class Orchestrator:
 
         self.gateway: Process
         self.monitor: Process
+        self.models = models  # Store models for scheduler access
         if models is not None and isinstance(models, dict) and len(models) > 0:
             self.autoscaler = autoscaler(self.env, self.mutex, self.data, self.policy, models)
         elif models is not None and device_type_mapping is not None:
@@ -563,10 +564,40 @@ class Orchestrator:
         print(f"[ {self.env.now} ] Gateway: All {len(self.task_archive)} tasks from {len(self.application_archive)} applications have been dispatched")
         logging.info(f"[ {self.env.now} ] Gateway: All workload events processed, waiting for task completion")
         
+        # Filter out internal tasks (warmup tasks) - they should not block completion
+        # Also only wait for tasks that have been dispatched (have a dispatched_time)
+        # Tasks that are never dispatched (e.g., if workflow_process fails) should not block completion
+        real_tasks = [
+            task for task in self.task_archive 
+            if not getattr(task, 'is_internal', False) and task.dispatched_time is not None
+        ]
+        internal_tasks = [task for task in self.task_archive if getattr(task, 'is_internal', False)]
+        undispatched_tasks = [
+            task for task in self.task_archive 
+            if not getattr(task, 'is_internal', False) and task.dispatched_time is None
+        ]
+        
+        print(f"[ {self.env.now} ] Gateway: Waiting for {len(real_tasks)} dispatched real tasks to complete")
+        print(f"[ {self.env.now} ] Gateway: Excluding {len(internal_tasks)} internal tasks and {len(undispatched_tasks)} undispatched tasks")
+        
+        if undispatched_tasks:
+            print(f"[ {self.env.now} ] Gateway: WARNING - {len(undispatched_tasks)} tasks were never dispatched: {[f'{t.id}({t.type['name']})' for t in undispatched_tasks[:10]]}")
+        
+        # Log task status for debugging
+        pending_tasks = [task for task in real_tasks if not task.done.triggered]
+        completed_tasks = [task for task in real_tasks if task.done.triggered]
+        print(f"[ {self.env.now} ] Gateway: Task status - {len(completed_tasks)} completed, {len(pending_tasks)} pending")
+        if pending_tasks:
+            print(f"[ {self.env.now} ] Gateway: Pending tasks: {[f'{t.id}({t.type['name']})' for t in pending_tasks[:10]]}")
+            print(f"[ {self.env.now} ] Gateway: Pending tasks: {[{'id': t.id, 'type': t.type['name'], 'scheduled': t.scheduled.triggered, 'arrived': t.arrived.triggered, 'started': t.started.triggered, 'done': t.done.triggered, 'failed': getattr(t, 'failed', False)} for t in pending_tasks[:10]]}")
+        
         # Simulation ends when:
         #  - all platforms are released
-        #  - all tasks are done
-        yield self.env.all_of([task.done for task in self.task_archive])
+        #  - all dispatched real tasks are done (internal and undispatched tasks excluded)
+        if real_tasks:
+            yield self.env.all_of([task.done for task in real_tasks])
+        else:
+            print(f"[ {self.env.now} ] Gateway: No dispatched tasks to wait for")
         
         # End simulation
         # Capture final system state

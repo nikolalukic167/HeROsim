@@ -22,13 +22,13 @@ from src.placement.model import SchedulerState, SystemState, TimeSeries
 
 
 @dataclass
-class GNNSchedulerState(SchedulerState):
+class KnativeSchedulerState(SchedulerState):
     average_contention: Dict[str, Dict[Tuple[int, int], float]]
     panic_contention: Dict[str, Dict[Tuple[int, int], float]]
 
 
 @dataclass
-class GNNSystemState(SystemState):
-    scheduler_state: GNNSchedulerState
+class KnativeSystemState(SystemState):
+    scheduler_state: KnativeSchedulerState
     tasks: List[Task]
     time_series: TimeSeries

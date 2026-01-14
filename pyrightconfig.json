@@ -1,0 +1,17 @@
+{
+    "exclude": [
+        "**/node_modules",
+        "**/__pycache__",
+        "**/wandb",
+        ".venv",
+        "venv",
+        ".git",
+        "build",
+        "dist",
+        "chart",
+        "logs",
+        "data",
+        "simulation_data",
+        "src/notebooks/old"
+    ]
+}

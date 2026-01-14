@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-Analyze knative_network placements against brute-force optimal placements.
+Analyze scheduler placements against brute-force optimal placements.
 
 1. Check if placements match any in placements.jsonl and compare RTTs
 2. Verify placement correctness (network connectivity, replica matching, queue occupancy)
 3. Calculate regret and other stats vs optimal placement
 
 Usage:
-    python analyze_placements.py                           # Analyze all datasets
+    python analyze_placements.py                           # Analyze knative (default)
     python analyze_placements.py <datasets_base>           # Analyze all ds_* in directory
     python analyze_placements.py <ds_XXXXX>                # Analyze single dataset
     python analyze_placements.py --json <datasets_base>    # Output JSON summary
+    python analyze_placements.py --gnn <datasets_base>     # Analyze GNN placements
 """
 
 import json
@@ -487,12 +488,21 @@ def calculate_regret_stats(
     return optimal_rtt, regret, regret_percent, rank, len(bruteforce_placements)
 
 
-def analyze_dataset(dataset_dir: Path, quiet: bool = False) -> Optional[AnalysisResult]:
-    """Analyze a single dataset."""
-    # Try both filenames (unique version first, then regular)
-    captured_file = dataset_dir / "system_state_captured_unique.json"
-    # if not captured_file.exists():
-        # captured_file = dataset_dir / "system_state_captured.json"
+def analyze_dataset(dataset_dir: Path, quiet: bool = False, scheduler_type: str = "knative") -> Optional[AnalysisResult]:
+    """Analyze a single dataset.
+    
+    Args:
+        dataset_dir: Path to the dataset directory
+        quiet: If True, suppress skip messages
+        scheduler_type: "knative" or "gnn" - determines which system_state file to use
+    """
+    # Select the appropriate system state file based on scheduler type
+    if scheduler_type == "gnn":
+        captured_file = dataset_dir / "system_state_gnn.json"
+    else:
+        # Default to knative (unique version)
+        captured_file = dataset_dir / "system_state_captured_unique.json"
+    
     placements_file = dataset_dir / "placements" / "placements.jsonl"
     infra_file = dataset_dir / "infrastructure.json"
     space_file = dataset_dir / "space_with_network.json"
@@ -500,7 +510,7 @@ def analyze_dataset(dataset_dir: Path, quiet: bool = False) -> Optional[Analysis
     # Check required files
     if not captured_file.exists():
         if not quiet:
-            print(f"  Skipping {dataset_dir.name}: No system_state_captured.json", file=sys.stderr)
+            print(f"  Skipping {dataset_dir.name}: No {captured_file.name}", file=sys.stderr)
         return None
     if not placements_file.exists():
         if not quiet:
@@ -786,6 +796,9 @@ def main():
     # Parse arguments
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     json_output = '--json' in sys.argv
+    gnn_mode = '--gnn' in sys.argv
+    
+    scheduler_type = "gnn" if gnn_mode else "knative"
     
     if len(args) < 1:
         datasets_base = Path("/root/projects/my-herosim/simulation_data/artifacts/run2000/gnn_datasets")
@@ -800,9 +813,9 @@ def main():
     if datasets_base.name.startswith('ds_'):
         # Single dataset mode
         if not json_output:
-            print(f"Analyzing single dataset: {datasets_base.name}")
+            print(f"Analyzing single dataset: {datasets_base.name} (scheduler: {scheduler_type})")
             print("=" * 80)
-        result = analyze_dataset(datasets_base)
+        result = analyze_dataset(datasets_base, scheduler_type=scheduler_type)
         if result:
             if json_output:
                 print(json.dumps(asdict(result), indent=2))
@@ -830,14 +843,14 @@ def main():
         sys.exit(1)
     
     if not json_output:
-        print(f"Found {len(ds_dirs)} datasets to analyze")
+        print(f"Found {len(ds_dirs)} datasets to analyze (scheduler: {scheduler_type})")
         print("=" * 80)
     
     results = []
     for ds_dir in ds_dirs:
         if not json_output:
             print(f"\n[{ds_dir.name}]")
-        result = analyze_dataset(ds_dir, quiet=json_output)
+        result = analyze_dataset(ds_dir, quiet=json_output, scheduler_type=scheduler_type)
         if result:
             results.append(result)
             

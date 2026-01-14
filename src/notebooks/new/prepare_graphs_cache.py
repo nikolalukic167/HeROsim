@@ -263,13 +263,13 @@ def load_all_datasets(base_dir: Path, require_queue_data: bool = True) -> Dict[s
 def _parse_jsonl_file_to_dict(jsonl_path: Path) -> Dict[Tuple[str, Tuple[Tuple[int, int], ...]], float]:
     """Parse a single JSONL file and return dict of (dataset_id, combo) -> rtt."""
     results = {}
-    try:
-        dataset_id = jsonl_path.parent.parent.name
-        with open(jsonl_path, 'r') as f:
-            for line in f:
+        try:
+            dataset_id = jsonl_path.parent.parent.name
+            with open(jsonl_path, 'r') as f:
+                for line in f:
                 line = line.strip()
                 if not line:
-                    continue
+                        continue
                 
                 try:
                     data = json.loads(line)
@@ -295,11 +295,11 @@ def _parse_jsonl_file_to_dict(jsonl_path: Path) -> Dict[Tuple[str, Tuple[Tuple[i
                         
                 except (json.JSONDecodeError, ValueError, KeyError, IndexError):
                     continue
-    except Exception:
-        pass
+        except Exception:
+            pass
     
-    return results
-
+        return results
+    
 
 def build_and_save_rtt_hash_table_chunked(
     base_dir: Path, 

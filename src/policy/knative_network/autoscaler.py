@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import math
 
-from typing import Set, Tuple, TYPE_CHECKING, List
+from typing import Set, Tuple, TYPE_CHECKING, List, Optional
 
 from src.policy.knative.model import KnativeSchedulerState, KnativeSystemState
 
@@ -123,10 +123,83 @@ class KnativeAutoscaler(Autoscaler):
 
         return concurrency_results
 
-    def create_first_replica(self, system_state: SystemState, task_type: TaskType):
-        # Knative will allocate a new CPU replica
+    def create_first_replica(self, system_state: SystemState, task_type: TaskType, source_node_name: Optional[str] = None):
+        """
+        Create the first replica for a task type.
+        
+        Args:
+            system_state: Current system state
+            task_type: Task type to create replica for
+            source_node_name: Optional source node name to check network connectivity.
+                            If provided, only creates replicas on nodes that can reach this node.
+        """
+        # Filter available resources by network connectivity if source_node_name is provided
         available_hardware: Set[str] = set()
-        for _, platforms in system_state.available_resources.items():
+        
+        # Find source node to check its network_map
+        source_node = None
+        if source_node_name:
+            # Search through all nodes in available_resources
+            for node in system_state.available_resources.keys():
+                if node.node_name == source_node_name:
+                    source_node = node
+                    break
+            
+            # If not found, log a warning (shouldn't happen, but helps debug)
+            if source_node is None:
+                logging.warning(
+                    f"[ {self.env.now} ] ⚠️ Autoscaler: Source node {source_node_name} not found in available_resources. "
+                    f"Available nodes: {[n.node_name for n in system_state.available_resources.keys()][:5]}"
+                )
+            else:
+                logging.info(f"[ {self.env.now} ] 🔍 Autoscaler: Creating replica for {task_type['name']} from {source_node_name}, source node network_map has {len(source_node.network_map)} connections")
+        
+        # Filter available resources by network connectivity if source_node_name is provided
+        for node, platforms in system_state.available_resources.items():
+            # If source_node_name is provided, only consider nodes reachable from source
+            if source_node_name is not None:
+                is_reachable = False
+                
+                # Local placement: same node as source (always valid)
+                if node.node_name == source_node_name:
+                    is_reachable = True
+                # Remote placement: check if source can reach target node
+                elif source_node is not None:
+                    # For a task to be placed on a node, the source must be able to reach that node
+                    # Check if target node is in source's network_map (source can reach target)
+                    if node.node_name in source_node.network_map:
+                        is_reachable = True
+                    # For client nodes: can only use local resources or servers they can reach
+                    # Don't allow placing replicas on other client nodes
+                    elif source_node_name.startswith('client_node'):
+                        # Client can only reach servers in its network_map, not other clients
+                        if node.node_name.startswith('client_node'):
+                            # This is another client node - clients can't reach each other
+                            is_reachable = False
+                        else:
+                            # This is a server, but not in source's network_map - skip it
+                            is_reachable = False
+                    # For server-to-server: servers can reach each other (if not explicitly blocked)
+                    elif not source_node_name.startswith('client_node') and not node.node_name.startswith('client_node'):
+                        # Server to server - allow (servers can communicate)
+                        is_reachable = True
+                else:
+                    # Source node not found - be conservative: only allow local placement
+                    # or if source is a server, allow server-to-server
+                    if source_node_name.startswith('client_node'):
+                        # Client source but node not found - only allow local
+                        is_reachable = False
+                    elif not node.node_name.startswith('client_node'):
+                        # Server to server - allow
+                        is_reachable = True
+                    else:
+                        is_reachable = False
+                
+                if not is_reachable:
+                    # Skip unreachable nodes
+                    logging.debug(f"[ {self.env.now} ] 🔍 Autoscaler: Skipping unreachable node {node.node_name} for task from {source_node_name}")
+                    continue
+            
             for platform in platforms:
                 if (
                     # platform.type["hardware"] == "cpu"
@@ -138,6 +211,12 @@ class KnativeAutoscaler(Autoscaler):
 
         stop = None
         # FIXME: What if no available hardware?
+        if not available_hardware:
+            logging.warning(f"[ {self.env.now} ] ⚠️ Autoscaler: No available hardware for {task_type['name']} from {source_node_name}")
+            if source_node_name:
+                logging.warning(f"[ {self.env.now} ]   Source node {source_node_name} network_map: {list(source_node.network_map.keys())[:5] if source_node else 'N/A'}")
+        else:
+            logging.info(f"[ {self.env.now} ] 🔍 Autoscaler: Found {len(available_hardware)} available hardware types for {task_type['name']}: {list(available_hardware)}")
         for platform_name in available_hardware:
             stop = yield self.env.process(
                 self.scale_up(

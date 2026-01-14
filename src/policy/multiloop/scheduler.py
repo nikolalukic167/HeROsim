@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 from timeit import default_timer
-from typing import Generator, Set, Tuple, TYPE_CHECKING, List, Dict, Any, Optional
+from typing import Generator, Set, Tuple, TYPE_CHECKING, List, Dict, Any, Optional, Union
 
 if TYPE_CHECKING:
     from src.placement.infrastructure import Node, Platform, Task
@@ -31,7 +31,9 @@ class MultiLoopScheduler(Scheduler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Get batch size from policy or use default
-        self.batch_size = getattr(self.policy, 'batch_size', 5)  # Process 5 tasks at once by default
+        # NOTE: batch_size > 1 causes deadlock when multiple tasks need new replicas
+        # TODO: Fix batch processing to properly handle replica creation
+        self.batch_size = getattr(self.policy, 'batch_size', 1)  # Single task for now
         self.batch_timeout = getattr(self.policy, 'batch_timeout', 0.1)  # Wait up to 0.1 seconds to fill batch
 
     def scheduler_process(self) -> Generator:
@@ -60,25 +62,47 @@ class MultiLoopScheduler(Scheduler):
             yield self.env.process(self._process_task_batch(batch_tasks))
 
     def _collect_task_batch(self) -> Generator[Any, Any, List[Task]]:
-        """Collect a batch of tasks that are ready for scheduling"""
-        batch = []
+        """Collect a batch of tasks that are ready for scheduling.
+        
+        Uses a timeout-based approach to allow partial batches:
+        1. Wait indefinitely for the first task
+        2. Wait up to batch_timeout for additional tasks
+        3. Return whatever tasks we've collected (1 to batch_size)
+        """
+        batch: List[Task] = []
+        
+        def task_filter(queued_task: Task) -> bool:
+            return all(dependency.finished for dependency in queued_task.dependencies)
         
         print(f"[ {self.env.now} ] DEBUG: Starting batch collection (size={self.batch_size})")
         
-        # Try to get up to batch_size tasks
-        for i in range(self.batch_size):
-            try:
-                # Try to get a task (this will block until a task is available)
-                task: Task = yield self.tasks.get(
-                    lambda queued_task: all(
-                        dependency.finished for dependency in queued_task.dependencies
-                    )
-                )
+        # First task: wait indefinitely (blocking is expected)
+        task: Task = yield self.tasks.get(task_filter)
+        batch.append(task)
+        print(f"[ {self.env.now} ] DEBUG: Got first task {task.id}")
+        
+        # Set deadline for collecting rest of batch
+        batch_deadline = self.env.now + self.batch_timeout
+        
+        # Collect remaining tasks with timeout
+        while len(batch) < self.batch_size:
+            remaining_time = batch_deadline - self.env.now
+            if remaining_time <= 0:
+                print(f"[ {self.env.now} ] DEBUG: Batch timeout reached with {len(batch)} tasks")
+                break
+            
+            # Race between getting a task and timeout
+            get_event = self.tasks.get(task_filter)
+            timeout_event = self.env.timeout(remaining_time)
+            result: Union[Task, None] = yield get_event | timeout_event
+            
+            if get_event.triggered and get_event.ok:
+                task = get_event.value
                 batch.append(task)
                 print(f"[ {self.env.now} ] DEBUG: Added task {task.id} to batch (size={len(batch)})")
-            except:
-                # No more tasks available
-                print(f"[ {self.env.now} ] DEBUG: No more tasks available after {len(batch)} tasks")
+            else:
+                # Timeout triggered - stop collecting
+                print(f"[ {self.env.now} ] DEBUG: Timeout waiting for more tasks, batch size={len(batch)}")
                 break
         
         print(f"[ {self.env.now} ] DEBUG: Batch collection complete, returning {len(batch)} tasks")

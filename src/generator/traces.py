@@ -134,7 +134,7 @@ def generate_time_series(
     if config and 'nodes' in config and 'client_nodes' in config['nodes']:
         n_clients = config['nodes']['client_nodes']['count']
     else:
-        n_clients = 30  # Default fallback
+        n_clients = 10  # Default fallback
     
     client_ids = []
     # Generate Poisson process arrivals
@@ -159,6 +159,9 @@ def generate_time_series(
 
     else:
         # todo: nikola map arrival time to clients
+        # todo: have two specified distributions for the client nodes:
+        # one for the client nodes and one for all clients
+        # that way we can model congestion on specific clients and not just the average
         arrivals_with_clients = []
         for n in range(n_clients):
             client_arrivals = poisson_process(rps + random.randint(-5, 5), duration_time)

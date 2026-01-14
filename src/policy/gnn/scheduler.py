@@ -1,32 +1,22 @@
 """
-Copyright 2024 b<>com
+GNN-based Scheduler for Task-to-Platform Placement
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+This scheduler uses a trained GNN model to make placement decisions.
+It processes all tasks in a batch together (single forward pass) and
+uses a greedy decoder to ensure unique placements.
 """
 
 from __future__ import annotations
 
-import sys
-import os
-from typing import Set, Tuple, TYPE_CHECKING, Generator, Dict, List, Any, Optional
 import logging
-import time
-from collections import defaultdict
-import random
 import json
-import pickle
-from datetime import datetime
+from timeit import default_timer
+from typing import Generator, List, Optional, Set, Tuple, TYPE_CHECKING, Dict, Any
+
+import torch
 import numpy as np
+from torch_geometric.data import Data
+from torch_geometric.utils import to_undirected
 
 if TYPE_CHECKING:
     from src.placement.infrastructure import Node, Platform, Task
@@ -34,699 +24,688 @@ if TYPE_CHECKING:
 from src.placement.model import SystemState
 from src.placement.scheduler import Scheduler
 
-# GNN-specific imports
-import torch
-import torch.nn.functional as F
-from torch_geometric.nn import GCNConv, BatchNorm, GATConv
-from torch_geometric.data import Data
+# Task-platform compatibility (same as training)
+TASK_PLATFORM_COMPATIBILITY = {
+    'dnn1': ['rpiCpu', 'xavierGpu', 'xavierCpu', 'pynqFpga'],
+    'dnn2': ['rpiCpu', 'xavierGpu', 'xavierCpu']
+}
 
+# Queue normalization constant (same as training)
+QUEUE_NORM_FACTOR = 10.0
 
-# Model configuration class (matching notebook)
-from dataclasses import dataclass
-
-@dataclass
-class ModelConfig:
-    """Configuration for the WRR-based GNN model"""
-    # Model architecture
-    hidden_dim: int = 128
-    num_layers: int = 4
-    dropout: float = 0.2
-    attention_heads: int = 4
-    
-    # Training
-    learning_rate: float = 0.001
-    batch_size: int = 32
-    num_epochs: int = 50
-    patience: int = 15
-    min_delta: float = 1e-4
-    
-    # WRR-specific configuration
-    use_composite_score: bool = True
-    score_normalization: str = 'sigmoid'
-    
-    # Composite score weights
-    weight_latency: float = 0.4
-    weight_queue: float = 0.25
-    weight_cold_start: float = 0.15
-    weight_energy: float = 0.1
-    weight_utilization: float = 0.1
-    
-    # Data processing
-    normalize_features: bool = True
-    num_physical_nodes: int = 10
 
 class GNNScheduler(Scheduler):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.experiment_mode = "knative"  # Options: "local", "offload", "wrr-gnn", "lowest-time-on-platform", "knative", "gnn"
-        self.system_state_results: List[Dict[str, Any]] = []
-
-        # WRR-specific configuration
-        self.gnn_update_interval = 10.0  # Update GNN weights every 10 seconds
-        self.weight_cache_timeout = 30.0  # Cache timeout for weights
-        self.last_gnn_update = 0.0
-        self.replica_weights = {}  # Cache for replica weights
-        self.wrr_counters = defaultdict(int)  # Round-robin counters
-
-        # GNN model components
+        # NOTE: batch_size > 1 causes deadlock when multiple tasks need new replicas
+        # This is because create_first_replica doesn't complete replica creation synchronously
+        # TODO: Fix batch processing to wait for replica availability before processing next task
+        self.batch_size = 1  # Single task processing for now (batching causes issues)
+        self.batch_timeout = 0.1
+        
+        # GNN model will be set via models dict from orchestrator
         self.gnn_model = None
-        if self.experiment_mode == "wrr-gnn" or self.experiment_mode == "gnn":
-            self._load_gnn_components()
+        self.device = None
+        self.task_types_data = None
+        self.dataset_id = None
 
-        # Simple replica change tracking
-        self.last_replica_change_time = 0.0
-        self.current_replicas = {}  # Track current replicas per task type
+    def set_models(self, models: Dict[str, Any]):
+        """Set the GNN model and related data from executor."""
+        if models:
+            self.gnn_model = models.get('gnn_model')
+            self.task_types_data = models.get('task_types_data')
+            self.dataset_id = models.get('dataset_id')
+            if self.gnn_model is not None:
+                self.device = next(self.gnn_model.parameters()).device
+                print(f"[GNN Scheduler] Model loaded on {self.device}")
 
-    def _load_gnn_components(self):
-        """Load WRR GNN model"""
-        try:
-            # Load WRR GNN model
-            model_path = '/root/projects/my-herosim/src/notebooks/models/wrr_gnn_final.pt'
-            if os.path.exists(model_path):
-                # Note: Using weights_only=False because checkpoint contains ModelConfig class
-                # This is safe since we trust our own model file
-                checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
-                self.gnn_model = self._build_wrr_gnn_model(checkpoint)
-                print("WRR GNN model loaded successfully")
-            else:
-                print(f"Warning: WRR GNN model not found at {model_path}")
-        except Exception as e:
-            print(f"Warning: Failed to load WRR GNN model: {e}")
-
-    def _build_wrr_gnn_model(self, checkpoint):
-        """Build WRR GNN model from checkpoint"""
-        # Use the config from the checkpoint (saved during training)
-        config = checkpoint.get('config', None)
-        if config is None:
-            # Fallback to default config if not in checkpoint
-            config = ModelConfig()
-        
-        class WRRNodeBasedGNN(torch.nn.Module):
-            """Node-based GNN that predicts WRR composite scores for physical nodes"""
-            
-            def __init__(self, node_feature_dim=25, edge_feature_dim=2):  # Updated to 25 features including client node flag
-                super().__init__()
-                self.config = config
-                self.node_feature_dim = node_feature_dim
-                self.edge_feature_dim = edge_feature_dim
-                
-                # Input encoders
-                self.node_encoder = torch.nn.Sequential(
-                    torch.nn.Linear(node_feature_dim, config.hidden_dim),
-                    torch.nn.BatchNorm1d(config.hidden_dim),
-                    torch.nn.ReLU(),
-                    torch.nn.Dropout(config.dropout)
-                )
-                
-                self.edge_encoder = torch.nn.Sequential(
-                    torch.nn.Linear(edge_feature_dim, config.hidden_dim),
-                    torch.nn.BatchNorm1d(config.hidden_dim),
-                    torch.nn.ReLU()
-                )
-                
-                # Graph convolution layers
-                self.conv_layers = torch.nn.ModuleList()
-                self.batch_norms = torch.nn.ModuleList()
-                
-                for i in range(config.num_layers):
-                    self.conv_layers.append(
-                        GATConv(
-                            config.hidden_dim, 
-                            config.hidden_dim // config.attention_heads,
-                            heads=config.attention_heads, 
-                            dropout=config.dropout,
-                            edge_dim=config.hidden_dim
-                        )
-                    )
-                    self.batch_norms.append(BatchNorm(config.hidden_dim))
-                
-                # Output layers - predict WRR composite scores
-                self.wrr_score_predictor = torch.nn.Sequential(
-                    torch.nn.Linear(config.hidden_dim, config.hidden_dim // 2),
-                    torch.nn.ReLU(),
-                    torch.nn.Dropout(config.dropout),
-                    torch.nn.Linear(config.hidden_dim // 2, 1),
-                    torch.nn.Sigmoid() if config.score_normalization == 'sigmoid' else torch.nn.Identity()
-                )
-            
-            def forward(self, x, edge_index, edge_attr):
-                # Encode inputs
-                x = self.node_encoder(x)
-                edge_attr = self.edge_encoder(edge_attr)
-                
-                # Apply graph convolutions with residual connections
-                for i, (conv, norm) in enumerate(zip(self.conv_layers, self.batch_norms)):
-                    x_new = conv(x, edge_index, edge_attr)
-                    x_new = norm(x_new)
-                    x_new = F.relu(x_new)
-                    x_new = F.dropout(x_new, p=self.config.dropout, training=self.training)
-                    
-                    # Residual connection
-                    if x.size(-1) == x_new.size(-1):
-                        x = x + x_new
-                    else:
-                        x = x_new
-                
-                # Predict WRR composite scores
-                wrr_score_pred = self.wrr_score_predictor(x)
-                
-                return {
-                    'wrr_score': wrr_score_pred.squeeze(-1)
-                }
-  
-        model = WRRNodeBasedGNN()
-        model.load_state_dict(checkpoint['model_state_dict'])
-        model.eval()
-        return model
-
-    def _should_update_gnn_weights(self) -> bool:
-        """Check if GNN weights should be updated"""
-        current_time = time.time()
-        time_since_last_update = current_time - self.last_gnn_update
-        
-        # Update if interval has passed or weights are expired
-        return (time_since_last_update >= self.gnn_update_interval or 
-                time_since_last_update >= self.weight_cache_timeout or
-                not self.replica_weights)
-
-    def _update_gnn_weights(self, system_state: SystemState, task: Task):
-        """Update replica weights using GNN predictions"""
-        try:
-            print(f"[WRR-GNN] Updating replica weights using GNN...")
-            
-            # Extract features for all physical nodes
-            result = self._extract_wrr_gnn_features(system_state, task)
-            if result[0] is None:
-                print(f"[WRR-GNN] Failed to extract features for weight update")
-                return
-            
-            x, edge_index, edge_attr, node_mapping, construction_time = result
-            
-            # Run GNN inference
-            inference_start = time.time()
-            with torch.no_grad():
-                outputs = self.gnn_model(x, edge_index, edge_attr)
-                composite_scores = outputs['wrr_score']
-            inference_time = time.time() - inference_start
-            
-            # Convert scores to weights and cache them
-            self.replica_weights.clear()
-            
-            # Normalize scores to create weights (higher score = higher weight)
-            if len(composite_scores.shape) == 0:
-                composite_scores = composite_scores.unsqueeze(0)
-            
-            scores_np = composite_scores.cpu().numpy()
-            # Ensure weights are positive and sum to 1
-            weights = np.exp(scores_np - np.max(scores_np))  # Softmax-like normalization
-            weights = weights / np.sum(weights)
-            
-            # Cache weights for each node
-            for i, (node_name, _) in enumerate(node_mapping):
-                self.replica_weights[node_name] = float(weights[i])
-            
-            self.last_gnn_update = time.time()
-            
-            print(f"[WRR-GNN] Updated weights for {len(node_mapping)} nodes")
-            print(f"[WRR-GNN] Weight range: {weights.min():.4f} - {weights.max():.4f}")
-            print(f"[WRR-GNN] Inference time: {inference_time:.4f}s")
-            
-        except Exception as e:
-            print(f"[WRR-GNN] Error updating weights: {e}")
-
-    def _select_replica_weighted_round_robin(self, replicas: Set[Tuple[Node, Platform]], task: Task) -> Optional[Tuple[Node, Platform]]:
-        """Select replica using weighted round-robin based on cached weights"""
-        if not replicas:
-            return None
-        
-        # Group replicas by node
-        node_replicas = defaultdict(list)
-        for node, platform in replicas:
-            node_replicas[node.node_name].append((node, platform))
-        
-        # Get weights for available nodes
-        weighted_nodes = []
-        total_weight = 0.0
-        
-        for node_name, replica_list in node_replicas.items():
-            weight = self.replica_weights.get(node_name, 1.0)  # Default weight if not cached
-            if weight > 0:
-                weighted_nodes.append((node_name, replica_list, weight))
-                total_weight += weight
-        
-        if not weighted_nodes:
-            # Fallback to random selection
-            return random.choice(list(replicas))
-        
-        # Weighted round-robin selection
-        # Use accumulative probability distribution
-        random_value = random.random() * total_weight
-        accumulative_weight = 0.0
-        
-        for node_name, replica_list, weight in weighted_nodes:
-            accumulative_weight += weight
-            if random_value <= accumulative_weight:
-                # Selected this node, now pick replica with shortest queue
-                best_replica = min(replica_list, key=lambda x: len(x[1].queue.items))
-                
-                # print(f"[WRR-GNN] Selected node {node_name} (weight: {weight:.4f}, queue: {len(best_replica[1].queue.items)})")
-                return best_replica
-        
-        # Fallback (should not reach here)
-        return weighted_nodes[-1][1][0]  # Return first replica of last node
-
-    def _is_client_node(self, node_name: str) -> bool:
-        """Check if a node is a client node based on its name."""
-        return node_name.startswith('client_node')
-
-    def _extract_wrr_gnn_features(self, system_state: SystemState, task: Task) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, List, float]:
-        """Extract features for WRR GNN using physical node approach with sparse connectivity"""
-        construction_start = time.time()
-        
-        try:
-            # Get all physical nodes from the scheduler's nodes FilterStore (all nodes in system)
-            all_nodes = list(self.nodes.items)
-            node_names = [node.node_name for node in all_nodes]
-            
-            # Sort node names to ensure consistent ordering
-            node_names.sort()
-            
-            node_features = []
-            node_mapping = []
-            
-            # Extract features for each physical node
-            for node_name in node_names:
-                features = self._extract_physical_node_features_from_system(
-                    node_name, task, system_state
-                )
-                if features is not None:
-                    node_features.append(features)
-                    node_mapping.append((node_name, None))  # No specific platform mapping
-                else:
-                    # Use default features if extraction fails
-                    node_features.append([0.0] * 25)  # 25 default features including client node flag
-                    node_mapping.append((node_name, None))
-
-            if not node_features:
-                print(f"[WRR-GNN] Failed to extract features for any physical node")
-                return None, None, None, [], 0.0
-
-            # Create sparse network topology edges based on actual connectivity
-            edge_index = []
-            edge_features = []
-            
-            for i in range(len(node_names)):
-                for j in range(len(node_names)):
-                    if i != j:
-                        node_i_name = node_names[i]
-                        node_j_name = node_names[j]
-                        
-                        # Find the actual node objects
-                        node_i = None
-                        for node in all_nodes:
-                            if node.node_name == node_i_name:
-                                node_i = node
-                                break
-                        
-                        if node_i and node_i.network_map:
-                            # Check if there's a network connection between these nodes
-                            if node_j_name in node_i.network_map:
-                                # Connection exists - use actual latency
-                                network_latency = node_i.network_map[node_j_name]
-                                edge_index.append([i, j])
-                                edge_features.append([
-                                    network_latency,
-                                    1.0 if node_i_name == node_j_name else 0.0  # Locality indicator
-                                ])
-
-            # Convert to tensors
-            x = torch.tensor(node_features, dtype=torch.float)
-            edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous() if edge_index else torch.empty((2, 0), dtype=torch.long)
-            edge_attr = torch.tensor(edge_features, dtype=torch.float) if edge_features else torch.empty((0, 2), dtype=torch.float)
-
-            construction_time = time.time() - construction_start
-            
-            return x, edge_index, edge_attr, node_mapping, construction_time
-
-        except Exception as e:
-            print(f"[WRR-GNN] Error in WRR feature extraction: {e}")
-            construction_time = time.time() - construction_start
-            return None, None, None, [], construction_time
-
-    def _extract_physical_node_features_from_system(self, node_name: str, task: Task, 
-                                                   system_state: SystemState) -> Optional[List[float]]:
-        """Extract features for a physical node using system state data"""
-        try:
-            # Find the node in all nodes (from scheduler's nodes FilterStore)
-            target_node = None
-            for node in self.nodes.items:
-                if node.node_name == node_name:
-                    target_node = node
-                    break
-            
-            if not target_node:
-                print(f"[WRR-GNN] Node {node_name} not found in system state")
-                return None
-            
-            # Get task type data from simulation data
-            task_type_name = task.type["name"]
-            if task_type_name not in self.data.task_types:
-                print(f"[WRR-GNN] Task type {task_type_name} not found in task types data")
-                return None
-            
-            task_type_data = self.data.task_types[task_type_name]
-            
-            # Constants
-            PLATFORM_TYPES = ['rpiCpu', 'xavierCpu', 'xavierGpu', 'xavierDla', 'pynqFpga']
-            HARDWARE_TYPES = ['cpu', 'gpu', 'dla', 'fpga']
-            TASK_TYPES = ['dnn1', 'dnn2']
-            
-            # 1. NODE MEMORY CHARACTERISTICS (2 features)
-            node_memory = float(target_node.memory)
-            node_memory_tier = 0 if node_memory <= 1 else (1 if node_memory <= 8 else 2)
-            
-            # 2. PLATFORM COUNTS (5 features)
-            platform_counts = defaultdict(int)
-            for platform in target_node.platforms.items:
-                platform_counts[platform.type["shortName"]] += 1
-            
-            rpi_cpu_count = platform_counts.get('rpiCpu', 0)
-            xavier_cpu_count = platform_counts.get('xavierCpu', 0)
-            xavier_gpu_count = platform_counts.get('xavierGpu', 0)
-            xavier_dla_count = platform_counts.get('xavierDla', 0)
-            pynq_fpga_count = platform_counts.get('pynqFpga', 0)
-            
-            # 3. TASK EXECUTION PERFORMANCE (6 features)
-            available_platforms = [p for p in task_type_data['platforms'] if platform_counts.get(p, 0) > 0]
-            if available_platforms:
-                execution_times = [task_type_data['executionTime'][p] for p in available_platforms]
-                min_execution_time = min(execution_times)
-                max_execution_time = max(execution_times)
-                avg_execution_time = sum(execution_times) / len(execution_times)
-                
-                cold_starts = [task_type_data['coldStartDuration'][p] for p in available_platforms]
-                min_cold_start = min(cold_starts)
-                max_cold_start = max(cold_starts)
-                avg_cold_start = sum(cold_starts) / len(cold_starts)
-            else:
-                # No compatible platforms - use penalty values
-                min_execution_time = max_execution_time = avg_execution_time = 10.0
-                min_cold_start = max_cold_start = avg_cold_start = 10.0
-            
-            # 4. TASK I/O CHARACTERISTICS (4 features)
-            app_type = 'nofs-' + task_type_name
-            state_size_data = task_type_data['stateSize'].get(app_type, {})
-            task_input_size = state_size_data.get('input', 153600) / 1000  # Convert to KB
-            task_output_size = state_size_data.get('output', 8000) / 1000
-            
-            # Storage performance (simplified)
-            storage_read_speed = 294.0  # Default eMMC read speed
-            storage_write_speed = 82.0  # Default eMMC write speed
-            
-            # 5. TASK-PLATFORM MEMORY COMPATIBILITY (2 features)
-            if available_platforms:
-                memory_reqs = [task_type_data['memoryRequirements'][p] for p in available_platforms]
-                min_memory_required = min(memory_reqs)
-                max_memory_required = max(memory_reqs)
-            else:
-                min_memory_required = max_memory_required = 1.0
-            
-            # 6. CATEGORICAL ENCODINGS (6 features)
-            # Task type encoding (2 features)
-            task_type_encoding = [1 if task_type_name == 'dnn1' else 0, 1 if task_type_name == 'dnn2' else 0]
-            
-            # Node type encoding (4 features) - including client node flag
-            is_client_node = self._is_client_node(node_name)
-            node_type_encoding = [
-                1 if 'rpi' in node_name.lower() else 0,
-                1 if 'xavier' in node_name.lower() or any('xavier' in p for p in platform_counts.keys()) else 0,
-                1 if 'pynq' in node_name.lower() else 0,
-                1 if is_client_node else 0  # Client node flag
-            ]
-            
-            # COMBINE ALL FEATURES (25 total)
-            node_features = [
-                # Memory characteristics (2) 
-                node_memory, node_memory_tier,
-                # Platform counts (5)
-                rpi_cpu_count, xavier_cpu_count, xavier_gpu_count, xavier_dla_count, pynq_fpga_count,
-                # Execution performance (6)
-                min_execution_time, max_execution_time, avg_execution_time,
-                min_cold_start, max_cold_start, avg_cold_start,
-                # I/O characteristics (4)
-                task_input_size, task_output_size, storage_read_speed, storage_write_speed,
-                # Memory compatibility (2)
-                min_memory_required, max_memory_required,
-                # Categorical encodings (5)
-                *task_type_encoding, *node_type_encoding
-            ]
-            
-            return node_features
-
-        except Exception as e:
-            print(f"[WRR-GNN] Failed to extract features for {node_name}: {e}")
-            return None
-
-    def _knative_fallback(self, replicas: Set[Tuple[Node, Platform]], task: Task) -> Optional[Tuple[Node, Platform]]:
-        """Simple knative-style fallback: pick replica with shortest queue"""
-        if replicas:
-            best_replica = min(replicas, key=lambda couple: len(couple[1].queue.items))
-            task.execution_node = best_replica[0].node_name
-            task.execution_platform = str(best_replica[1].id)
-            print(f"[FALLBACK] Task {task.id} placed on node {task.execution_node} (shortest queue)")
-            return best_replica
-        # return None
-    
-    def _filter_replicas_by_connectivity(self, replicas: Set[Tuple[Node, Platform]], task: Task, 
-                                       network_topology: Dict[str, Dict[str, float]]) -> Set[Tuple[Node, Platform]]:
-        if not replicas:
-            return set()
-
-        source_node = task.node_name
-        reachable_replicas = set()
-
-        source_node = task.node_name
-        reachable_replicas = set()
-
-        for node, platform in replicas:
-            target_node = node.node_name
-            
-            # Skip if same node (local execution)
-            if source_node == target_node:
-                reachable_replicas.add((node, platform))
-                continue
-            
-            # Prevent offloading between client nodes
-            if self._is_client_node(source_node) and self._is_client_node(target_node):
-                # print(f"[R] Skipping replica on {target_node} - client nodes cannot offload to other client nodes")
-                continue
-            
-            # Check if there's a network path from source to target
-            if source_node in network_topology and target_node in network_topology[source_node]:
-                # Network connection exists
-                reachable_replicas.add((node, platform))
-            # else:
-                # No network connection - skip this replica
-                # print(f"[R] Skipping replica on {target_node} - no network path from {source_node}")
-
-        return reachable_replicas
-
-    def placement(self, system_state: SystemState, task: Task) -> Generator[Any, Any, Optional[Tuple[Node, Platform]]]:
-        """Place a task on a suitable platform using the specified experiment mode"""
+    def scheduler_process(self) -> Generator:
         if False:
             yield
 
-        replicas: Set[Tuple[Node, Platform]] = system_state.replicas[task.type["name"]]
-        
-        # Simple replica change tracking
-        task_type = task.type["name"]
-        current_replica_set = frozenset((node.node_name, platform.id) for node, platform in replicas)
-        
-        if task_type in self.current_replicas and self.current_replicas[task_type] != current_replica_set:
-            # Replicas changed
-            time_since_change = time.time() - self.last_replica_change_time
-            print(f"[REPLICA-CHANGE] {task_type} replicas changed after {time_since_change:.4f}s")
-            print(f"[REPLICA-CHANGE] Old: {len(self.current_replicas[task_type])} replicas, New: {len(current_replica_set)} replicas")
-            self.last_replica_change_time = time.time()
-        
-        self.current_replicas[task_type] = current_replica_set
-        
-        # Get network topology from all nodes in the system (not just available resources)
-        network_topology = {}
-        for node in self.nodes.items:
-            network_topology[node.node_name] = node.network_map
-        
-        # Filter replicas based on network connectivity and disallow client-to-client offloading
-        time_now = time.time()
-        reachable_replicas = self._filter_replicas_by_connectivity(replicas, task, network_topology)
-        print("time needed to filter replicas: ", time.time() - time_now)
-        
-        if not reachable_replicas:
-            print(f"[R] No reachable replicas for task {task.id} from {task.node_name}")
-            # Try to create a local replica as fallback
-            try:
-                replica_result = yield self.env.process(
-                    self.autoscaler.create_first_replica_on_node(system_state, task.type, task.node_name)
-                )
-                if not isinstance(replica_result, StopIteration):
-                    task.execution_node = replica_result[0].node_name
-                    task.execution_platform = str(replica_result[1].id)
-                    print(f"[R] Created local replica for task {task.id}")
-                    return replica_result
-            except Exception as e:
-                print(f"[R] Failed to create local replica: {e}")
-                # Final fallback - use any available replica
-                if replicas:
-                    any_replica = next(iter(replicas))
-                    task.execution_node = any_replica[0].node_name
-                    task.execution_platform = str(any_replica[1].id)
-                    print(f"[R] Using any available replica as fallback")
-                    return any_replica
-                else:
-                    raise Exception("No replicas available and failed to create new replica")
-        
-        # Use filtered replicas for placement decisions
-        replicas = reachable_replicas
+        print(
+            f"[ {self.env.now} ] GNN Scheduler started with policy"
+            f" {self.policy} (batch_size={self.batch_size})"
+        )
 
-        if self.experiment_mode == "local":
-            local_replicas = []
-            for node, platform in replicas:
-                if node.node_name == task.node_name:
-                    local_replicas.append((node, platform))
-
-            if local_replicas:
-                best_local_replica = min(local_replicas, key=lambda x: len(x[1].queue.items))
-                task.execution_node = best_local_replica[0].node_name
-                task.execution_platform = str(best_local_replica[1].id)
-                print(f"[LOCAL] Task {task.id} executing locally on node {task.execution_node}")
-                return best_local_replica
-
-            # No local replica exists, Try to create a local replica
-            try:
-                replica_result = yield self.env.process(
-                    self.autoscaler.create_first_replica_on_node(system_state, task.type, task.node_name)
-                )
-                if isinstance(replica_result, StopIteration):
-                    print(f"[ERROR LOCAL] Failed to create local replica: {replica_result}")
-                else:
-                    task.execution_node = replica_result[0].node_name
-                    task.execution_platform = str(replica_result[1].id)
-                    print(f"[LOCAL] Task {task.id} ({task.type['name']}) executing on newly created local replica on node {task.execution_node}")
-                    return replica_result
-            except Exception as e:
-                print(f"[LOCAL] Exception during local replica creation: {e}")
-                # Fallback to any available platform
-                return self._knative_fallback(replicas, task)
-
-        elif self.experiment_mode == "offload":
-            # todo: implement offload only logic 
-            if replicas:
-                best_replica = min(replicas, key=lambda couple: len(couple[1].queue.items))
-                task.execution_node = best_replica[0].node_name
-                task.execution_platform = str(best_replica[1].id)
-                print(f"[OFFLOAD] Task {task.id} offloaded to node {task.execution_node}")
-                return best_replica
-        
-        elif self.experiment_mode == "wrr-gnn":
-            # WRR-GNN based placement
-            if not self.gnn_model:
-                print(f"[WRR-GNN] Model not available, falling back to knative")
-                return self._knative_fallback(replicas, task)
+        while True:
+            batch_tasks = yield self.env.process(self._collect_task_batch())
             
-            try:
-                decision_start = time.time()
-                
-                # Update GNN weights periodically
-                if self._should_update_gnn_weights():
-                    self._update_gnn_weights(system_state, task)
-                
-                # Use weighted round-robin selection based on cached weights
-                selected_replica = self._select_replica_weighted_round_robin(replicas, task)
-                
-                if selected_replica:
-                    task.execution_node = selected_replica[0].node_name
-                    task.execution_platform = str(selected_replica[1].id)
-                    
-                    decision_time = time.time() - decision_start
-                    task.gnn_decision_time = decision_time
-                    
-                    # Simulate the decision time (minimal since we're using cached weights)
-                    yield self.env.timeout(decision_time)
-                    
-                    # print(f"[WRR-GNN] Task {task.id} placed on node {task.execution_node} (decision time: {decision_time:.4f}s)")
-                    return selected_replica
-                else:
-                    print(f"[WRR-GNN] No replica selected, trying to create new replica")
-                    # Try to create a new replica
-                    try:
-                        replica_result = yield self.env.process(
-                            self.autoscaler.create_first_replica(system_state, task.type)
-                        )
-                        if not isinstance(replica_result, StopIteration):
-                            task.execution_node = replica_result[0].node_name
-                            task.execution_platform = str(replica_result[1].id)
-                            print(f"[WRR-GNN] Created new replica for task {task.id}")
-                            return replica_result
-                    except Exception as e:
-                        print(f"[WRR-GNN] Failed to create new replica: {e}")
-                        return self._knative_fallback(replicas, task)
-                        
-            except Exception as e:
-                print(f"[WRR-GNN] Error during WRR placement: {e}")
-                return self._knative_fallback(replicas, task)
+            if not batch_tasks:
+                yield self.env.timeout(0.1)
+                continue
 
-        elif self.experiment_mode == "knative":
-            # Knative-style placement: pick the replica with the shortest queue
-            if replicas:
-                best_replica = min(replicas, key=lambda couple: len(couple[1].queue.items))
-                task.execution_node = best_replica[0].node_name
-                task.execution_platform = str(best_replica[1].id)  # Use string platform ID
-                print(f"[KNATIVE] Task {task.id} placed on node {task.execution_node} platform {task.execution_platform}")
-                return best_replica
+            print(f"[ {self.env.now} ] GNN: Processing batch of {len(batch_tasks)} tasks")
+            yield self.env.process(self._process_task_batch(batch_tasks))
 
-        # elif self.experiment_mode == "lowest-time-on-platform":
-            # todo:
-
-        # If no placement found, try to create new replica
-        # todo: scale dynamically based on average queue length
-        try:
-            replica_result = yield self.env.process(
-                self.autoscaler.create_first_replica(system_state, task.type)
-            )
-            if isinstance(replica_result, StopIteration):
-                print(f"Failed to create replica: {replica_result}")
-                # Final fallback: use any available platform
-                fallback_result = self._knative_fallback(replicas, task)
-                if fallback_result:
-                    return fallback_result
-                else:
-                    print(f"No replicas available and failed to create new replica")
-                    # As last resort, pick any available replica
-                    if replicas:
-                        any_replica = next(iter(replicas))
-                        task.execution_node = any_replica[0].node_name
-                        task.execution_platform = str(any_replica[1].id)
-                        print(f"[FINAL] Using any available replica as last resort")
-                        return any_replica
-                    else:
-                        raise Exception("No replicas available and failed to create new replica")
-            print(f"XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX: \n   {replica_result}")
-            return replica_result
-        except Exception as e:
-            print(f"Exception during replica creation: {e}")
-            # Final fallback: use any available platform
-            fallback_result = self._knative_fallback(replicas, task)
-            if fallback_result:
-                return fallback_result
+    def _collect_task_batch(self) -> Generator[Any, Any, List[Task]]:
+        """
+        Collect tasks into a batch with timeout to avoid blocking.
+        
+        Strategy:
+        1. Prioritize postponed tasks (those that were previously unable to be placed)
+        2. Wait for at least one task
+        3. Wait for batch_timeout to collect more tasks
+        4. Process whatever was collected (even partial batches)
+        """
+        batch = []
+        
+        # Filter function that prioritizes postponed tasks
+        def task_filter(queued_task):
+            return all(dependency.finished for dependency in queued_task.dependencies)
+        
+        # First, try to get any postponed tasks (they've been waiting longer)
+        postponed_found = False
+        for item in list(self.tasks.items):
+            if task_filter(item) and hasattr(item, 'postponed_count') and item.postponed_count > 0:
+                # Found a postponed task - get it first
+                task = yield self.tasks.get(lambda t: t.id == item.id)
+                batch.append(task)
+                postponed_found = True
+                break
+        
+        # If no postponed tasks, wait for any task
+        if not postponed_found:
+            task: Task = yield self.tasks.get(task_filter)
+            batch.append(task)
+        
+        # Wait for batch_timeout to collect more tasks
+        batch_deadline = self.env.now + self.batch_timeout
+        
+        while len(batch) < self.batch_size:
+            remaining_time = batch_deadline - self.env.now
+            if remaining_time <= 0:
+                break
+            
+            # Check for more postponed tasks first (non-blocking)
+            found_postponed = False
+            for item in list(self.tasks.items):
+                if task_filter(item) and hasattr(item, 'postponed_count') and item.postponed_count > 0:
+                    task = yield self.tasks.get(lambda t: t.id == item.id)
+                    batch.append(task)
+                    found_postponed = True
+                    break
+            
+            if found_postponed:
+                continue
+            
+            # Race between getting a task and remaining timeout
+            get_event = self.tasks.get(task_filter)
+            timeout_event = self.env.timeout(remaining_time)
+            
+            result = yield get_event | timeout_event
+            
+            if get_event.triggered and get_event.ok:
+                batch.append(get_event.value)
             else:
-                print(f"No replicas available and exception during creation: {e}")
-                # As last resort, pick any available replica
-                if replicas:
-                    any_replica = next(iter(replicas))
-                    task.execution_node = any_replica[0].node_name
-                    task.execution_platform = str(any_replica[1].id)
-                    print(f"[FINAL] Using any available replica as last resort after exception")
-                    return any_replica
-                else:
-                    raise Exception(f"No replicas available and exception during creation: {e}")
+                break
+        
+        return batch
+
+    def _process_task_batch(self, batch_tasks: List[Task]) -> Generator:
+        print(f"[ {self.env.now} ] GNN: Processing {len(batch_tasks)} tasks in batch")
+        
+        system_state: SystemState = yield self.mutex.get()
+        
+        # Capture queue snapshots
+        full_queue_snapshot = self._capture_full_queue_snapshot()
+        batch_queue_snapshot = self._capture_batch_queue_snapshot(system_state, batch_tasks)
+        
+        # Build graph and run GNN inference
+        inference_start = default_timer()
+        
+        placements = self._gnn_inference(
+            batch_tasks, system_state, full_queue_snapshot
+        )
+        
+        inference_time = default_timer() - inference_start
+        print(f"[ {self.env.now} ] GNN inference time: {inference_time*1000:.2f}ms")
+        
+        # Track used platforms within this batch
+        used_platforms: Set[Tuple[int, int]] = set()
+        
+        for task_idx, task in enumerate(batch_tasks):
+            task_replicas = system_state.replicas.get(task.type["name"], set())
+
+            if not task_replicas:
+                logging.warning(f"[ {self.env.now} ] Scheduler did not find available replica for {task}")
+                task.postponed_count += 1
+                
+                # Limit postponements to prevent infinite loops
+                if task.postponed_count > 9999999:
+                    logging.error(f"[ {self.env.now} ] Task {task.id} postponed too many times, marking as failed")
+                    # Mark task as failed and trigger all events so task_process can complete
+                    task.finished = True
+                    task.postponed_count = 9999999  # Set to unreal number to indicate permanent failure
+                    # Trigger all events in sequence so task_process can progress to done
+                    if not task.scheduled.triggered:
+                        task.scheduled.succeed()
+                    if not task.arrived.triggered:
+                        task.arrived.succeed()
+                    if not task.started.triggered:
+                        task.started.succeed()
+                    if not task.done.triggered:
+                        task.done.succeed()
+                    continue
+                
+                yield self.tasks.put(task)
+                stop = yield self.env.process(
+                    self.autoscaler.create_first_replica(
+                        system_state, 
+                        task.type,
+                        source_node_name=task.node_name  # Pass source node to check connectivity
+                    )
+                )
+                
+                # Check if replica creation succeeded
+                if isinstance(stop, StopIteration):
+                    logging.warning(f"[ {self.env.now} ] Failed to create replica for {task.type['name']}")
+                    # If replica creation failed and we've tried many times, mark as failed
+                    if task.postponed_count > 9999999:
+                        logging.error(f"[ {self.env.now} ] Task {task.id} cannot create replica after {task.postponed_count} attempts, marking as failed")
+                        task.finished = True
+                        task.postponed_count = 9999999  # Set to unreal number to indicate permanent failure
+                        # Trigger all events in sequence so task_process can progress to done
+                        if not task.scheduled.triggered:
+                            task.scheduled.succeed()
+                        if not task.arrived.triggered:
+                            task.arrived.succeed()
+                        if not task.started.triggered:
+                            task.started.succeed()
+                        if not task.done.triggered:
+                            task.done.succeed()
+                        continue
+                
+                self.env.step()
+                continue
+
+            start = default_timer()
+
+            valid_replicas = self._get_valid_replicas(task_replicas, task)
+            
+            if not valid_replicas:
+                # Diagnostic: log why no valid replicas
+                total_replicas = len(task_replicas)
+                logging.warning(
+                    f"[ {self.env.now} ] GNN ERROR: No valid replicas for task {task.id} "
+                    f"({task.type['name']}) from {task.node_name}. "
+                    f"Total replicas for {task.type['name']}: {total_replicas}"
+                )
+                task.postponed_count += 1
+                
+                # Limit postponements to prevent infinite loops
+                if task.postponed_count > 9999999:
+                    logging.error(f"[ {self.env.now} ] Task {task.id} postponed too many times, marking as failed")
+                    # Mark task as failed and trigger all events so task_process can complete
+                    task.finished = True
+                    task.postponed_count = 9999999  # Set to unreal number to indicate permanent failure
+                    # Trigger all events in sequence so task_process can progress to done
+                    if not task.scheduled.triggered:
+                        task.scheduled.succeed()
+                    if not task.arrived.triggered:
+                        task.arrived.succeed()
+                    if not task.started.triggered:
+                        task.started.succeed()
+                    if not task.done.triggered:
+                        task.done.succeed()
+                    continue
+                
+                # Try creating a replica on a node with network connectivity
+                # This helps when replicas exist but none are reachable from the task's source node
+                yield self.tasks.put(task)
+                stop = yield self.env.process(
+                    self.autoscaler.create_first_replica(
+                        system_state, 
+                        task.type,
+                        source_node_name=task.node_name  # Pass source node to check connectivity
+                    )
+                )
+                
+                # Check if replica creation succeeded
+                if isinstance(stop, StopIteration):
+                    logging.warning(f"[ {self.env.now} ] Failed to create replica for {task.type['name']}")
+                    # If replica creation failed and we've tried many times, mark as failed
+                    if task.postponed_count > 999999:
+                        logging.error(f"[ {self.env.now} ] Task {task.id} cannot create replica after {task.postponed_count} attempts, marking as failed")
+                        task.finished = True
+                        task.postponed_count = 999999  # Set to unreal number to indicate permanent failure
+                        # Trigger all events in sequence so task_process can progress to done
+                        if not task.scheduled.triggered:
+                            task.scheduled.succeed()
+                        if not task.arrived.triggered:
+                            task.arrived.succeed()
+                        if not task.started.triggered:
+                            task.started.succeed()
+                        if not task.done.triggered:
+                            task.done.succeed()
+                        continue
+                
+                self.env.step()
+                continue
+
+            # Filter out already-used platforms
+            available_replicas = [
+                (node, plat) for node, plat in valid_replicas 
+                if (node.id, plat.id) not in used_platforms
+            ]
+            
+            # Prefer initialized replicas - they can process tasks immediately
+            # But still allow placement on uninitialized replicas (they'll wait for init)
+            initialized_replicas = [
+                (node, plat) for node, plat in available_replicas 
+                if plat.initialized.triggered
+            ]
+            
+            # Use initialized replicas if available, otherwise use any available
+            if initialized_replicas:
+                available_replicas = initialized_replicas
+            
+            if not available_replicas:
+                print(f"[ {self.env.now} ] GNN ERROR: No unique replicas left for task {task.id}")
+                task.postponed_count += 1
+                
+                # Limit postponements to prevent infinite loops
+                if task.postponed_count > 9999999:
+                    logging.error(f"[ {self.env.now} ] Task {task.id} postponed too many times, marking as failed")
+                    # Mark task as failed and trigger all events so task_process can complete
+                    task.finished = True
+                    task.postponed_count = 9999999  # Set to unreal number to indicate permanent failure
+                    # Trigger all events in sequence so task_process can progress to done
+                    if not task.scheduled.triggered:
+                        task.scheduled.succeed()
+                    if not task.arrived.triggered:
+                        task.arrived.succeed()
+                    if not task.started.triggered:
+                        task.started.succeed()
+                    if not task.done.triggered:
+                        task.done.succeed()
+                    continue
+                
+                # All valid replicas are used in this batch - try creating another replica
+                yield self.tasks.put(task)
+                stop = yield self.env.process(
+                    self.autoscaler.create_first_replica(
+                        system_state, 
+                        task.type,
+                        source_node_name=task.node_name  # Pass source node to check connectivity
+                    )
+                )
+                
+                # Check if replica creation succeeded
+                if isinstance(stop, StopIteration):
+                    logging.warning(f"[ {self.env.now} ] Failed to create replica for {task.type['name']}")
+                    # If replica creation failed and we've tried many times, mark as failed
+                    if task.postponed_count > 999999:
+                        logging.error(f"[ {self.env.now} ] Task {task.id} cannot create replica after {task.postponed_count} attempts, marking as failed")
+                        task.finished = True
+                        task.postponed_count = 999999  # Set to unreal number to indicate permanent failure
+                        # Trigger all events in sequence so task_process can progress to done
+                        if not task.scheduled.triggered:
+                            task.scheduled.succeed()
+                        if not task.arrived.triggered:
+                            task.arrived.succeed()
+                        if not task.started.triggered:
+                            task.started.succeed()
+                        if not task.done.triggered:
+                            task.done.succeed()
+                        continue
+                
+                self.env.step()
+                continue
+
+            # Store queue snapshots on task
+            task.queue_snapshot_at_scheduling = {
+                f"{node.node_name}:{plat.id}": batch_queue_snapshot.get(f"{node.node_name}:{plat.id}", 0)
+                for node, plat in available_replicas
+            }
+            task.full_queue_snapshot = full_queue_snapshot
+
+            # Get GNN's placement decision
+            gnn_placement = placements.get(task_idx) if placements else None
+            target_node, target_platform = None, None
+            
+            if gnn_placement:
+                target_node_id, target_plat_id = gnn_placement
+                # Find the actual node/platform objects
+                for node, plat in available_replicas:
+                    if node.id == target_node_id and plat.id == target_plat_id:
+                        target_node, target_platform = node, plat
+                        break
+            
+            # Fallback to shortest queue if GNN placement is invalid
+            if target_node is None or target_platform is None:
+                print(f"[ {self.env.now} ] GNN: Fallback to shortest queue for task {task.id}")
+                target_node, target_platform = min(
+                    available_replicas, key=lambda couple: len(couple[1].queue.items)
+                )
+
+            # Mark this platform as used
+            used_platforms.add((target_node.id, target_platform.id))
+
+            task.execution_node = target_node.node_name
+            task.execution_platform = str(target_platform.id)
+            task.gnn_decision_time = inference_time / len(batch_tasks)  # Amortized
+
+            node: Node = yield self.nodes.get(lambda node: node.id == target_node.id)
+            task.node = node
+            node.unused = False
+            
+            platform: Platform = yield node.platforms.get(lambda platform: platform.id == target_platform.id)
+            task.platform = platform
+
+            end = default_timer()
+            elapsed_clock_time = end - start
+            node.wall_clock_scheduling_time += elapsed_clock_time
+
+            yield platform.queue.put(task)
+            yield task.scheduled.succeed()
+
+            yield node.platforms.put(platform)
+            yield self.nodes.put(node)
+
+            print(f"GNN placed task {task.id} on ({target_node.node_name}, platform {target_platform.id})")
+
+        yield self.mutex.put(system_state)
+        print(f"[ {self.env.now} ] GNN: Batch processing complete for {len(batch_tasks)} tasks")
+
+    def _gnn_inference(
+        self,
+        batch_tasks: List[Task],
+        system_state: SystemState,
+        queue_snapshot: Dict[str, int]
+    ) -> Optional[Dict[int, Tuple[int, int]]]:
+        """
+        Run GNN inference on the batch of tasks.
+        
+        Returns: Dict mapping task_idx -> (node_id, platform_id)
+        """
+        if self.gnn_model is None:
+            print("[GNN] Model not loaded, using fallback")
+            return None
+        
+        try:
+            # Build graph from current system state
+            graph, task_logit_to_placement = self._build_inference_graph(
+                batch_tasks, system_state, queue_snapshot
+            )
+            
+            if graph is None:
+                return None
+            
+            # Move to device
+            graph = graph.to(self.device)
+            
+            # Run inference
+            with torch.no_grad():
+                logits_per_task = self.gnn_model(graph)
+            
+            # Decode placements using greedy decoder
+            placements = self._decode_placements(
+                logits_per_task, task_logit_to_placement, len(batch_tasks)
+            )
+            
+            return placements
+            
+        except Exception as e:
+            print(f"[GNN] Inference error: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def _build_inference_graph(
+        self,
+        batch_tasks: List[Task],
+        system_state: SystemState,
+        queue_snapshot: Dict[str, int]
+    ) -> Tuple[Optional[Data], Optional[Dict[int, List[Tuple[int, int]]]]]:
+        """
+        Build a PyG graph from current system state for GNN inference.
+        
+        Returns: (graph, task_logit_to_placement mapping)
+        """
+        n_tasks = len(batch_tasks)
+        
+        # Collect all platforms from nodes
+        all_nodes = list(self.nodes.items)
+        platforms_info = []  # List of (node, platform, node_id, plat_id, plat_type, node_name)
+        
+        for node in all_nodes:
+            for platform in node.platforms.items:
+                platforms_info.append((
+                    node, platform, node.id, platform.id,
+                    platform.type["shortName"], node.node_name
+                ))
+        
+        n_platforms = len(platforms_info)
+        if n_platforms == 0:
+            return None, None
+        
+        # Build node_name -> node_id mapping
+        node_name_to_id = {node.node_name: node.id for node in all_nodes}
+        
+        # Build platform position lookup
+        plat_pos_by_key = {}  # (node_id, plat_id) -> position in platforms_info
+        for pos, (node, plat, node_id, plat_id, plat_type, node_name) in enumerate(platforms_info):
+            plat_pos_by_key[(node_id, plat_id)] = pos
+        
+        # Task features: [task_type_onehot(2), source_node_normalized(1)]
+        task_types_vocab = ['dnn1', 'dnn2']
+        task_features = []
+        for task in batch_tasks:
+            task_type = task.type["name"]
+            onehot = [1.0 if task_type == t else 0.0 for t in task_types_vocab]
+            src_node_idx = node_name_to_id.get(task.node_name, 0)
+            src_norm = src_node_idx / max(len(all_nodes), 1)
+            task_features.append(onehot + [src_norm])
+        
+        task_features_tensor = torch.tensor(task_features, dtype=torch.float32)
+        
+        # Platform features: [type_onehot(5), has_dnn1_replica(1), has_dnn2_replica(1), queue_length(1)]
+        platform_types_vocab = ['rpiCpu', 'xavierCpu', 'xavierGpu', 'xavierDla', 'pynqFpga']
+        
+        # Build replica lookup
+        dnn1_replicas = set()
+        dnn2_replicas = set()
+        for node, plat in system_state.replicas.get('dnn1', set()):
+            dnn1_replicas.add((node.id, plat.id))
+        for node, plat in system_state.replicas.get('dnn2', set()):
+            dnn2_replicas.add((node.id, plat.id))
+        
+        platform_features = []
+        for node, plat, node_id, plat_id, plat_type, node_name in platforms_info:
+            # Type one-hot
+            onehot = [1.0 if plat_type == t else 0.0 for t in platform_types_vocab]
+            # Replica flags
+            has_dnn1 = 1.0 if (node_id, plat_id) in dnn1_replicas else 0.0
+            has_dnn2 = 1.0 if (node_id, plat_id) in dnn2_replicas else 0.0
+            # Queue length (normalized)
+            queue_key = f"{node_name}:{plat_id}"
+            queue_len = queue_snapshot.get(queue_key, 0) / QUEUE_NORM_FACTOR
+            
+            platform_features.append(onehot + [has_dnn1, has_dnn2, queue_len])
+        
+        platform_features_tensor = torch.tensor(platform_features, dtype=torch.float32)
+        
+        # Build edges: task -> compatible platforms
+        task_offset = 0
+        platform_offset = n_tasks
+        
+        edge_src, edge_dst = [], []
+        edge_attrs = []
+        task_logit_to_placement: Dict[int, List[Tuple[int, int]]] = {}
+        
+        # Build network map lookup
+        network_maps = {}
+        for node in all_nodes:
+            if hasattr(node, 'network_map'):
+                network_maps[node.node_name] = node.network_map
+        
+        for t_idx, task in enumerate(batch_tasks):
+            task_type = task.type["name"]
+            source_node = task.node_name
+            compatible_types = TASK_PLATFORM_COMPATIBILITY.get(task_type, [])
+            
+            task_logit_to_placement[t_idx] = []
+            
+            for pos, (node, plat, node_id, plat_id, plat_type, node_name) in enumerate(platforms_info):
+                # Check compatibility
+                if plat_type not in compatible_types:
+                    continue
+                
+                # Check network feasibility
+                is_local = (source_node == node_name)
+                is_server = not node_name.startswith('client_node')
+                
+                if not is_local:
+                    if not is_server:
+                        continue  # Can't place on other client nodes
+                    # Check network connectivity
+                    if node_name not in network_maps:
+                        continue
+                    if source_node not in network_maps[node_name]:
+                        continue
+                
+                # Add edge
+                task_node_idx = task_offset + t_idx
+                plat_node_idx = platform_offset + pos
+                edge_src.append(task_node_idx)
+                edge_dst.append(plat_node_idx)
+                
+                # Edge attributes: [exec_time, latency, is_warm]
+                exec_time = 0.0
+                if self.task_types_data and task_type in self.task_types_data:
+                    exec_time = self.task_types_data[task_type].get("executionTime", {}).get(plat_type, 0.0)
+                
+                latency = 0.0
+                if not is_local and node_name in network_maps:
+                    lat_entry = network_maps[node_name].get(source_node, {})
+                    if isinstance(lat_entry, dict):
+                        latency = lat_entry.get('latency', 0.0)
+                    else:
+                        try:
+                            latency = float(lat_entry)
+                        except:
+                            latency = 0.0
+                
+                is_warm = 0.0
+                if task_type == 'dnn1' and (node_id, plat_id) in dnn1_replicas:
+                    is_warm = 1.0
+                elif task_type == 'dnn2' and (node_id, plat_id) in dnn2_replicas:
+                    is_warm = 1.0
+                
+                edge_attrs.append([exec_time, latency, is_warm])
+                
+                # Store mapping for decoding
+                task_logit_to_placement[t_idx].append((node_id, plat_id))
+        
+        if not edge_src:
+            return None, None
+        
+        # Build edge tensors
+        edge_index = torch.tensor([edge_src, edge_dst], dtype=torch.long)
+        edge_attr = torch.tensor(edge_attrs, dtype=torch.float32) if edge_attrs else torch.empty((0, 3), dtype=torch.float32)
+        
+        # Make undirected
+        num_nodes = n_tasks + n_platforms
+        edge_index = to_undirected(edge_index, num_nodes=num_nodes)
+        if edge_attr.numel() > 0:
+            edge_attr = torch.cat([edge_attr, torch.zeros_like(edge_attr)], dim=0)
+        
+        # Create PyG Data object
+        data = Data(
+            edge_index=edge_index,
+            n_tasks=n_tasks,
+            n_platforms=n_platforms,
+            task_features=task_features_tensor,
+            platform_features=platform_features_tensor,
+        )
+        data.edge_attr = edge_attr
+        
+        return data, task_logit_to_placement
+
+    def _decode_placements(
+        self,
+        logits_per_task: List[torch.Tensor],
+        task_logit_to_placement: Dict[int, List[Tuple[int, int]]],
+        n_tasks: int
+    ) -> Dict[int, Tuple[int, int]]:
+        """
+        Greedy decoder: select edges in descending score order,
+        enforcing uniqueness (each platform used at most once).
+        
+        Returns: Dict mapping task_idx -> (node_id, platform_id)
+        """
+        # Collect all (score, task_idx, logit_idx) candidates
+        candidates = []
+        for t in range(n_tasks):
+            if t not in task_logit_to_placement:
+                continue
+            logits_t = logits_per_task[t]
+            for logit_idx in range(logits_t.numel()):
+                score = float(logits_t[logit_idx].item())
+                candidates.append((score, t, logit_idx))
+        
+        if not candidates:
+            return {}
+        
+        # Sort by score descending
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        
+        assigned_tasks = set()
+        used_platforms = set()
+        placements = {}
+        
+        for score, t_idx, logit_idx in candidates:
+            if t_idx in assigned_tasks:
+                continue
+            
+            if logit_idx >= len(task_logit_to_placement[t_idx]):
+                continue
+            
+            node_id, plat_id = task_logit_to_placement[t_idx][logit_idx]
+            
+            if (node_id, plat_id) in used_platforms:
+                continue
+            
+            assigned_tasks.add(t_idx)
+            used_platforms.add((node_id, plat_id))
+            placements[t_idx] = (node_id, plat_id)
+            
+            if len(assigned_tasks) == n_tasks:
+                break
+        
+        return placements
+
+    def _capture_batch_queue_snapshot(self, system_state: SystemState, batch_tasks: List[Task]) -> Dict[str, int]:
+        queue_snapshot = {}
+        task_types = set(task.type["name"] for task in batch_tasks)
+        for task_type in task_types:
+            replicas = system_state.replicas.get(task_type, set())
+            for node, platform in replicas:
+                key = f"{node.node_name}:{platform.id}"
+                if key not in queue_snapshot:
+                    queue_snapshot[key] = len(platform.queue.items)
+        return queue_snapshot
+
+    def _capture_full_queue_snapshot(self) -> Dict[str, int]:
+        queue_snapshot = {}
+        for node in self.nodes.items:
+            for platform in node.platforms.items:
+                key = f"{node.node_name}:{platform.id}"
+                queue_snapshot[key] = len(platform.queue.items)
+        return queue_snapshot
+
+    def placement(self, system_state: SystemState, task: Task) -> Generator:
+        if False:
+            yield
+        return None
+
+    def _get_valid_replicas(self, replicas: Set[Tuple[Node, Platform]], task: Task) -> List[Tuple[Node, Platform]]:
+        valid_replicas = []
+        for node, platform in replicas:
+            if node.node_name == task.node_name:
+                valid_replicas.append((node, platform))
+            elif not node.node_name.startswith('client_node'):
+                if hasattr(node, 'network_map') and task.node_name in node.network_map:
+                    valid_replicas.append((node, platform))
+        return valid_replicas

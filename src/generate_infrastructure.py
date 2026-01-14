@@ -21,7 +21,8 @@ from src.utils.distributions import sample_bounded_int, sample_replica_count
 def generate_network_topology_deterministic(
     nodes: List[Dict],
     config: Dict[str, Any],
-    rng: random.Random
+    rng: random.Random,
+    task_types_data: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Dict[str, float]]:
     """
     Generate network topology deterministically using seeded RNG.
@@ -112,6 +113,57 @@ def generate_network_topology_deterministic(
                     latency = generate_latency(client_type, server_type)
                     network_maps[node_name][client_name] = latency
                     network_maps[client_name][node_name] = latency
+    
+    # Ensure platform-compatibility-aware connectivity for task types (dnn1 and dnn2)
+    # Check each client node to ensure it can execute tasks (either locally or remotely)
+    if task_types_data:
+        # Check both dnn1 and dnn2
+        for task_type_name in ['dnn1', 'dnn2']:
+            if task_type_name not in task_types_data:
+                continue
+                
+            task_type = task_types_data[task_type_name]
+            compatible_platforms = set(task_type.get('platforms', []))
+            
+            for client in clients:
+                client_name = client['node_name']
+                client_platforms = set(client.get('platforms', []))
+                
+                # Check if client has compatible platforms locally
+                has_local_support = bool(client_platforms & compatible_platforms)
+                
+                # Check if client is already connected to a server with compatible platforms
+                has_remote_support = False
+                for server_name in network_maps[client_name].keys():
+                    server = next((s for s in servers if s['node_name'] == server_name), None)
+                    if server:
+                        server_platforms = set(server.get('platforms', []))
+                        if bool(server_platforms & compatible_platforms):
+                            has_remote_support = True
+                            break
+                
+                # If client lacks both local and remote support, add connection to a server with support
+                if not has_local_support and not has_remote_support:
+                    # Find servers with compatible platforms
+                    compatible_servers = [
+                        s for s in servers
+                        if bool(set(s.get('platforms', [])) & compatible_platforms)
+                        and s['node_name'] not in network_maps[client_name]
+                    ]
+                    
+                    if compatible_servers:
+                        # Connect to a random server with support
+                        server = rng.choice(compatible_servers)
+                        server_name = server['node_name']
+                        server_type = server['type']
+                        client_type = client['type']
+                        latency = generate_latency(client_type, server_type)
+                        network_maps[client_name][server_name] = latency
+                        network_maps[server_name][client_name] = latency
+                        print(
+                            f"[infra-gen] Added {task_type_name}-compatibility connection: {client_name} -> {server_name} "
+                            f"(client platforms: {client_platforms}, server platforms: {set(server.get('platforms', []))})"
+                        )
     
     return network_maps
 
@@ -362,9 +414,16 @@ def generate_deterministic_infrastructure(
         node_config['type'] = device_type
         nodes.append(node_config)
     
+    # Load task-types.json for platform compatibility checks
+    task_types_path = sim_input_path / "task-types.json"
+    task_types_data = None
+    if task_types_path.exists():
+        with open(task_types_path, 'r') as f:
+            task_types_data = json.load(f)
+    
     # 1. Generate network topology
     print("[infra-gen] Generating network topology...")
-    network_maps = generate_network_topology_deterministic(nodes, config, rng)
+    network_maps = generate_network_topology_deterministic(nodes, config, rng, task_types_data=task_types_data)
     
     # 2. Generate replica placements
     print("[infra-gen] Generating replica placements...")

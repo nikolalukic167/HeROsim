@@ -1,0 +1,24 @@
+================================================================================
+KEY METRICS COMPARISON
+================================================================================
+Metric                              GNN                Knative            RoundRobin         Best      
+----------------------------------------------------------------------------------------------------
+Average Elapsed Time (s)            50.0108            31.5649            40.0425            Knative   
+Average Queue Time (s)              49.9766            31.5304            40.0069            Knative   
+Average Wait Time (s)               0.0077             0.0077             0.0076             RoundRobin
+Average Execution Time (s)          0.0028             0.0021             0.0028             Knative   
+Average Cold Start Time (s)         0.0046             0.0055             0.0058             GNN       
+Average Pull Time (s)               0.3596             0.4967             0.5476             GNN       
+Average Compute Time (s)            0.0219             0.0213             0.0222             Knative   
+Penalty Proportion (%)              90.2402            79.0919            92.4090            Knative   
+Cold Start Proportion (%)           0.5270             0.8412             0.9324             GNN       
+Task Cache Hits (%)                 99.4730            99.1588            99.0676            GNN       
+Node Cache Hits (%)                 0.0000             0.0000             0.0000             GNN       
+Average Occupation (%)              0.6183             0.6798             0.8825             RoundRobin
+Unused Platforms (%)                46.9388            15.3061            6.1224             RoundRobin
+Unused Nodes (%)                    0.0000             0.0000             0.0000             GNN       
+Energy (kWh)                        0.0030             0.0027             0.0024             RoundRobin
+Reclaimable Energy (kWh)            0.0000             0.0000             0.0000             GNN       
+Offloading Rate (%)                 42.8094            34.9346            42.7283            N/A       
+Simulation End Time (s)             121.9393           111.6769           98.1535            N/A       
+================================================================================

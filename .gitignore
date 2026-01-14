@@ -164,6 +164,8 @@ cython_debug/
 # Ruff linter
 .ruff_cache
 
+.cursorindexingignore
+
 # Project specific directories
 /chart
 /log

@@ -44,8 +44,8 @@ from src.placement.orchestrator import Orchestrator
 
 from src.placement.autoscaler import Autoscaler
 from src.placement.scheduler import Scheduler
-from src.policy.gnn.autoscaler import GNNAutoscaler
-from src.policy.gnn.orchestrator import GNNOrchestrator
+from src.policy.gnn.autoscaler import KnativeAutoscaler as GNNAutoscaler
+from src.policy.gnn.orchestrator import GNNOrchestrator as GNNOrchestrator
 from src.policy.gnn.scheduler import GNNScheduler
 
 from src.policy.herofake.orchestrator import HROOrchestrator
@@ -86,6 +86,16 @@ from src.policy.evaluator.scheduler import EvaluatorScheduler
 from src.policy.knative_network.orchestrator import KnativeNetworkOrchestrator
 from src.policy.knative_network.autoscaler import KnativeAutoscaler as KnativeNetworkAutoscaler
 from src.policy.knative_network.scheduler import KnativeNetworkScheduler
+
+from src.policy.gnn_cosim.orchestrator import GNNCosimOrchestrator
+from src.policy.gnn_cosim.autoscaler import KnativeAutoscaler as GNNCosimAutoscaler
+from src.policy.gnn_cosim.scheduler import GNNCosimScheduler
+from src.policy.roundrobin_network.orchestrator import RoundRobinNetworkOrchestrator
+from src.policy.roundrobin_network.autoscaler import RoundRobinNetworkAutoscaler
+from src.policy.roundrobin_network.scheduler import RoundRobinScheduler as RoundRobinNetworkScheduler
+from src.policy.knative_no_batch.orchestrator import KnativeOrchestrator as KnativeNoBatchOrchestrator
+from src.policy.knative_no_batch.autoscaler import KnativeAutoscaler as KnativeNoBatchAutoscaler
+from src.policy.knative_no_batch.scheduler import KnativeScheduler as KnativeNoBatchScheduler
 
 from src.utils.distributions import sample_bounded_int, sample_replica_count
 
@@ -254,13 +264,19 @@ def precreate_replicas(
                         queue_length = deterministic_queues.get(task_type_name, {}).get(queue_key, 0)
                         
                         if queue_length > 0:
-                            warmup_tasks = create_warmup_tasks(
-                                env, platform, task_type_name, simulation_data,
-                                simulation_policy, queue_length
-                            )
-                            for warmup_task in warmup_tasks:
-                                platform.queue.put(warmup_task)
-                            print(f"    Enqueued {len(warmup_tasks)} warmup tasks to {node_name}:{platform_id}")
+                            try:
+                                warmup_tasks = create_warmup_tasks(
+                                    env, platform, task_type_name, simulation_data,
+                                    simulation_policy, queue_length
+                                )
+                                for warmup_task in warmup_tasks:
+                                    platform.queue.put(warmup_task)
+                                    print(f"    Enqueued {len(warmup_tasks)} warmup tasks to {node_name}:{platform_id}")
+                            except Exception as e:
+                                print(f"    ERROR enqueuing warmup tasks to {node_name}:{platform_id}: {e}")
+                                import traceback
+                                traceback.print_exc()
+                                raise
         
         print(f"\n=== Replica creation complete (deterministic) ===")
         for task_type, replicas in initial_replicas.items():
@@ -342,14 +358,20 @@ def precreate_replicas(
                                 sampled_q = sample_bounded_int(q_params, rng)
                                 initial_queue = max(0, int(sampled_q))
                             if initial_queue > 0:
-                                warmup_tasks = create_warmup_tasks(
-                                    env, platform, task_type_name, simulation_data, 
-                                    simulation_policy, initial_queue
-                                )
-                                # Enqueue warmup tasks to the platform
-                                for warmup_task in warmup_tasks:
-                                    platform.queue.put(warmup_task)
-                                print(f"    Enqueued {len(warmup_tasks)} warmup tasks to {node.node_name}:{platform.id}")
+                                try:
+                                    warmup_tasks = create_warmup_tasks(
+                                        env, platform, task_type_name, simulation_data, 
+                                        simulation_policy, initial_queue
+                                    )
+                                    # Enqueue warmup tasks to the platform
+                                    for warmup_task in warmup_tasks:
+                                        platform.queue.put(warmup_task)
+                                        print(f"    Enqueued {len(warmup_tasks)} warmup tasks to {node.node_name}:{platform.id}")
+                                except Exception as e:
+                                    print(f"    ERROR enqueuing warmup tasks to {node.node_name}:{platform.id}: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                                    raise
                         
                         # print(f"    Created replica on {node.node_name} ({platform.type['shortName']}) - Platform {platform.id}")
                         replicas_created += 1
@@ -401,14 +423,20 @@ def precreate_replicas(
                                 sampled_q = sample_bounded_int(q_params, rng)
                                 initial_queue = max(0, int(sampled_q))
                             if initial_queue > 0:
-                                warmup_tasks = create_warmup_tasks(
-                                    env, platform, task_type_name, simulation_data, 
-                                    simulation_policy, initial_queue
-                                )
-                                # Enqueue warmup tasks to the platform
-                                for warmup_task in warmup_tasks:
-                                    platform.queue.put(warmup_task)
-                                print(f"    Enqueued {len(warmup_tasks)} warmup tasks to {node.node_name}:{platform.id}")
+                                try:
+                                    warmup_tasks = create_warmup_tasks(
+                                        env, platform, task_type_name, simulation_data, 
+                                        simulation_policy, initial_queue
+                                    )
+                                    # Enqueue warmup tasks to the platform
+                                    for warmup_task in warmup_tasks:
+                                        platform.queue.put(warmup_task)
+                                        print(f"    Enqueued {len(warmup_tasks)} warmup tasks to {node.node_name}:{platform.id}")
+                                except Exception as e:
+                                    print(f"    ERROR enqueuing warmup tasks to {node.node_name}:{platform.id}: {e}")
+                                    import traceback
+                                    traceback.print_exc()
+                                    raise
                         
                         # print(f"    Created replica on {node.node_name} ({platform.type['shortName']}) - Platform {platform.id}")
                         replicas_created += 1
@@ -602,6 +630,9 @@ def start_simulation(
         "determined_determined": (DeterminedOrchestrator, DeterminedAutoscaler, DeterminedScheduler),
         "evaluator_evaluator": (EvaluatorOrchestrator, EvaluatorAutoscaler, EvaluatorScheduler),
         "kn_network_kn_network": (KnativeNetworkOrchestrator, KnativeNetworkAutoscaler, KnativeNetworkScheduler),
+        "kn_network_no_batch_kn_network_no_batch": (KnativeNoBatchOrchestrator, KnativeNoBatchAutoscaler, KnativeNoBatchScheduler),
+        "gnn_cosim_gnn_cosim": (GNNCosimOrchestrator, GNNCosimAutoscaler, GNNCosimScheduler),
+        "rr_network_rr_network": (RoundRobinNetworkOrchestrator, RoundRobinNetworkAutoscaler, RoundRobinNetworkScheduler),
     }
 
     # Retrieve relevant Autoscaler and Scheduler classes

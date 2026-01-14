@@ -214,11 +214,11 @@ class Autoscaler:
                     "memoryRequirements"
                 ][new_replica[1].type["shortName"]]
 
-                # Add function replica to the pool, so it can be considered by the Scheduler
+                # Add function replica to the pool so it can be considered by the Scheduler
                 function_replicas.add(new_replica)
 
-                # Initialize replica (pull image)
-                # It will be available for task execution when function image is pulled
+                # Initialize replica (pull image) asynchronously
+                # The platform_process will wait on initialized event before processing tasks
                 self.env.process(
                     self.initialize_replica(
                         new_replica,

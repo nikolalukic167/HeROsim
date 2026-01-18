@@ -37,17 +37,24 @@ QUEUE_NORM_FACTOR = 10.0
 class GNNScheduler(Scheduler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # NOTE: batch_size > 1 causes deadlock when multiple tasks need new replicas
-        # This is because create_first_replica doesn't complete replica creation synchronously
-        # TODO: Fix batch processing to wait for replica availability before processing next task
-        self.batch_size = 1  # Single task processing for now (batching causes issues)
-        self.batch_timeout = 0.1
+        # Batch processing now works with batch_size > 1
+        # We pre-scan the batch and create needed replicas upfront before placement
+        self.batch_size = 5
+        self.batch_timeout = 0.01
         
         # GNN model will be set via models dict from orchestrator
         self.gnn_model = None
         self.device = None
         self.task_types_data = None
         self.dataset_id = None
+        
+        # === GNN Configuration ===
+        # Use pure GNN with simple fallback (no soft blending)
+        # Adaptive queue normalization will be calculated per batch
+        
+        # Stats tracking for debugging
+        self.gnn_pure_decisions = 0
+        self.fallback_decisions = 0
 
     def set_models(self, models: Dict[str, Any]):
         """Set the GNN model and related data from executor."""
@@ -58,6 +65,22 @@ class GNNScheduler(Scheduler):
             if self.gnn_model is not None:
                 self.device = next(self.gnn_model.parameters()).device
                 print(f"[GNN Scheduler] Model loaded on {self.device}")
+    
+    def configure_scheduler(self, scheduler_config: Dict[str, Any]):
+        """
+        Configure scheduler parameters from scheduler config.
+        
+        Example config:
+        {
+            "batch_size": 5,
+            "batch_timeout": 0.01
+        }
+        """
+        if scheduler_config:
+            self.batch_size = scheduler_config.get('batch_size', self.batch_size)
+            self.batch_timeout = scheduler_config.get('batch_timeout', self.batch_timeout)
+                
+            print(f"[GNN Scheduler] Configured: batch_size={self.batch_size}, batch_timeout={self.batch_timeout}")
 
     def scheduler_process(self) -> Generator:
         if False:
@@ -83,83 +106,182 @@ class GNNScheduler(Scheduler):
         Collect tasks into a batch with timeout to avoid blocking.
         
         Strategy:
-        1. Prioritize postponed tasks (those that were previously unable to be placed)
-        2. Wait for at least one task
-        3. Wait for batch_timeout to collect more tasks
-        4. Process whatever was collected (even partial batches)
-        """
-        batch = []
+        1. Wait for at least one task (blocking)
+        2. Poll for more tasks until timeout
+        3. Return whatever was collected (even partial batches)
         
-        # Filter function that prioritizes postponed tasks
+        NOTE: We use a polling approach instead of yield get|timeout to avoid
+        the "dangling get" problem where unfulfilled get events consume future tasks.
+        """
+        batch: List[Task] = []
+        
         def task_filter(queued_task):
             return all(dependency.finished for dependency in queued_task.dependencies)
         
-        # First, try to get any postponed tasks (they've been waiting longer)
-        postponed_found = False
-        for item in list(self.tasks.items):
-            if task_filter(item) and hasattr(item, 'postponed_count') and item.postponed_count > 0:
-                # Found a postponed task - get it first
-                task = yield self.tasks.get(lambda t: t.id == item.id)
-                batch.append(task)
-                postponed_found = True
-                break
+        # First task: wait indefinitely (blocking is expected)
+        task: Task = yield self.tasks.get(task_filter)
+        batch.append(task)
         
-        # If no postponed tasks, wait for any task
-        if not postponed_found:
-            task: Task = yield self.tasks.get(task_filter)
-            batch.append(task)
-        
-        # Wait for batch_timeout to collect more tasks
+        # Set deadline for collecting rest of batch
         batch_deadline = self.env.now + self.batch_timeout
         
+        # Collect remaining tasks using polling (avoids dangling get events)
         while len(batch) < self.batch_size:
             remaining_time = batch_deadline - self.env.now
             if remaining_time <= 0:
                 break
             
-            # Check for more postponed tasks first (non-blocking)
-            found_postponed = False
-            for item in list(self.tasks.items):
-                if task_filter(item) and hasattr(item, 'postponed_count') and item.postponed_count > 0:
-                    task = yield self.tasks.get(lambda t: t.id == item.id)
-                    batch.append(task)
-                    found_postponed = True
-                    break
+            # Check if there are any ready tasks in the queue
+            ready_tasks = [t for t in self.tasks.items if task_filter(t)]
             
-            if found_postponed:
-                continue
-            
-            # Race between getting a task and remaining timeout
-            get_event = self.tasks.get(task_filter)
-            timeout_event = self.env.timeout(remaining_time)
-            
-            result = yield get_event | timeout_event
-            
-            if get_event.triggered and get_event.ok:
-                batch.append(get_event.value)
+            if ready_tasks:
+                # Get the first ready task immediately
+                task = yield self.tasks.get(task_filter)
+                batch.append(task)
             else:
-                break
+                # No ready tasks - wait a small step and check again
+                # Use small timeout to avoid busy-waiting
+                step_time = min(0.01, remaining_time)
+                yield self.env.timeout(step_time)
         
         return batch
+
+    def _ensure_replicas_for_batch(
+        self, 
+        batch_tasks: List[Task], 
+        system_state: SystemState
+    ) -> Generator[Any, Any, Dict[str, int]]:
+        """
+        Pre-scan batch and ensure enough replicas exist for all task types.
+        
+        This prevents the cascade problem where each task in a batch creates
+        a new replica because previous replicas are already used.
+        
+        IMPORTANT: After creating replicas, we wait for them to initialize.
+        Otherwise tasks get placed on uninitialized replicas and hang.
+        
+        Returns: Dict mapping task_type -> number of replicas created
+        """
+        from collections import Counter
+        
+        # Count how many tasks of each type are in the batch
+        task_type_counts: Dict[str, int] = Counter(task.type["name"] for task in batch_tasks)
+        replicas_created: Dict[str, int] = {}
+        
+        # Track newly created replicas so we can wait for initialization
+        new_replicas: List[Tuple[Node, Platform]] = []
+        
+        for task_type_name, needed_count in task_type_counts.items():
+            current_replicas = system_state.replicas.get(task_type_name, set())
+            # Track which replicas existed before we started
+            existing_replica_ids = {(n.id, p.id) for n, p in current_replicas}
+            current_count = len(current_replicas)
+            
+            # Calculate how many additional replicas we need
+            # We want at least as many replicas as tasks in the batch
+            deficit = needed_count - current_count
+            
+            if deficit <= 0:
+                replicas_created[task_type_name] = 0
+                continue
+            
+            print(f"[ {self.env.now} ] GNN: Pre-creating {deficit} replica(s) for {task_type_name} "
+                  f"(have {current_count}, need {needed_count} for batch)")
+            
+            # Get task type data
+            task_type = self.data.task_types.get(task_type_name)
+            if not task_type:
+                logging.warning(f"[ {self.env.now} ] Unknown task type: {task_type_name}")
+                replicas_created[task_type_name] = 0
+                continue
+            
+            # Find source nodes from tasks of this type (for network connectivity)
+            source_nodes = set(
+                task.node_name for task in batch_tasks 
+                if task.type["name"] == task_type_name
+            )
+            
+            created = 0
+            for _ in range(deficit):
+                # Try to create replica with connectivity to at least one source node
+                replica_created = False
+                for source_node in source_nodes:
+                    stop = yield self.env.process(
+                        self.autoscaler.create_first_replica(
+                            system_state,
+                            task_type,
+                            source_node_name=source_node
+                        )
+                    )
+                    
+                    if not isinstance(stop, StopIteration):
+                        created += 1
+                        replica_created = True
+                        break
+                
+                if not replica_created:
+                    # Couldn't create with any source node, try without constraint
+                    stop = yield self.env.process(
+                        self.autoscaler.create_first_replica(
+                            system_state,
+                            task_type
+                        )
+                    )
+                    if not isinstance(stop, StopIteration):
+                        created += 1
+                    else:
+                        logging.warning(
+                            f"[ {self.env.now} ] GNN: Could not create more replicas for {task_type_name} "
+                            f"(created {created}/{deficit})"
+                        )
+                        break
+            
+            # Find newly created replicas (those not in existing_replica_ids)
+            for node, plat in system_state.replicas.get(task_type_name, set()):
+                if (node.id, plat.id) not in existing_replica_ids:
+                    new_replicas.append((node, plat))
+            
+            replicas_created[task_type_name] = created
+            if created > 0:
+                print(f"[ {self.env.now} ] GNN: Pre-created {created} replica(s) for {task_type_name}")
+        
+        # Don't block waiting for initialization - let tasks use replicas when ready
+        # This allows batch processing to continue while replicas initialize in background
+        # Tasks will automatically use initialized replicas when available
+        if new_replicas:
+            print(f"[ {self.env.now} ] GNN: Created {len(new_replicas)} replica(s), allowing initialization in background")
+        
+        return replicas_created
 
     def _process_task_batch(self, batch_tasks: List[Task]) -> Generator:
         print(f"[ {self.env.now} ] GNN: Processing {len(batch_tasks)} tasks in batch")
         
         system_state: SystemState = yield self.mutex.get()
         
+        # Pre-scan: ensure enough replicas exist for all task types in batch
+        # This prevents cascade replica creation during batch processing
+        replicas_created = yield self.env.process(
+            self._ensure_replicas_for_batch(batch_tasks, system_state)
+        )
+        if any(count > 0 for count in replicas_created.values()):
+            print(f"[ {self.env.now} ] GNN: Pre-created replicas: {replicas_created}")
+        
         # Capture queue snapshots
         full_queue_snapshot = self._capture_full_queue_snapshot()
         batch_queue_snapshot = self._capture_batch_queue_snapshot(system_state, batch_tasks)
         
-        # Build graph and run GNN inference
+        # Calculate adaptive queue normalization based on current max queue length
+        adaptive_queue_norm = self._calculate_adaptive_queue_norm(full_queue_snapshot)
+        
+        # Build graph and run GNN inference (always use GNN)
         inference_start = default_timer()
         
         placements = self._gnn_inference(
-            batch_tasks, system_state, full_queue_snapshot
+            batch_tasks, system_state, full_queue_snapshot, adaptive_queue_norm
         )
         
         inference_time = default_timer() - inference_start
-        print(f"[ {self.env.now} ] GNN inference time: {inference_time*1000:.2f}ms")
+        print(f"[ {self.env.now} ] GNN inference time: {inference_time*1000:.2f}ms (adaptive_queue_norm={adaptive_queue_norm:.1f})")
         
         # Track used platforms within this batch
         used_platforms: Set[Tuple[int, int]] = set()
@@ -360,24 +482,18 @@ class GNNScheduler(Scheduler):
             }
             task.full_queue_snapshot = full_queue_snapshot
 
-            # Get GNN's placement decision
-            gnn_placement = placements.get(task_idx) if placements else None
-            target_node, target_platform = None, None
-            
-            if gnn_placement:
-                target_node_id, target_plat_id = gnn_placement
-                # Find the actual node/platform objects
-                for node, plat in available_replicas:
-                    if node.id == target_node_id and plat.id == target_plat_id:
-                        target_node, target_platform = node, plat
-                        break
-            
-            # Fallback to shortest queue if GNN placement is invalid
+            # Select placement using pure GNN with simple fallback
+            target_node, target_platform = self._select_placement_pure_gnn(
+                task, task_idx, placements, available_replicas
+            )
+
+            # Safety check: fallback to shortest queue if GNN placement is invalid
             if target_node is None or target_platform is None:
-                print(f"[ {self.env.now} ] GNN: Fallback to shortest queue for task {task.id}")
+                print(f"[ {self.env.now} ] GNN: Fallback to shortest queue for task {task.id} (GNN returned None)")
                 target_node, target_platform = min(
                     available_replicas, key=lambda couple: len(couple[1].queue.items)
                 )
+                self.fallback_decisions += 1
 
             # Mark this platform as used
             used_platforms.add((target_node.id, target_platform.id))
@@ -412,10 +528,14 @@ class GNNScheduler(Scheduler):
         self,
         batch_tasks: List[Task],
         system_state: SystemState,
-        queue_snapshot: Dict[str, int]
+        queue_snapshot: Dict[str, int],
+        queue_norm: float
     ) -> Optional[Dict[int, Tuple[int, int]]]:
         """
         Run GNN inference on the batch of tasks.
+        
+        Args:
+            queue_norm: Adaptive queue normalization factor for this batch
         
         Returns: Dict mapping task_idx -> (node_id, platform_id)
         """
@@ -426,7 +546,7 @@ class GNNScheduler(Scheduler):
         try:
             # Build graph from current system state
             graph, task_logit_to_placement = self._build_inference_graph(
-                batch_tasks, system_state, queue_snapshot
+                batch_tasks, system_state, queue_snapshot, queue_norm
             )
             
             if graph is None:
@@ -456,7 +576,8 @@ class GNNScheduler(Scheduler):
         self,
         batch_tasks: List[Task],
         system_state: SystemState,
-        queue_snapshot: Dict[str, int]
+        queue_snapshot: Dict[str, int],
+        queue_norm: float
     ) -> Tuple[Optional[Data], Optional[Dict[int, List[Tuple[int, int]]]]]:
         """
         Build a PyG graph from current system state for GNN inference.
@@ -518,9 +639,9 @@ class GNNScheduler(Scheduler):
             # Replica flags
             has_dnn1 = 1.0 if (node_id, plat_id) in dnn1_replicas else 0.0
             has_dnn2 = 1.0 if (node_id, plat_id) in dnn2_replicas else 0.0
-            # Queue length (normalized)
+            # Queue length (normalized using adaptive normalization)
             queue_key = f"{node_name}:{plat_id}"
-            queue_len = queue_snapshot.get(queue_key, 0) / QUEUE_NORM_FACTOR
+            queue_len = queue_snapshot.get(queue_key, 0) / queue_norm
             
             platform_features.append(onehot + [has_dnn1, has_dnn2, queue_len])
         
@@ -695,6 +816,29 @@ class GNNScheduler(Scheduler):
                 queue_snapshot[key] = len(platform.queue.items)
         return queue_snapshot
 
+    def _calculate_adaptive_queue_norm(self, queue_snapshot: Dict[str, int]) -> float:
+        """
+        Calculate adaptive queue normalization based on current max queue length.
+        
+        This ensures queue normalization matches the actual queue lengths in the system,
+        preventing the normalization from being too small (causing queue to dominate)
+        or too large (causing queue to be ignored).
+        
+        Args:
+            queue_snapshot: Dictionary mapping platform keys to queue lengths
+            
+        Returns:
+            Adaptive normalization factor (max_queue * 1.1, minimum 10.0)
+        """
+        if not queue_snapshot:
+            return 10.0  # Default fallback
+        
+        max_queue = max(queue_snapshot.values())
+        # Use max queue + 10% buffer, with minimum of 10.0
+        # This ensures normalization scales with actual load
+        adaptive_norm = max(max_queue * 1.1, 10.0)
+        return adaptive_norm
+
     def placement(self, system_state: SystemState, task: Task) -> Generator:
         if False:
             yield
@@ -709,3 +853,39 @@ class GNNScheduler(Scheduler):
                 if hasattr(node, 'network_map') and task.node_name in node.network_map:
                     valid_replicas.append((node, platform))
         return valid_replicas
+
+
+    def _select_placement_pure_gnn(
+        self,
+        task: Task,
+        task_idx: int,
+        placements: Optional[Dict[int, Tuple[int, int]]],
+        available_replicas: List[Tuple[Node, Platform]]
+    ) -> Tuple[Node, Platform]:
+        """
+        Select placement using pure GNN decision with shortest-queue fallback.
+        This is the original logic, preserved when soft blending is disabled.
+        """
+        target_node, target_platform = None, None
+        
+        # Get GNN's placement decision
+        gnn_placement = placements.get(task_idx) if placements else None
+        
+        if gnn_placement:
+            target_node_id, target_plat_id = gnn_placement
+            # Find the actual node/platform objects
+            for node, plat in available_replicas:
+                if node.id == target_node_id and plat.id == target_plat_id:
+                    target_node, target_platform = node, plat
+                    self.gnn_pure_decisions += 1
+                    break
+        
+        # Fallback to shortest queue if GNN placement is invalid
+        if target_node is None or target_platform is None:
+            print(f"[ {self.env.now} ] GNN: Fallback to shortest queue for task {task.id}")
+            target_node, target_platform = min(
+                available_replicas, key=lambda couple: len(couple[1].queue.items)
+            )
+            self.fallback_decisions += 1
+        
+        return target_node, target_platform

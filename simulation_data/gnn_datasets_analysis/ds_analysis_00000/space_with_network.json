@@ -146,7 +146,7 @@
     },
     "topology": {
       "type": "sparse",
-      "connection_probability": 0.5,
+      "connection_probability": 0.50,
       "edges": [],
       "seed": 101
     }
@@ -157,7 +157,7 @@
     "save_only_optimal": true
   },
   "preinit": {
-    "client_percentage": 0.6,
+    "client_percentage": 0.5,
     "server_percentage": 0.8,
     "task_types": [
       "dnn1",
@@ -166,11 +166,11 @@
   },
   "replicas": {
     "dnn1": {
-      "per_server": 3,
+      "per_server": 2,
       "per_client": 2
     },
     "dnn2": {
-      "per_server": 3,
+      "per_server": 2,
       "per_client": 2
     }
   },
@@ -179,22 +179,22 @@
       "distribution": "none",
       "queue_distribution": "statistical",
       "queue_distribution_params": {
-        "type": "poisson",
-        "lambda": 4,
+        "type": "constant",
+        "value": 0,
         "min": 0,
-        "max": 12,
-        "step": 1
+        "max": 0,
+        "step": 0
       }
     },
     "dnn2": {
       "distribution": "none",
       "queue_distribution": "statistical",
       "queue_distribution_params": {
-        "type": "poisson",
-        "lambda": 4,
+        "type": "constant",
+        "value": 0,
         "min": 0,
-        "max": 12,
-        "step": 1
+        "max": 0,
+        "step": 0
       }
     }
   },

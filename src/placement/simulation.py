@@ -55,6 +55,12 @@ from src.policy.herofake.scheduler import HROScheduler
 from src.policy.herocache.orchestrator import HRCOrchestrator
 from src.policy.herocache.autoscaler import HRCAutoscaler
 from src.policy.herocache.scheduler import HRCScheduler
+from src.policy.herocache_network.orchestrator import HRCOrchestrator as HRCNetworkOrchestrator
+from src.policy.herocache_network.autoscaler import HRCAutoscaler as HRCNetworkAutoscaler
+from src.policy.herocache_network.scheduler import HRCScheduler as HRCNetworkScheduler
+from src.policy.herocache_network_batch.orchestrator import HRCOrchestrator as HRCNetworkBatchOrchestrator
+from src.policy.herocache_network_batch.autoscaler import HRCAutoscaler as HRCNetworkBatchAutoscaler
+from src.policy.herocache_network_batch.scheduler import HRCScheduler as HRCNetworkBatchScheduler
 from src.policy.heteroproactiveknative.autoscaler import HeteroProactiveKnativeAutoscaler
 from src.policy.heteroproactiveknative.orchestrator import HeteroProactiveKnativeOrchestrator
 from src.policy.heteroproactiveknative.scheduler import HeteroProactiveKnativeScheduler
@@ -62,9 +68,9 @@ from src.policy.heteroproactiveknative.scheduler import HeteroProactiveKnativeSc
 from src.policy.knative.orchestrator import KnativeOrchestrator
 from src.policy.knative.autoscaler import KnativeAutoscaler
 from src.policy.knative.scheduler import KnativeScheduler
-from src.policy.knative_network.orchestrator import KnativeNetworkOrchestrator as KnativeNetworkOrchestrator
-from src.policy.knative_network.autoscaler import KnativeAutoscaler as KnativeNetworkAutoscaler
-from src.policy.knative_network.scheduler import KnativeNetworkScheduler as KnativeNetworkScheduler
+from src.policy.knative_network_batch.orchestrator import KnativeNetworkOrchestrator as KnativeNetworkBatchOrchestrator
+from src.policy.knative_network_batch.autoscaler import KnativeAutoscaler as KnativeNetworkBatchAutoscaler
+from src.policy.knative_network_batch.scheduler import KnativeNetworkScheduler as KnativeNetworkBatchScheduler
 from src.policy.proactiveknative.autoscaler import ProactiveKnativeAutoscaler
 from src.policy.proactiveknative.orchestrator import ProactiveKnativeOrchestrator
 from src.policy.proactiveknative.scheduler import ProactiveKnativeScheduler
@@ -83,9 +89,9 @@ from src.policy.evaluator.orchestrator import EvaluatorOrchestrator
 from src.policy.evaluator.autoscaler import EvaluatorAutoscaler
 from src.policy.evaluator.scheduler import EvaluatorScheduler
 
-from src.policy.knative_network.orchestrator import KnativeNetworkOrchestrator
+from src.policy.knative_network.orchestrator import KnativeOrchestrator as KnativeNetworkOrchestrator
 from src.policy.knative_network.autoscaler import KnativeAutoscaler as KnativeNetworkAutoscaler
-from src.policy.knative_network.scheduler import KnativeNetworkScheduler
+from src.policy.knative_network.scheduler import KnativeScheduler as KnativeNetworkScheduler
 
 from src.policy.gnn_cosim.orchestrator import GNNCosimOrchestrator
 from src.policy.gnn_cosim.autoscaler import KnativeAutoscaler as GNNCosimAutoscaler
@@ -93,9 +99,8 @@ from src.policy.gnn_cosim.scheduler import GNNCosimScheduler
 from src.policy.roundrobin_network.orchestrator import RoundRobinNetworkOrchestrator
 from src.policy.roundrobin_network.autoscaler import RoundRobinNetworkAutoscaler
 from src.policy.roundrobin_network.scheduler import RoundRobinScheduler as RoundRobinNetworkScheduler
-from src.policy.knative_no_batch.orchestrator import KnativeOrchestrator as KnativeNoBatchOrchestrator
-from src.policy.knative_no_batch.autoscaler import KnativeAutoscaler as KnativeNoBatchAutoscaler
-from src.policy.knative_no_batch.scheduler import KnativeScheduler as KnativeNoBatchScheduler
+# knative_no_batch renamed to knative_network (no batching)
+# Imports are now above with knative_network
 
 from src.utils.distributions import sample_bounded_int, sample_replica_count
 
@@ -254,16 +259,18 @@ def precreate_replicas(
                     initial_replicas[task_type_name].add(replica)
                     assigned_platforms.add(replica)
                     
-                    # Mark platform as initialized and warm
+                    # Mark platform as initialized (replica exists)
                     platform.initialized.succeed()
-                    platform.previous_task = type('Task', (), {'type': {'name': task_type_name}})()
                     
                     # Use deterministic queue length if provided
+                    # Only mark platform as WARM if it has queue tasks (realistic cold start)
                     if env and simulation_policy and deterministic_queues:
                         queue_key = f"{node_name}:{platform_id}"
                         queue_length = deterministic_queues.get(task_type_name, {}).get(queue_key, 0)
                         
                         if queue_length > 0:
+                            # Platform has queued tasks - mark as WARM (has executed tasks)
+                            platform.previous_task = type('Task', (), {'type': {'name': task_type_name}})()
                             try:
                                 warmup_tasks = create_warmup_tasks(
                                     env, platform, task_type_name, simulation_data,
@@ -271,12 +278,16 @@ def precreate_replicas(
                                 )
                                 for warmup_task in warmup_tasks:
                                     platform.queue.put(warmup_task)
-                                    print(f"    Enqueued {len(warmup_tasks)} warmup tasks to {node_name}:{platform_id}")
+                                    print(f"    Enqueued {len(warmup_tasks)} warmup tasks (WARM) to {node_name}:{platform_id}")
                             except Exception as e:
                                 print(f"    ERROR enqueuing warmup tasks to {node_name}:{platform_id}: {e}")
                                 import traceback
                                 traceback.print_exc()
                                 raise
+                        else:
+                            # Platform has NO queue tasks - leave COLD (previous_task = None)
+                            # This enables realistic cold start simulation
+                            pass  # platform.previous_task remains None
         
         print(f"\n=== Replica creation complete (deterministic) ===")
         for task_type, replicas in initial_replicas.items():
@@ -341,11 +352,11 @@ def precreate_replicas(
                         initial_replicas[task_type_name].add(replica)
                         assigned_platforms.add(replica)
                         
-                        # Mark platform as initialized and warm for this task type
+                        # Mark platform as initialized (replica exists)
                         platform.initialized.succeed()
-                        platform.previous_task = type('Task', (), {'type': {'name': task_type_name}})()
                         
                         # Create warmup tasks if configured and environment/policy available
+                        # Only mark as WARM if queue > 0 (realistic cold start simulation)
                         if env and simulation_policy and prewarm_config:
                             task_prewarm = prewarm_config.get(task_type_name, {})
                             initial_queue = task_prewarm.get('initial_queue', 0)
@@ -358,6 +369,8 @@ def precreate_replicas(
                                 sampled_q = sample_bounded_int(q_params, rng)
                                 initial_queue = max(0, int(sampled_q))
                             if initial_queue > 0:
+                                # Platform has queued tasks - mark as WARM
+                                platform.previous_task = type('Task', (), {'type': {'name': task_type_name}})()
                                 try:
                                     warmup_tasks = create_warmup_tasks(
                                         env, platform, task_type_name, simulation_data, 
@@ -366,12 +379,13 @@ def precreate_replicas(
                                     # Enqueue warmup tasks to the platform
                                     for warmup_task in warmup_tasks:
                                         platform.queue.put(warmup_task)
-                                        print(f"    Enqueued {len(warmup_tasks)} warmup tasks to {node.node_name}:{platform.id}")
+                                        print(f"    Enqueued {len(warmup_tasks)} warmup tasks (WARM) to {node.node_name}:{platform.id}")
                                 except Exception as e:
                                     print(f"    ERROR enqueuing warmup tasks to {node.node_name}:{platform.id}: {e}")
                                     import traceback
                                     traceback.print_exc()
                                     raise
+                            # else: platform.previous_task remains None = COLD
                         
                         # print(f"    Created replica on {node.node_name} ({platform.type['shortName']}) - Platform {platform.id}")
                         replicas_created += 1
@@ -408,11 +422,11 @@ def precreate_replicas(
                         initial_replicas[task_type_name].add(replica)
                         assigned_platforms.add(replica)
                         
-                        # Mark platform as initialized and warm for this task type
+                        # Mark platform as initialized (replica exists)
                         platform.initialized.succeed()
-                        platform.previous_task = type('Task', (), {'type': {'name': task_type_name}})()
                         
                         # Create warmup tasks if configured and environment/policy available
+                        # Only mark as WARM if queue > 0 (realistic cold start simulation)
                         if env and simulation_policy and prewarm_config:
                             task_prewarm = prewarm_config.get(task_type_name, {})
                             initial_queue = task_prewarm.get('initial_queue', 0)
@@ -423,6 +437,8 @@ def precreate_replicas(
                                 sampled_q = sample_bounded_int(q_params, rng)
                                 initial_queue = max(0, int(sampled_q))
                             if initial_queue > 0:
+                                # Platform has queued tasks - mark as WARM
+                                platform.previous_task = type('Task', (), {'type': {'name': task_type_name}})()
                                 try:
                                     warmup_tasks = create_warmup_tasks(
                                         env, platform, task_type_name, simulation_data, 
@@ -431,12 +447,13 @@ def precreate_replicas(
                                     # Enqueue warmup tasks to the platform
                                     for warmup_task in warmup_tasks:
                                         platform.queue.put(warmup_task)
-                                        print(f"    Enqueued {len(warmup_tasks)} warmup tasks to {node.node_name}:{platform.id}")
+                                        print(f"    Enqueued {len(warmup_tasks)} warmup tasks (WARM) to {node.node_name}:{platform.id}")
                                 except Exception as e:
                                     print(f"    ERROR enqueuing warmup tasks to {node.node_name}:{platform.id}: {e}")
                                     import traceback
                                     traceback.print_exc()
                                     raise
+                            # else: platform.previous_task remains None = COLD
                         
                         # print(f"    Created replica on {node.node_name} ({platform.type['shortName']}) - Platform {platform.id}")
                         replicas_created += 1
@@ -629,10 +646,13 @@ def start_simulation(
         "multiloop_multiloop": (MultiLoopOrchestrator, MultiLoopAutoscaler, MultiLoopScheduler),
         "determined_determined": (DeterminedOrchestrator, DeterminedAutoscaler, DeterminedScheduler),
         "evaluator_evaluator": (EvaluatorOrchestrator, EvaluatorAutoscaler, EvaluatorScheduler),
+        "kn_network_batch_kn_network_batch": (KnativeNetworkBatchOrchestrator, KnativeNetworkBatchAutoscaler, KnativeNetworkBatchScheduler),
         "kn_network_kn_network": (KnativeNetworkOrchestrator, KnativeNetworkAutoscaler, KnativeNetworkScheduler),
-        "kn_network_no_batch_kn_network_no_batch": (KnativeNoBatchOrchestrator, KnativeNoBatchAutoscaler, KnativeNoBatchScheduler),
+        "kn_network_batch_kn_network_batch": (KnativeNetworkBatchOrchestrator, KnativeNetworkBatchAutoscaler, KnativeNetworkBatchScheduler),
         "gnn_cosim_gnn_cosim": (GNNCosimOrchestrator, GNNCosimAutoscaler, GNNCosimScheduler),
         "rr_network_rr_network": (RoundRobinNetworkOrchestrator, RoundRobinNetworkAutoscaler, RoundRobinNetworkScheduler),
+        "hrc_network_hrc_network": (HRCNetworkOrchestrator, HRCNetworkAutoscaler, HRCNetworkScheduler),
+        "hrc_network_batch_hrc_network_batch": (HRCNetworkBatchOrchestrator, HRCNetworkBatchAutoscaler, HRCNetworkBatchScheduler),
     }
 
     # Retrieve relevant Autoscaler and Scheduler classes
@@ -656,9 +676,13 @@ def start_simulation(
         'initial_replicas': initial_replicas  # Pass initial replicas to orchestrator
     }
     
-    # Add infrastructure config for determined orchestrator
+    # Add infrastructure config for orchestrators that need it
     if orchestrator_type.__name__ == 'DeterminedOrchestrator':
         orchestrator_args['infrastructure'] = infrastructure
+    
+    # Add scheduler config for GNN orchestrator (for soft blending configuration)
+    if orchestrator_type.__name__ == 'GNNOrchestrator':
+        orchestrator_args['scheduler_config'] = infrastructure.get('scheduler', {})
     
     orchestrator = orchestrator_type(**orchestrator_args)
     env.run(until=finished)

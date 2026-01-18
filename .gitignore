@@ -209,3 +209,6 @@ src/notebooks/new/models/
 # datasets
 analysis_results/
 simulation_data/network_topology.pdf
+
+*.md
+!README.md

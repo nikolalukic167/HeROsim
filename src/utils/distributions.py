@@ -35,7 +35,10 @@ def sample_bounded_int(params: Dict[str, Any], rng: Optional[random.Random] = No
     max_bound = params.get("max")
 
     x: float
-    if dist_type == "normal":
+    if dist_type == "constant":
+        # Constant distribution - return the value directly
+        x = float(params.get("value", 0.0))
+    elif dist_type == "normal":
         mean = float(params.get("mean", 1.0))
         stddev = float(params.get("stddev", max(1e-9, params.get("stddev", 1.0))))
         x = rng.gauss(mean, stddev)

@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 from src.placement.orchestrator import Orchestrator
 
 
-class KnativeNetworkOrchestrator(Orchestrator):
+class KnativeOrchestrator(Orchestrator):
     def initialize_state(self) -> KnativeSystemState:
         # Initialize scheduler state
         scheduler_state = KnativeSchedulerState(
@@ -50,29 +50,6 @@ class KnativeNetworkOrchestrator(Orchestrator):
         replicas: Dict[str, Set[Tuple[Node, Platform]]] = {
             task_type: set() for task_type in self.data.task_types
         }
-        
-        # Seed initial replicas if provided (from precreate_replicas in co-simulation mode)
-        if self.initial_replicas:
-            logging.info(f"KnativeNetworkOrchestrator: Using {len(self.initial_replicas)} pre-seeded replica sets")
-            print(f"\n=== Using {len(self.initial_replicas)} pre-seeded replica sets ===")
-            for task_type, replica_set in self.initial_replicas.items():
-                if task_type in replicas:
-                    replicas[task_type] = replica_set.copy()
-                    print(f"  {task_type}: {len(replica_set)} replicas")
-                    
-                    # Remove these platforms from available resources since they're now allocated
-                    for node, platform in replica_set:
-                        if node in available_resources and platform in available_resources[node]:
-                            available_resources[node].remove(platform)
-                            node.available_platforms -= 1
-                            # Allocate memory for this replica
-                            memory_required = self.data.task_types[task_type]["memoryRequirements"][platform.type["shortName"]]
-                            node.available_memory -= memory_required
-                            
-                            # Initialize average_contention for this replica to prevent KeyError
-                            scheduler_state.average_contention[task_type][(node.id, platform.id)] = 0.0
-            print("=== Initial replicas integrated ===\n")
-        
         system_state = KnativeSystemState(
             scheduler_state=scheduler_state,
             available_resources=available_resources,
@@ -88,46 +65,17 @@ class KnativeNetworkOrchestrator(Orchestrator):
         # and moved to policy package
         logging.info(f"[ {self.env.now} ] Orchestrator Monitor started")
 
-        # Initialize time-window average
-        latest_window_start = self.env.now
-
         while True:
-            # Step
-            step = math.floor(self.env.now - latest_window_start) + 1
-
             system_state: KnativeSystemState = yield self.mutex.get()
             replicas: Dict[str, Set[Tuple[Node, Platform]]] = system_state.replicas
             state: KnativeSchedulerState = system_state.scheduler_state
 
-            # Clear average using time-window bounds if necessary
-            # FIXME: Implement panic mode (60- vs 6-second time windows)
-            if step == 7:
-                # Store averages at the granularity of replicas
-                for function_name, function_replicas in replicas.items():
-                    # Accumulators
-                    for node, platform in function_replicas:
-                        # Knative policy
-                        state.average_contention[function_name][
-                            (node.id, platform.id)
-                        ] = len(platform.queue.items)
-
-                # Update tick time
-                latest_window_start = self.env.now
-            else:
-                # Update contention rolling means
-                for function_name, function_replicas in replicas.items():
-                    for node, platform in function_replicas:
-                        # Knative policy
-                        value = (
-                            state.average_contention[function_name][
-                                (node.id, platform.id)
-                            ]
-                            * (step - 1)
-                            + len(platform.queue.items)
-                        ) / step
-                        state.average_contention[function_name][
-                            (node.id, platform.id)
-                        ] = value
+            # Count queue depth for autoscaling
+            for function_name, function_replicas in replicas.items():
+                for node, platform in function_replicas:
+                    state.average_contention[function_name][
+                        (node.id, platform.id)
+                    ] = len(platform.queue.items)
 
             yield self.mutex.put(system_state)
 

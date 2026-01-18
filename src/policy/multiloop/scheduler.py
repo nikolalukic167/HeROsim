@@ -31,9 +31,9 @@ class MultiLoopScheduler(Scheduler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Get batch size from policy or use default
-        # NOTE: batch_size > 1 causes deadlock when multiple tasks need new replicas
-        # TODO: Fix batch processing to properly handle replica creation
-        self.batch_size = getattr(self.policy, 'batch_size', 1)  # Single task for now
+        # Batch processing now works with batch_size > 1
+        # We pre-scan the batch and create needed replicas upfront before placement
+        self.batch_size = getattr(self.policy, 'batch_size', 8)  # Enable batch processing
         self.batch_timeout = getattr(self.policy, 'batch_timeout', 0.1)  # Wait up to 0.1 seconds to fill batch
 
     def scheduler_process(self) -> Generator:
@@ -64,49 +64,112 @@ class MultiLoopScheduler(Scheduler):
     def _collect_task_batch(self) -> Generator[Any, Any, List[Task]]:
         """Collect a batch of tasks that are ready for scheduling.
         
-        Uses a timeout-based approach to allow partial batches:
+        Uses a polling-based approach to allow partial batches:
         1. Wait indefinitely for the first task
-        2. Wait up to batch_timeout for additional tasks
+        2. Poll for additional tasks until timeout
         3. Return whatever tasks we've collected (1 to batch_size)
+        
+        NOTE: We use polling instead of yield get|timeout to avoid the "dangling get"
+        problem where unfulfilled get events consume future tasks.
         """
         batch: List[Task] = []
         
         def task_filter(queued_task: Task) -> bool:
             return all(dependency.finished for dependency in queued_task.dependencies)
         
-        print(f"[ {self.env.now} ] DEBUG: Starting batch collection (size={self.batch_size})")
-        
         # First task: wait indefinitely (blocking is expected)
         task: Task = yield self.tasks.get(task_filter)
         batch.append(task)
-        print(f"[ {self.env.now} ] DEBUG: Got first task {task.id}")
         
         # Set deadline for collecting rest of batch
         batch_deadline = self.env.now + self.batch_timeout
         
-        # Collect remaining tasks with timeout
+        # Collect remaining tasks using polling (avoids dangling get events)
         while len(batch) < self.batch_size:
             remaining_time = batch_deadline - self.env.now
             if remaining_time <= 0:
-                print(f"[ {self.env.now} ] DEBUG: Batch timeout reached with {len(batch)} tasks")
                 break
             
-            # Race between getting a task and timeout
-            get_event = self.tasks.get(task_filter)
-            timeout_event = self.env.timeout(remaining_time)
-            result: Union[Task, None] = yield get_event | timeout_event
+            # Check if there are any ready tasks in the queue
+            ready_tasks = [t for t in self.tasks.items if task_filter(t)]
             
-            if get_event.triggered and get_event.ok:
-                task = get_event.value
+            if ready_tasks:
+                # Get the first ready task immediately
+                task = yield self.tasks.get(task_filter)
                 batch.append(task)
-                print(f"[ {self.env.now} ] DEBUG: Added task {task.id} to batch (size={len(batch)})")
             else:
-                # Timeout triggered - stop collecting
-                print(f"[ {self.env.now} ] DEBUG: Timeout waiting for more tasks, batch size={len(batch)}")
-                break
+                # No ready tasks - wait a small step and check again
+                step_time = min(0.01, remaining_time)
+                yield self.env.timeout(step_time)
         
-        print(f"[ {self.env.now} ] DEBUG: Batch collection complete, returning {len(batch)} tasks")
         return batch
+
+    def _ensure_replicas_for_batch(
+        self, 
+        batch_tasks: List[Task], 
+        system_state: SystemState
+    ) -> Generator[Any, Any, Dict[str, int]]:
+        """
+        Pre-scan batch and ensure enough replicas exist for all task types.
+        
+        This prevents the cascade problem where each task in a batch creates
+        a new replica because previous replicas are already used.
+        
+        Returns: Dict mapping task_type -> number of replicas created
+        """
+        from collections import Counter
+        
+        # Count how many tasks of each type are in the batch
+        task_type_counts: Dict[str, int] = Counter(task.type["name"] for task in batch_tasks)
+        replicas_created: Dict[str, int] = {}
+        
+        for task_type_name, needed_count in task_type_counts.items():
+            current_replicas = system_state.replicas.get(task_type_name, set())
+            current_count = len(current_replicas)
+            
+            # Calculate how many additional replicas we need
+            # We want at least as many replicas as tasks in the batch
+            # (so each task can potentially get a unique replica)
+            deficit = needed_count - current_count
+            
+            if deficit <= 0:
+                replicas_created[task_type_name] = 0
+                continue
+            
+            print(f"[ {self.env.now} ] MultiLoop: Pre-creating {deficit} replica(s) for {task_type_name} "
+                  f"(have {current_count}, need {needed_count} for batch)")
+            
+            # Get task type data
+            task_type = self.data.task_types.get(task_type_name)
+            if not task_type:
+                logging.warning(f"[ {self.env.now} ] Unknown task type: {task_type_name}")
+                replicas_created[task_type_name] = 0
+                continue
+            
+            created = 0
+            for _ in range(deficit):
+                stop = yield self.env.process(
+                    self.autoscaler.create_first_replica(
+                        system_state,
+                        task_type
+                    )
+                )
+                
+                if not isinstance(stop, StopIteration):
+                    created += 1
+                else:
+                    # No resources available, stop trying
+                    logging.warning(
+                        f"[ {self.env.now} ] MultiLoop: Could not create more replicas for {task_type_name} "
+                        f"(created {created}/{deficit})"
+                    )
+                    break
+            
+            replicas_created[task_type_name] = created
+            if created > 0:
+                print(f"[ {self.env.now} ] MultiLoop: Pre-created {created} replica(s) for {task_type_name}")
+        
+        return replicas_created
 
     def _process_task_batch(self, batch_tasks: List[Task]) -> Generator:
         """Process multiple tasks simultaneously in a single operation"""
@@ -114,6 +177,15 @@ class MultiLoopScheduler(Scheduler):
         
         # Get system state once for all tasks
         system_state: SystemState = yield self.mutex.get()
+        
+        # Pre-scan: ensure enough replicas exist for all task types in batch
+        # This prevents cascade replica creation during batch processing
+        replicas_created = yield self.env.process(
+            self._ensure_replicas_for_batch(batch_tasks, system_state)
+        )
+        if any(count > 0 for count in replicas_created.values()):
+            print(f"[ {self.env.now} ] MultiLoop: Pre-created replicas: {replicas_created}")
+        
         replicas: Dict[str, Set[Tuple[Node, Platform]]] = system_state.replicas
         
         # Process all tasks in the batch

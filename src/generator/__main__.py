@@ -97,6 +97,13 @@ def main() -> int:
     parser.add_argument(
         '--app', type=str, required=False
     )
+    parser.add_argument(
+        '--app-weights',
+        type=str,
+        required=False,
+        default="nofs-dnn1=0.85,nofs-dnn2=0.15",
+        help="Comma-separated app=weight list (e.g. nofs-dnn1=0.85,nofs-dnn2=0.15)",
+    )
 
     parser.add_argument(
         '--pattern', help="Whether to generate  daily pattern", type=str, required=False,
@@ -178,7 +185,8 @@ def main() -> int:
                 time_series: TimeSeries = generate_time_series(
                     simulation_data,
                     rps, args.seconds, args.pattern, app, generated_trace_path.replace('.json', ''),
-                    config['peaks']
+                    config['peaks'],
+                    app_weights=parse_app_weights(args.app_weights),
                 )
                 with open(f"{generated_trace_path}", "w") as outfile:
                     json.dump(time_series, outfile, indent=2, cls=DataclassJSONEncoder)
@@ -216,7 +224,14 @@ def generate_traces(args, parser):
     simulation_data: SimulationData = parse_simulation_data(args.data_directory)
     # Create time series
     time_series: TimeSeries = generate_time_series(
-        simulation_data, args.rps, args.seconds, args.pattern, args.app, generated_trace_path.replace('.json', ''), peaks=None
+        simulation_data,
+        args.rps,
+        args.seconds,
+        args.pattern,
+        args.app,
+        generated_trace_path.replace('.json', ''),
+        peaks=None,
+        app_weights=parse_app_weights(args.app_weights),
     )
     with open(f"{generated_trace_path}", "w") as outfile:
         json.dump(time_series, outfile, indent=2, cls=DataclassJSONEncoder)
@@ -224,6 +239,21 @@ def generate_traces(args, parser):
     get_workload_stats(
         simulation_data.application_types, simulation_data.task_types, time_series
     )
+
+
+def parse_app_weights(value: str | None) -> Dict[str, float] | None:
+    if not value:
+        return None
+    weights: Dict[str, float] = {}
+    for item in value.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if "=" not in item:
+            raise ValueError(f"Invalid --app-weights entry '{item}', expected name=weight")
+        name, raw = item.split("=", 1)
+        weights[name.strip()] = float(raw)
+    return weights
 
 
 if __name__ == "__main__":

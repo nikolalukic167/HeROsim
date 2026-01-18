@@ -51,7 +51,8 @@ class GNNOrchestrator(Orchestrator):
             trace_file: str,
             models=None,
             device_type_mapping=None,
-            initial_replicas=None
+            initial_replicas=None,
+            scheduler_config=None
     ):
         """Override __init__ to handle models specially for GNN scheduler."""
         self.env = env
@@ -63,6 +64,7 @@ class GNNOrchestrator(Orchestrator):
         self.nodes = nodes
         self.initial_replicas = initial_replicas or {}
         self.models = models  # Store models for scheduler
+        self.scheduler_config = scheduler_config or {}  # For soft blending config
 
         self.gateway: Process
         self.monitor: Process
@@ -161,6 +163,16 @@ class GNNOrchestrator(Orchestrator):
             import traceback
             traceback.print_exc()
             # Continue anyway - scheduler should handle missing models gracefully
+        
+        # Configure soft blending if scheduler supports it
+        try:
+            if hasattr(self, 'scheduler_config') and self.scheduler_config:
+                if hasattr(self.scheduler, 'configure_blending'):
+                    logging.info("[GNN Orchestrator] Configuring soft blending...")
+                    self.scheduler.configure_blending(self.scheduler_config)
+        except Exception as e:
+            logging.error(f"[GNN Orchestrator] Error configuring blending: {e}")
+            print(f"[GNN Orchestrator] Warning: Failed to configure blending: {e}")
         
         logging.info("[GNN Orchestrator] State initialization complete")
         return system_state

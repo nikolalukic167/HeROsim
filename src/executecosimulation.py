@@ -5,22 +5,78 @@ import os
 import pickle
 import sys
 import time
+import hashlib
+import uuid
 from copy import deepcopy
 from pathlib import Path
 from typing import Dict, List, Any, Tuple, Set, Optional
 
 import concurrent.futures
-import json
 from pathlib import Path
 
 import numpy as np  # type: ignore[import-not-found]
 from itertools import islice
 
-# Assuming increase_events is imported from your previous script
+# Try to use orjson for faster JSON serialization (falls back to stdlib json)
+try:
+    import orjson
+    
+    def _convert_keys_to_str(obj):
+        """Recursively convert dict keys to strings for orjson compatibility."""
+        if isinstance(obj, dict):
+            return {str(k): _convert_keys_to_str(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [_convert_keys_to_str(item) for item in obj]
+        elif isinstance(obj, tuple):
+            return [_convert_keys_to_str(item) for item in obj]
+        return obj
+    
+    def json_dumps(obj, **kwargs):
+        """Fast JSON serialization using orjson."""
+        # Fall back to stdlib json if custom encoder is needed
+        if 'cls' in kwargs:
+            return json.dumps(obj, separators=(',', ':'), **kwargs)
+        try:
+            return orjson.dumps(_convert_keys_to_str(obj), option=orjson.OPT_SERIALIZE_NUMPY).decode('utf-8')
+        except (TypeError, orjson.JSONEncodeError):
+            # Fall back if orjson can't handle the object
+            return json.dumps(obj, separators=(',', ':'), default=str, **kwargs)
+    
+    def json_dumps_pretty(obj, **kwargs):
+        """Pretty JSON serialization using orjson."""
+        # Fall back to stdlib json if custom encoder is needed
+        if 'cls' in kwargs:
+            return json.dumps(obj, indent=2, **kwargs)
+        try:
+            return orjson.dumps(_convert_keys_to_str(obj), option=orjson.OPT_INDENT_2 | orjson.OPT_SERIALIZE_NUMPY).decode('utf-8')
+        except (TypeError, orjson.JSONEncodeError):
+            # Fall back if orjson can't handle the object
+            return json.dumps(obj, indent=2, default=str, **kwargs)
+    HAS_ORJSON = True
+except ImportError:
+    def json_dumps(obj, **kwargs):
+        """Fallback to stdlib json."""
+        return json.dumps(obj, separators=(',', ':'), **kwargs)
+    def json_dumps_pretty(obj, **kwargs):
+        """Fallback to stdlib json with indent."""
+        return json.dumps(obj, indent=2, **kwargs)
+    HAS_ORJSON = False
+
 from src.eventgenerator import increase_events_of_app
 from src.motivational.constants import KEEP_ALIVE, QUEUE_LENGTH
 from src.placement.executor import execute_sim
 from src.placement.model import SimulationData, DataclassJSONEncoder
+
+# =============================================================================
+# GLOBAL CONFIGURATION
+# =============================================================================
+
+# Global quiet mode flag (set via --quiet command line argument)
+QUIET_MODE = False
+
+# Global shared data for worker processes (initialized via _init_worker)
+# This avoids pickling large immutable data for every task submission
+_worker_shared_data: Dict[str, Any] = {}
 
 REQUIRED_SIM_FILES = [
     'application-types.json',
@@ -29,6 +85,45 @@ REQUIRED_SIM_FILES = [
     'storage-types.json',
     'task-types.json'
 ]
+
+
+def _init_worker(
+    sim_inputs: Dict[str, Any],
+    infra_config: Dict[str, Any],
+    base_nodes: List[Dict[str, Any]],
+    flattened_workloads: Dict[str, Any],
+    replica_plan: Dict[str, Any],
+    apps: List[str],
+    infrastructure_file: Optional[Path],
+    sample: np.ndarray,
+    mapping: Dict[int, str],
+    output_dir: Path,
+    quiet: bool = False
+):
+    """
+    Initialize worker process with shared immutable data.
+    Called once per worker process, not per task.
+    """
+    global _worker_shared_data, QUIET_MODE
+    QUIET_MODE = quiet
+    _worker_shared_data = {
+        'sim_inputs': sim_inputs,
+        'infra_config': infra_config,
+        'base_nodes': base_nodes,
+        'flattened_workloads': flattened_workloads,
+        'replica_plan': replica_plan,
+        'apps': apps,
+        'infrastructure_file': infrastructure_file,
+        'sample': sample,
+        'mapping': mapping,
+        'output_dir': output_dir,
+    }
+
+
+def _log(msg: str, force: bool = False):
+    """Print message unless in quiet mode."""
+    if not QUIET_MODE or force:
+        print(msg)
 
 def setup_logging(output_dir: Path) -> logging.Logger:
     logger = logging.getLogger('simulation')
@@ -384,6 +479,12 @@ def prepare_simulation_config(
     client_nodes_count = original_config['nodes']['client_nodes']['count']
     server_nodes_count = original_config['nodes']['server_nodes']['count']
 
+    # Check if this is a cold start scenario (0% preinit = no pre-created replicas)
+    preinit_config = original_config.get('preinit', {})
+    client_percentage = preinit_config.get('client_percentage', 0)
+    server_percentage = preinit_config.get('server_percentage', 0)
+    is_cold_start = (client_percentage == 0 and server_percentage == 0)
+
     # Prepare simulation configuration
     infrastructure_config = {
         "network": {
@@ -521,12 +622,31 @@ def prepare_simulation_config(
         infrastructure_config['forced_placements'] = placement_plan
         print(f"Added placement plan with {len(placement_plan)} task placements")
 
-    # Pass replica plan if provided
-    if replica_plan is not None:
+    # Pass replica plan if provided (skip for cold start scenarios)
+    # For cold start (0% preinit), we don't pre-create replicas, so no replica_plan needed
+    if replica_plan is not None and not is_cold_start:
         infrastructure_config['replica_plan'] = replica_plan
 
-    # Add prewarm configuration
-    infrastructure_config['prewarm'] = original_config.get('prewarm', {})
+    # Add prewarm configuration (reduced for cold start scenarios)
+    prewarm_config = original_config.get('prewarm', {})
+    # For cold start, use minimal/no prewarming to simulate realistic initial state
+    if is_cold_start:
+        # Override prewarm config for cold start - no warmup tasks
+        prewarm_config = {
+            task_type: {
+                "distribution": "none",
+                "queue_distribution": "statistical",
+                "queue_distribution_params": {
+                    "type": "constant",
+                    "value": 0,  # No initial queue for cold start
+                    "min": 0,
+                    "max": 0,
+                    "step": 0
+                }
+            }
+            for task_type in original_config.get('replicas', {}).keys()
+        }
+    infrastructure_config['prewarm'] = prewarm_config
 
     return infrastructure_config
 
@@ -1461,6 +1581,367 @@ def process_sample_with_placement(args):
         return None, float('inf'), None
 
 
+def process_placement_fast(placement_plan: Dict[int, Tuple[int, int]]) -> Tuple[Optional[Path], float, Optional[Dict]]:
+    """
+    Optimized worker function that uses shared data from _worker_shared_data.
+    
+    This function is called with ONLY the placement_plan - all other data
+    is accessed from the global _worker_shared_data dict initialized by _init_worker.
+    This dramatically reduces pickling overhead for each task submission.
+    
+    Args:
+        placement_plan: Dict mapping task_id -> (node_id, platform_id)
+    
+    Returns:
+        Tuple of (result_file_path, rtt_value, result_dict)
+    """
+    global _worker_shared_data, QUIET_MODE
+    
+    # Access shared data (loaded once per worker process)
+    sim_inputs = _worker_shared_data['sim_inputs']
+    infra_config = _worker_shared_data['infra_config']
+    base_nodes = _worker_shared_data['base_nodes']
+    flattened_workloads = _worker_shared_data['flattened_workloads']
+    replica_plan = _worker_shared_data['replica_plan']
+    apps = _worker_shared_data['apps']
+    infrastructure_file = _worker_shared_data['infrastructure_file']
+    sample = _worker_shared_data['sample']
+    mapping = _worker_shared_data['mapping']
+    output_dir = _worker_shared_data['output_dir']
+    
+    try:
+        # Prepare infrastructure configuration with the specific placement plan
+        sim_config = prepare_simulation_config(
+            sample,
+            mapping,
+            infra_config,
+            placement_plan,
+            replica_plan=replica_plan,
+            base_nodes=base_nodes,
+            infrastructure_file=infrastructure_file,
+        )
+
+        # Combine infrastructure and workload configurations
+        full_config = {
+            "infrastructure": sim_config,
+            "workload": flattened_workloads,
+        }
+
+        # Execute simulation
+        result = execute_simulation(
+            full_config,
+            sim_inputs,
+            'determined_determined',
+            model_locations={},
+            models={},
+            cache_policy='fifo',
+            task_priority='fifo',
+            keep_alive=KEEP_ALIVE,
+            queue_length=QUEUE_LENGTH,
+        )
+        
+        # Minimal result metadata (avoid storing large redundant data)
+        result['sample'] = {
+            'apps': apps,
+            'placement_plan': placement_plan,
+        }
+
+        # Calculate RTT directly from stats
+        stats = result.get('stats', {})
+        task_results = stats.get('taskResults', [])
+        rtt = 0.0
+        counted = False
+        for tr in task_results:
+            task_id = tr.get('taskId')
+            if task_id is not None and task_id >= 0:
+                rtt += float(tr.get('elapsedTime', 0))
+                counted = True
+        rtt_value = float(rtt) if counted else float('inf')
+
+        # Generate unique result file path
+        placement_key = json_dumps(sorted(placement_plan.items()))
+        placement_hash = hashlib.sha1(placement_key.encode('utf-8')).hexdigest()[:16]
+        unique_suffix = uuid.uuid4().hex[:8]
+        result_file = output_dir / f"simulation_placement_{placement_hash}_{unique_suffix}.json"
+
+        return result_file, rtt_value, result
+
+    except Exception as e:
+        if not QUIET_MODE:
+            print(f"[worker] Error in simulation: {str(e)}")
+        return None, float('inf'), None
+
+
+def execute_brute_force_optimized(
+        apps: List[str],
+        config_file: str,
+        mapping_file: str,
+        output_dir: Path,
+        sample: np.ndarray,
+        sim_input_path: Path,
+        workload_base_file: str,
+        max_workers: int,
+        infrastructure_file: Path,
+        quiet: bool = False
+) -> List[str]:
+    """
+    Optimized brute force placement optimization.
+    
+    Key optimizations:
+    1. No sample loop - processes single sample directly
+    2. Uses worker initializer to share immutable data once per worker
+    3. Minimal per-task data transfer (only placement_plan)
+    4. Quiet mode support
+    5. Uses orjson for faster serialization when available
+    
+    Args:
+        apps: List of application names
+        config_file: Path to infrastructure configuration file
+        mapping_file: Path to mapping file
+        output_dir: Output directory for results
+        sample: Single sample array (not array of samples)
+        sim_input_path: Path to simulation input files
+        workload_base_file: Path to workload base file
+        max_workers: Maximum number of parallel workers
+        infrastructure_file: Path to infrastructure.json (REQUIRED)
+        quiet: If True, suppress per-placement logging
+    
+    Returns:
+        List of result file paths
+    """
+    global QUIET_MODE
+    QUIET_MODE = quiet
+    
+    time_started = time.time()
+    
+    _log(f"\n=== Starting Optimized Brute Force Placement ===")
+    _log(f"Max workers: {max_workers}")
+    _log(f"Infrastructure file: {infrastructure_file}")
+    _log(f"Using orjson: {HAS_ORJSON}")
+    
+    logger = logging.getLogger('simulation')
+    
+    # Load all required data ONCE
+    _log("Loading simulation inputs...")
+    sim_inputs = load_simulation_inputs(sim_input_path)
+    
+    _log("Loading mapping file...")
+    with open(mapping_file, 'rb') as f:
+        mapping = pickle.load(f)
+    
+    _log("Loading infrastructure config...")
+    with open(config_file, 'r') as f:
+        infra_config = json.load(f)
+    
+    _log("Loading workload base...")
+    with open(workload_base_file, 'r') as f:
+        workload_base = json.load(f)
+    
+    # Prepare workloads
+    workloads = prepare_workloads(sample, mapping, workload_base, apps)
+    flattened_workloads = flatten_workloads(workloads)
+    _log(f"Prepared {len(flattened_workloads['events'])} workload events")
+    
+    # Prepare infrastructure configuration
+    sim_config = prepare_simulation_config(sample, mapping, infra_config, infrastructure_file=infrastructure_file)
+    
+    # Generate replica plan
+    replica_plan = determine_replica_placement(sim_config, sim_inputs)
+    
+    base_nodes = sim_config['nodes']
+    
+    # Phase 1: Capture system state
+    _log("\n[Phase 1] Capturing system state...")
+    capture_args = (
+        sample,
+        mapping,
+        infra_config,
+        sim_inputs,
+        flattened_workloads['events'],
+        replica_plan,
+        output_dir,
+        infrastructure_file,
+    )
+    
+    # Run capture in main process (no need for separate executor for single task)
+    active_replicas = capture_system_state_from_first_task(
+        sample, mapping, infra_config, sim_inputs,
+        flattened_workloads['events'], replica_plan, output_dir,
+        infrastructure_file=infrastructure_file
+    )
+    
+    if active_replicas is None:
+        raise RuntimeError("System state capture FAILED. Cannot proceed with brute-force optimization.")
+    
+    _log("✓ System state captured successfully")
+    
+    # Phase 2: Generate placement combinations
+    _log("\n[Phase 2] Generating placement combinations...")
+    placement_combinations = generate_brute_force_placement_combinations(
+        flattened_workloads['events'],
+        sim_config,
+        sim_inputs,
+        replica_plan,
+        active_replicas=active_replicas
+    )
+    
+    num_placements = len(placement_combinations)
+    _log(f"Generated {num_placements} placement combinations")
+    
+    if not placement_combinations:
+        raise RuntimeError("No valid placement combinations found")
+    
+    # Phase 3: Execute simulations in parallel with worker initializer
+    _log(f"\n[Phase 3] Executing {num_placements} simulations with {max_workers} workers...")
+    
+    best_rtt = float('inf')
+    best_result_data = None
+    best_file = None
+    placement_summaries = []
+    rtts = []
+    
+    # Use worker initializer to share data once per worker (not per task!)
+    with concurrent.futures.ProcessPoolExecutor(
+        max_workers=max_workers,
+        initializer=_init_worker,
+        initargs=(
+            sim_inputs,
+            infra_config,
+            base_nodes,
+            flattened_workloads,
+            replica_plan,
+            apps,
+            infrastructure_file,
+            sample,
+            mapping,
+            output_dir,
+            quiet,
+        )
+    ) as executor:
+        # Submit all placement plans - only the small placement_plan dict is pickled per task
+        futures = {
+            executor.submit(process_placement_fast, plan): idx 
+            for idx, plan in enumerate(placement_combinations)
+        }
+        
+        completed = 0
+        for future in concurrent.futures.as_completed(futures):
+            completed += 1
+            placement_idx = futures[future]
+            
+            try:
+                result_file, cur_rtt, result_data = future.result()
+                
+                if result_file is None or result_data is None:
+                    continue
+                
+                rtts.append(cur_rtt)
+                
+                # Track best result
+                if cur_rtt < best_rtt:
+                    best_rtt = cur_rtt
+                    best_result_data = result_data
+                    best_file = str(result_file)
+                
+                # Keep placement summary
+                placement = result_data.get('sample', {}).get('placement_plan', {})
+                placement_summaries.append({
+                    "placement_plan": placement,
+                    "rtt": cur_rtt
+                })
+                
+                # Progress update (every 10% or every 1000)
+                if not quiet and (completed % max(1, num_placements // 10) == 0 or completed % 1000 == 0):
+                    elapsed = time.time() - time_started
+                    rate = completed / elapsed if elapsed > 0 else 0
+                    _log(f"  Progress: {completed}/{num_placements} ({100*completed/num_placements:.1f}%) - {rate:.1f} sim/s - best RTT: {best_rtt:.3f}s")
+                    
+            except Exception as e:
+                if not quiet:
+                    _log(f"  Worker failed for placement {placement_idx}: {e}")
+    
+    elapsed_time = time.time() - time_started
+    
+    # Write results
+    _log(f"\n[Phase 4] Writing results...")
+    
+    # Write placement summaries (JSONL format)
+    if placement_summaries:
+        try:
+            placements_file = output_dir / "placements.jsonl"
+            with open(placements_file, 'w') as f:
+                for summary in placement_summaries:
+                    # Use stdlib json for placements to avoid orjson issues
+                    f.write(json.dumps(summary, separators=(',', ':')) + '\n')
+            _log(f"  Saved {len(placement_summaries)} placement summaries")
+        except Exception as e:
+            _log(f"  ERROR: Failed to write placements: {e}")
+    
+    # Write best result
+    result_paths = []
+    if best_result_data is not None:
+        optimal_file_path = output_dir / "simulation_1_optimal.json"
+        try:
+            with open(optimal_file_path, 'w') as f:
+                # Use stdlib json with DataclassJSONEncoder for complex objects
+                json.dump(best_result_data, f, indent=2, cls=DataclassJSONEncoder)
+            best_file = str(optimal_file_path)
+            result_paths.append(best_file)
+            
+            # Write best.json sidecar
+            best_info = {"file": os.path.basename(best_file), "rtt": best_rtt}
+            with open(output_dir / "best.json", 'w') as f:
+                f.write(json_dumps(best_info))
+            _log(f"  Saved optimal result: RTT={best_rtt:.3f}s")
+        except Exception as e:
+            _log(f"  ERROR: Failed to write optimal result: {e}")
+    
+    # Summary
+    _log(f"\n=== Optimization Complete ===")
+    _log(f"Total time: {elapsed_time:.1f}s")
+    _log(f"Simulations: {len(rtts)}/{num_placements}")
+    _log(f"Rate: {len(rtts)/elapsed_time:.1f} sim/s")
+    if rtts:
+        _log(f"RTT range: {min(rtts):.3f}s - {max(rtts):.3f}s")
+        _log(f"Best RTT: {best_rtt:.3f}s")
+    
+    return result_paths
+
+
+def _create_placement_tuple(
+    sample_idx: int,
+    sample: np.ndarray,
+    placement_plan: Dict[int, Tuple[int, int]],
+    base_nodes: List[Dict],
+    output_dir: Path,
+    sim_inputs: Dict[str, Any],
+    mapping: Dict[int, str],
+    infra_config: Dict[str, Any],
+    flattened_workloads: Dict[str, Any],
+    replica_plan: Dict[str, Any],
+    apps: List[str],
+    infrastructure_file: Optional[Path]
+) -> Tuple:
+    """
+    Helper function to create placement tuple for worker submission.
+    Extracted to avoid code duplication.
+    """
+    return (
+        sample_idx,
+        sample,
+        placement_plan,
+        base_nodes,
+        output_dir,
+        sim_inputs,
+        mapping,
+        infra_config,
+        flattened_workloads,
+        replica_plan,
+        apps,
+        infrastructure_file,
+    )
+
+
 def execute_brute_force_placement_optimization(
         apps: List[str],
         config_file: str,
@@ -1473,15 +1954,20 @@ def execute_brute_force_placement_optimization(
         infrastructure_file: Optional[Path] = None
 ) -> List[str]:
     """
-    Execute brute force placement optimization by testing different placement combinations.
-    Generates all valid placement combinations where each task has a unique replica.
+    Legacy brute force placement optimization.
+    
+    NOTE: This is the legacy implementation kept for backwards compatibility.
+    For better performance, use execute_brute_force_optimized() which:
+    - Uses worker initializer pattern (avoids redundant data pickling)
+    - Removes unnecessary sample loop
+    - Supports quiet mode
     
     Args:
         apps: List of application names
         config_file: Path to infrastructure configuration file
         mapping_file: Path to mapping file
         output_dir: Output directory for results
-        samples: Array of samples to process
+        samples: Array of samples (only first sample is used)
         sim_input_path: Path to simulation input files
         workload_base_file: Path to workload base file
         max_workers: Maximum number of parallel workers
@@ -1489,442 +1975,228 @@ def execute_brute_force_placement_optimization(
     Returns:
         List of result file paths
     """
-    print(f"\n=== Starting Brute Force Placement Optimization ===")
-    print(f"Generating ALL valid placement combinations (each task gets unique replica)")
-    print(f"Number of samples: {len(samples)}")
+    # NOTE: Legacy implementation processes only first sample
+    sample = samples[0]
+    sample_idx = 0
+    
+    print(f"\n=== Starting Brute Force Placement Optimization (Legacy) ===")
     print(f"Max workers: {max_workers}")
     if infrastructure_file:
         print(f"Infrastructure file: {infrastructure_file}")
-        if infrastructure_file.exists():
-            print(f"✓ Infrastructure file exists - deterministic mode enabled")
-        else:
-            print(f"⚠️  WARNING: Infrastructure file does not exist - will use legacy mode")
-    else:
-        print(f"⚠️  No infrastructure file provided - using legacy (non-deterministic) mode")
 
     logger = logging.getLogger('simulation')
-    logger.info("=== Starting Brute Force Placement Optimization ===")
-    logger.info(f"Generating ALL valid placement combinations (each task gets unique replica)")
-    logger.info(f"Number of samples: {len(samples)}")
-    logger.info(f"Max workers: {max_workers}")
+    logger.info("=== Starting Brute Force Placement Optimization (Legacy) ===")
     
     time_started = time.time()
     result_paths = []
-    # Track all RTTs across all placement combinations for plotting at the end
-    all_rtts = []
-    per_sample_rtts = []
     
-    # Process each sample with multiple placement combinations
-    for sample_idx, sample in enumerate(samples):
-        logger.info(f"--- Processing Sample {sample_idx + 1}/{len(samples)} ---")
-        print(f"\n--- Processing Sample {sample_idx + 1}/{len(samples)} ---")
+    try:
+        # Load required data
+        logger.info("Loading simulation inputs...")
+        sim_inputs = load_simulation_inputs(sim_input_path)
         
-        try:
-            # Load required data for this sample
-            logger.info(f"Sample {sample_idx + 1}: Loading simulation inputs...")
-            sim_inputs = load_simulation_inputs(sim_input_path)
-            logger.info(f"Sample {sample_idx + 1}: Simulation inputs loaded")
+        logger.info("Loading mapping file...")
+        with open(mapping_file, 'rb') as f:
+            mapping = pickle.load(f)
+        
+        logger.info("Loading infrastructure config...")
+        with open(config_file, 'r') as f:
+            infra_config = json.load(f)
+        
+        logger.info("Loading workload base...")
+        with open(workload_base_file, 'r') as f:
+            workload_base = json.load(f)
+        
+        # Prepare workloads
+        logger.info("Preparing workloads...")
+        workloads = prepare_workloads(sample, mapping, workload_base, apps)
+        flattened_workloads = flatten_workloads(workloads)
+        logger.info(f"Prepared {len(flattened_workloads['events'])} workload events")
+        
+        # Prepare infrastructure configuration
+        sim_config = prepare_simulation_config(sample, mapping, infra_config, infrastructure_file=infrastructure_file)
+        
+        # Generate replica plan
+        logger.info("Generating replica plan...")
+        replica_plan = determine_replica_placement(sim_config, sim_inputs)
+        
+        # Phase 1: Capture system state
+        logger.info("Phase 1 - Capturing system state...")
+        print("[executecosim] Phase 1 - Capturing system state...")
+        
+        capture_tuple = (
+            sample, mapping, infra_config, sim_inputs,
+            flattened_workloads['events'], replica_plan, output_dir, infrastructure_file,
+        )
+        
+        with concurrent.futures.ProcessPoolExecutor(max_workers=1) as capture_executor:
+            future = capture_executor.submit(process_capture_system_state, capture_tuple)
+            try:
+                active_replicas = future.result(timeout=3600)
+            except Exception as e:
+                logger.error(f"System state capture failed: {e}")
+                active_replicas = None
+        
+        if active_replicas is None:
+            raise RuntimeError("System state capture FAILED. Cannot proceed.")
+        
+        print("✓ System state captured successfully")
+        
+        # Phase 2: Generate placement combinations
+        logger.info("Phase 2 - Generating placement combinations...")
+        print("[executecosim] Phase 2 - Generating placement combinations...")
+        placement_combinations = generate_brute_force_placement_combinations(
+            flattened_workloads['events'], sim_config, sim_inputs, replica_plan,
+            active_replicas=active_replicas
+        )
+        
+        print(f"Generated {len(placement_combinations)} placement combinations")
+        
+        if not placement_combinations:
+            raise RuntimeError("No valid placement combinations found")
+        
+        # Phase 3: Execute simulations
+        logger.info(f"Phase 3 - Executing {len(placement_combinations)} simulations...")
+        print(f"[executecosim] Phase 3 - Executing {len(placement_combinations)} simulations...")
+        
+        base_nodes = sim_config['nodes']
+        best_file: Optional[str] = None
+        best_rtt: float = float('inf')
+        best_result_data: Optional[Dict[str, Any]] = None
+        placement_summaries: List[Dict[str, Any]] = []
+        sample_rtts = []
+
+        with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = {}
+            next_placement_idx = 0
+            total_completed = 0
             
-            logger.info(f"Sample {sample_idx + 1}: Loading mapping file...")
-            with open(mapping_file, 'rb') as f:
-                mapping = pickle.load(f)
-            logger.info(f"Sample {sample_idx + 1}: Mapping file loaded")
-            
-            logger.info(f"Sample {sample_idx + 1}: Loading infrastructure config...")
-            with open(config_file, 'r') as f:
-                infra_config = json.load(f)
-            logger.info(f"Sample {sample_idx + 1}: Infrastructure config loaded")
-            
-            logger.info(f"Sample {sample_idx + 1}: Loading workload base...")
-            with open(workload_base_file, 'r') as f:
-                workload_base = json.load(f)
-            logger.info(f"Sample {sample_idx + 1}: Workload base loaded")
-            
-            # Prepare workloads
-            logger.info(f"Sample {sample_idx + 1}: Preparing workloads...")
-            workloads = prepare_workloads(sample, mapping, workload_base, apps)
-            flattened_workloads = flatten_workloads(workloads)
-            logger.info(f"Sample {sample_idx + 1}: Prepared {len(flattened_workloads['events'])} workload events")
-            
-            # Prepare infrastructure configuration (without placement plan)
-            print(f"[executecosim] Sample {sample_idx + 1}: Preparing infrastructure configuration...")
-            if infrastructure_file:
-                print(f"[executecosim] Sample {sample_idx + 1}: Using infrastructure file: {infrastructure_file}")
-            else:
-                print(f"[executecosim] Sample {sample_idx + 1}: ⚠️  No infrastructure file - using legacy generation")
-            
-            sim_config = prepare_simulation_config(sample, mapping, infra_config, infrastructure_file=infrastructure_file)
-            
-            # Check if deterministic infrastructure was loaded
-            has_deterministic = 'deterministic_replica_placements' in sim_config
-            if has_deterministic:
-                print(f"[executecosim] Sample {sample_idx + 1}: ✓ Using deterministic infrastructure")
-            else:
-                print(f"[executecosim] Sample {sample_idx + 1}: ⚠️  Using non-deterministic infrastructure")
-            
-            # Generate replica plan
-            logger.info(f"Sample {sample_idx + 1}: Generating replica plan...")
-            replica_plan = determine_replica_placement(sim_config, sim_inputs)
-            logger.info(f"Sample {sample_idx + 1}: Replica plan generated")
-            
-            # Phase 1: Capture system state from first task
-            # Run in ProcessPoolExecutor to avoid blocking (like process_sample_with_placement)
-            logger.info(f"Sample {sample_idx + 1}: Phase 1 - Capturing system state from first task...")
-            print(f"\n[executecosim] Sample {sample_idx + 1}: Phase 1 - Capturing system state from first task...")
-            
-            capture_tuple = (
-                sample,
-                mapping,
-                infra_config,
-                sim_inputs,
-                flattened_workloads['events'],
-                replica_plan,
-                output_dir,
-                infrastructure_file,
-            )
-            
-            logger.info(f"Sample {sample_idx + 1}: Submitting system state capture to ProcessPoolExecutor...")
-            with concurrent.futures.ProcessPoolExecutor(max_workers=1) as capture_executor:
-                future = capture_executor.submit(process_capture_system_state, capture_tuple)
-                logger.info(f"Sample {sample_idx + 1}: Waiting for system state capture to complete...")
-                try:
-                    active_replicas = future.result(timeout=3600)  # 1 hour timeout
-                    logger.info(f"Sample {sample_idx + 1}: System state capture completed")
-                except concurrent.futures.TimeoutError:
-                    logger.error(f"Sample {sample_idx + 1}: System state capture timed out after 1 hour")
-                    active_replicas = None
-                except Exception as e:
-                    logger.error(f"Sample {sample_idx + 1}: System state capture failed with exception: {e}")
-                    active_replicas = None
-            
-            if active_replicas is None:
-                error_msg = (
-                    f"❌ CRITICAL: System state capture FAILED for sample {sample_idx + 1}. "
-                    f"Cannot proceed - state capture is REQUIRED for co-simulation mode. "
-                    f"Legacy replica configs are not accurate and will cause invalid placements. "
-                    f"Skipping this sample entirely."
+            # Submit initial batch
+            for _ in range(min(max_workers, len(placement_combinations))):
+                if next_placement_idx >= len(placement_combinations):
+                    break
+                placement_plan = placement_combinations[next_placement_idx]
+                placement_tuple = _create_placement_tuple(
+                    sample_idx, sample, placement_plan, base_nodes, output_dir,
+                    sim_inputs, mapping, infra_config, flattened_workloads,
+                    replica_plan, apps, infrastructure_file
                 )
-                logger.error(error_msg)
-                print(error_msg)
-                continue  # Skip this sample entirely - don't run simulation
-            else:
-                logger.info(f"Sample {sample_idx + 1}: System state captured successfully")
-                print(f"✓ Sample {sample_idx + 1}: System state captured successfully")
+                future = executor.submit(process_sample_with_placement, placement_tuple)
+                futures[future] = next_placement_idx
+                next_placement_idx += 1
             
-            # Phase 2: Generate placement combinations using captured state
-            logger.info(f"Sample {sample_idx + 1}: Phase 2 - Generating placement combinations...")
-            print(f"\n[executecosim] Sample {sample_idx + 1}: Phase 2 - Generating placement combinations...")
-            placement_combinations = generate_brute_force_placement_combinations(
-                flattened_workloads['events'],
-                sim_config,
-                sim_inputs,
-                replica_plan,
-                active_replicas=active_replicas
-            )
-            
-            logger.info(f"Sample {sample_idx + 1}: Generated {len(placement_combinations)} placement combinations")
-            print(f"Generated {len(placement_combinations)} placement combinations for sample {sample_idx + 1}")
-            
-            if not placement_combinations:
-                logger.warning(f"Sample {sample_idx + 1}: No valid placement combinations found, skipping sample")
-                print(f"⚠️  WARNING: No valid placement combinations found for sample {sample_idx + 1}")
-                print(f"   This sample will be skipped")
-                continue
-            
-            # Execute simulations in parallel for this sample with early stopping
-            # Early-stopping config from infra JSON (optional)
-            logger.info(f"Sample {sample_idx + 1}: Phase 3 - Executing {len(placement_combinations)} simulations...")
-            print(f"\n[executecosim] Sample {sample_idx + 1}: Phase 3 - Executing {len(placement_combinations)} simulations...")
-            
-            # Early stopping configuration (optional)
-            bf_cfg = infra_config.get('brute_force', {}) if isinstance(infra_config, dict) else {}
-            early_stop_patience = int(bf_cfg.get('early_stop_patience', 0))  # 0 disables
-            early_stop_min_delta = float(bf_cfg.get('early_stop_min_delta', 0.0))
-            logger.info(f"Sample {sample_idx + 1}: Early stop patience: {early_stop_patience}, min delta: {early_stop_min_delta}")
-
-            base_nodes = sim_config['nodes']
-
-            # Continuous parallel processing - submit new tasks as workers become available
-            placements_iter = iter(placement_combinations)
-            best_file: Optional[str] = None
-            best_rtt: float = float('inf')
-            best_result_data: Optional[Dict[str, Any]] = None  # Keep best result in memory
-            no_improve_count = 0
-            sample_rtts = []
-            
-            # Keep all placement summaries in memory (write to single file at end)
-            placement_summaries: List[Dict[str, Any]] = []
-
-            logger.info(f"Sample {sample_idx + 1}: Starting ProcessPoolExecutor with {max_workers} workers (continuous parallel processing)...")
-            with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
-                futures = {}
-                next_placement_idx = 0
-                total_submitted = 0
-                total_completed = 0
+            # Process results and submit new tasks
+            while futures:
+                done, _ = concurrent.futures.wait(futures, return_when=concurrent.futures.FIRST_COMPLETED)
                 
-                # Submit initial batch to fill worker pool
-                for _ in range(min(max_workers, len(placement_combinations))):
-                    if next_placement_idx >= len(placement_combinations):
-                        break
-                    placement_plan = placement_combinations[next_placement_idx]
-                    placement_tuple = (
-                        sample_idx,
-                        sample,
-                        placement_plan,
-                        base_nodes,
-                        output_dir,
-                        sim_inputs,
-                        mapping,
-                        infra_config,
-                        flattened_workloads,
-                        replica_plan,
-                        apps,
-                        infrastructure_file,
-                    )
-                    future = executor.submit(process_sample_with_placement, placement_tuple)
-                    futures[future] = next_placement_idx
-                    next_placement_idx += 1
-                    total_submitted += 1
-                
-                logger.info(f"Sample {sample_idx + 1}: Submitted initial {len(futures)} simulations, processing continuously...")
-                
-                # Process results as they complete and submit new tasks immediately
-                # Keep processing until all tasks are completed
-                while futures:
-                    # Wait for at least one future to complete
-                    done, not_done = concurrent.futures.wait(futures, return_when=concurrent.futures.FIRST_COMPLETED)
+                for future in done:
+                    total_completed += 1
+                    placement_idx = futures.pop(future)
                     
-                    for future in done:
-                        total_completed += 1
-                        placement_idx = futures.pop(future)
+                    try:
+                        result_file, cur_rtt_value, result_data = future.result()
                         
-                        try:
-                            result_file, cur_rtt_value, result_data = future.result()
-                            if result_file is None or result_data is None:
-                                # Still submit next task even if this one failed
-                                if next_placement_idx < len(placement_combinations):
-                                    placement_plan = placement_combinations[next_placement_idx]
-                                    placement_tuple = (
-                                        sample_idx,
-                                        sample,
-                                        placement_plan,
-                                        base_nodes,
-                                        output_dir,
-                                        sim_inputs,
-                                        mapping,
-                                        infra_config,
-                                        flattened_workloads,
-                                        replica_plan,
-                                        apps,
-                                        infrastructure_file,
-                                    )
-                                    new_future = executor.submit(process_sample_with_placement, placement_tuple)
-                                    futures[new_future] = next_placement_idx
-                                    next_placement_idx += 1
-                                    total_submitted += 1
-                                continue
-                            
-                            current_path = str(result_file)
-                            sample_rtts.append(cur_rtt_value)
-                            logger.debug(f"Sample {sample_idx + 1}: Placement {placement_idx + 1} completed: RTT={cur_rtt_value:.3f}s ({total_completed}/{len(placement_combinations)})")
-
-                            # Track best result (keep in memory, don't write yet)
-                            if cur_rtt_value + early_stop_min_delta < best_rtt:
-                                best_rtt = cur_rtt_value
-                                best_result_data = result_data
-                                best_file = current_path  # Keep path for reference
-                                no_improve_count = 0
-                            else:
-                                no_improve_count += 1
-                            
-                            # Keep placement summary in memory (write all at end)
-                            try:
-                                placement = result_data.get('sample', {}).get('placement_plan', {})
-                                placement_summaries.append({
-                                    "placement_plan": placement,
-                                    "rtt": cur_rtt_value
-                                })
-                            except Exception as e:
-                                logger.debug(f"Sample {sample_idx + 1}: Failed to create placement summary: {e}")
-                            
-                            # Don't write any files during processing - keep everything in memory
-                            
-                            # Submit next task immediately if available
-                            if next_placement_idx < len(placement_combinations):
-                                placement_plan = placement_combinations[next_placement_idx]
-                                placement_tuple = (
-                                    sample_idx,
-                                    sample,
-                                    placement_plan,
-                                    base_nodes,
-                                    output_dir,
-                                    sim_inputs,
-                                    mapping,
-                                    infra_config,
-                                    flattened_workloads,
-                                    replica_plan,
-                                    apps,
-                                    infrastructure_file,
-                                )
-                                new_future = executor.submit(process_sample_with_placement, placement_tuple)
-                                futures[new_future] = next_placement_idx
-                                next_placement_idx += 1
-                                total_submitted += 1
-                                
-                        except Exception as e:
-                            logger.error(f"Sample {sample_idx + 1}: Worker failed for placement {placement_idx + 1}: {e}")
-                            print(f"Worker failed during placement run: {e}")
-                            # Still try to submit next task
-                            if next_placement_idx < len(placement_combinations):
-                                placement_plan = placement_combinations[next_placement_idx]
-                                placement_tuple = (
-                                    sample_idx,
-                                    sample,
-                                    placement_plan,
-                                    base_nodes,
-                                    output_dir,
-                                    sim_inputs,
-                                    mapping,
-                                    infra_config,
-                                    flattened_workloads,
-                                    replica_plan,
-                                    apps,
-                                    infrastructure_file,
-                                )
-                                new_future = executor.submit(process_sample_with_placement, placement_tuple)
-                                futures[new_future] = next_placement_idx
-                                next_placement_idx += 1
-                                total_submitted += 1
-                
-                logger.info(f"Sample {sample_idx + 1}: Completed {total_completed}/{len(placement_combinations)} simulations")
-                
-                # Write all placement summaries to a single JSONL file (one JSON object per line - fast I/O)
-                if placement_summaries:
-                    logger.info(f"Sample {sample_idx + 1}: Writing {len(placement_summaries)} placement summaries to single file...")
-                    try:
-                        placements_file = output_dir / "placements.jsonl"
-                        with open(placements_file, 'w') as f:
-                            for summary in placement_summaries:
-                                # Write as compact JSON (one line per placement)
-                                f.write(json.dumps(summary, separators=(',', ':')) + '\n')
-                        logger.info(f"Sample {sample_idx + 1}: Saved {len(placement_summaries)} placement summaries to {placements_file}")
+                        # Submit next task
+                        if next_placement_idx < len(placement_combinations):
+                            placement_plan = placement_combinations[next_placement_idx]
+                            placement_tuple = _create_placement_tuple(
+                                sample_idx, sample, placement_plan, base_nodes, output_dir,
+                                sim_inputs, mapping, infra_config, flattened_workloads,
+                                replica_plan, apps, infrastructure_file
+                            )
+                            new_future = executor.submit(process_sample_with_placement, placement_tuple)
+                            futures[new_future] = next_placement_idx
+                            next_placement_idx += 1
+                        
+                        if result_file is None or result_data is None:
+                            continue
+                        
+                        sample_rtts.append(cur_rtt_value)
+                        
+                        # Track best result
+                        if cur_rtt_value < best_rtt:
+                            best_rtt = cur_rtt_value
+                            best_result_data = result_data
+                            best_file = str(result_file)
+                        
+                        # Keep placement summary
+                        placement = result_data.get('sample', {}).get('placement_plan', {})
+                        placement_summaries.append({"placement_plan": placement, "rtt": cur_rtt_value})
+                        
                     except Exception as e:
-                        logger.error(f"Sample {sample_idx + 1}: Failed to write placement summaries: {e}")
-                
-                # Write only the best result file at the end
-                if best_result_data is not None:
-                    logger.info(f"Sample {sample_idx + 1}: Writing optimal result file (RTT: {best_rtt:.3f}s)...")
-                    try:
-                        # Use the original file path from best_result_data
-                        optimal_file_path = output_dir / f"simulation_{sample_idx + 1}_optimal.json"
-                        with open(optimal_file_path, 'w') as f:
-                            json.dump(best_result_data, f, indent=2, cls=DataclassJSONEncoder)
-                        best_file = str(optimal_file_path)
-                        logger.info(f"Sample {sample_idx + 1}: Saved optimal result to {optimal_file_path}")
-                    except Exception as e:
-                        logger.error(f"Sample {sample_idx + 1}: Failed to write optimal result file: {e}")
-                else:
-                    logger.warning(f"Sample {sample_idx + 1}: No best result data to write")
-                
-                # Early stopping check (after all completed)
-                if early_stop_patience > 0 and no_improve_count >= early_stop_patience:
-                    logger.info(f"Sample {sample_idx + 1}: Early stopping condition met (no improvement for {no_improve_count} simulations). Best RTT: {best_rtt:.3f}s")
-                    print(f"Early stopping condition met. Best RTT so far: {best_rtt:.3f}s")
-
-            # Record the surviving best file for this sample
-            if best_file is not None and best_result_data is not None:
-                logger.info(f"Sample {sample_idx + 1}: Best result file: {best_file} (RTT: {best_rtt:.3f}s)")
-                result_paths.append(best_file)
-                
-                # Write best result info to sidecar file for bash script
-                best_info = {
-                    "file": os.path.basename(best_file),
-                    "rtt": best_rtt
-                }
-                best_json_path = output_dir / "best.json"
-                with open(best_json_path, 'w') as f:
-                    json.dump(best_info, f)
-                logger.info(f"Sample {sample_idx + 1}: Saved best.json pointing to {os.path.basename(best_file)}")
-            else:
-                logger.warning(f"Sample {sample_idx + 1}: No best file found")
+                        logger.error(f"Worker failed for placement {placement_idx}: {e}")
+                        # Submit next task anyway
+                        if next_placement_idx < len(placement_combinations):
+                            placement_plan = placement_combinations[next_placement_idx]
+                            placement_tuple = _create_placement_tuple(
+                                sample_idx, sample, placement_plan, base_nodes, output_dir,
+                                sim_inputs, mapping, infra_config, flattened_workloads,
+                                replica_plan, apps, infrastructure_file
+                            )
+                            new_future = executor.submit(process_sample_with_placement, placement_tuple)
+                            futures[new_future] = next_placement_idx
+                            next_placement_idx += 1
             
-            # Persist per-sample RTTs for final plotting
-            if sample_rtts:
-                per_sample_rtts.append(sample_rtts)
-                all_rtts.extend(sample_rtts)
-                logger.info(f"Sample {sample_idx + 1}: Collected {len(sample_rtts)} RTT values")
-
-            # Only write optimal result file - all placements saved in summaries
-            logger.info(f"Sample {sample_idx + 1}: Completed all {len(placement_combinations)} simulations (saved {len(placement_combinations)} placement summaries + 1 optimal result)")
-            print(f"Completed {len(placement_combinations)} simulations for sample {sample_idx + 1} (saved {len(placement_combinations)} placement summaries + 1 optimal result)")
+            logger.info(f"Completed {total_completed}/{len(placement_combinations)} simulations")
             
-        except Exception as e:
-            logger.error(f"Error processing sample {sample_idx + 1}: {str(e)}")
-            logger.exception(e)
-            print(f"Error processing sample {sample_idx + 1}: {str(e)}")
-            continue
+            # Write placement summaries
+            if placement_summaries:
+                placements_file = output_dir / "placements.jsonl"
+                with open(placements_file, 'w') as f:
+                    for summary in placement_summaries:
+                        f.write(json.dumps(summary, separators=(',', ':')) + '\n')
+                logger.info(f"Saved {len(placement_summaries)} placement summaries")
+            
+            # Write best result
+            if best_result_data is not None:
+                optimal_file_path = output_dir / f"simulation_{sample_idx + 1}_optimal.json"
+                with open(optimal_file_path, 'w') as f:
+                    json.dump(best_result_data, f, indent=2, cls=DataclassJSONEncoder)
+                best_file = str(optimal_file_path)
+                logger.info(f"Saved optimal result (RTT: {best_rtt:.3f}s)")
+        
+        # Record result
+        if best_file is not None:
+            result_paths.append(best_file)
+            best_info = {"file": os.path.basename(best_file), "rtt": best_rtt}
+            with open(output_dir / "best.json", 'w') as f:
+                json.dump(best_info, f)
+            logger.info(f"Saved best.json")
+        
+        print(f"Completed {len(placement_combinations)} simulations")
+        
+    except Exception as e:
+        logger.error(f"Error: {str(e)}")
+        logger.exception(e)
+        print(f"Error: {str(e)}")
     
     elapsed_time = time.time() - time_started
     logger.info(f"Total elapsed time: {elapsed_time:.2f} seconds")
     print(f"Elapsed time: {elapsed_time:.2f} seconds")
-
-    logger.info("=== Brute Force Placement Optimization Complete ===")
-    logger.info(f"Total result files generated: {len(result_paths)}")
     print(f"\n=== Brute Force Placement Optimization Complete ===")
     print(f"Total result files generated: {len(result_paths)}")
-    # Analyze results to find the fastest simulation
-    print(f"\n=== Analyzing Results for Fastest Simulation ===")
-    fastest_simulation = None
-    fastest_rtt = float('inf')
-    
-    for result_file in result_paths:
-        try:
-            with open(result_file, 'r') as f:
-                result_data = json.load(f)
-            
-            # Extract RTT from simulation stats
-            stats = result_data.get('stats', {})
-            task_results = stats.get('taskResults', [])
-            
-            if task_results:
-                # Calculate total RTT across workload tasks using elapsedTime
-                workload_elapsed = [
-                    float(task_result.get('elapsedTime', 0))
-                    for task_result in task_results
-                    if task_result.get('taskId') is not None and task_result.get('taskId') >= 0
-                ]
-                total_rtt = sum(workload_elapsed) if workload_elapsed else float('inf')
-                
-                # Check if this is the fastest so far
-                if total_rtt < fastest_rtt:
-                    fastest_rtt = total_rtt
-                    fastest_simulation = {
-                        'file': result_file,
-                        'total_rtt': total_rtt,
-                        'placement_plan': result_data.get('sample', {}).get('placement_plan', {}),
-                        'sample': result_data.get('sample', {}).get('sample', [])
-                    }
-                    
-        except Exception as e:
-            print(f"Error analyzing result file {result_file}: {str(e)}")
-            continue
-    
-    if fastest_simulation:
-        print(f"🏆 FASTEST SIMULATION FOUND:")
-        print(f"   File: {fastest_simulation['file']}")
-        print(f"   Total RTT: {fastest_simulation['total_rtt']:.3f}s")
-        print(f"   Placement Plan: {fastest_simulation['placement_plan']}")
-        print(f"   Sample: {fastest_simulation['sample']}")
-    else:
-        print("❌ No valid simulation results found for analysis")
     
     return result_paths
 
 
 def main():
+    """
+    Main entry point for brute-force co-simulation.
+    
+    Usage:
+        python -m src.executecosimulation --brute-force --infrastructure <path> [--quiet]
+        
+    Arguments:
+        --brute-force: Enable brute-force placement optimization
+        --infrastructure <path>: Path to infrastructure.json file (required for brute-force)
+        --quiet: Suppress per-placement logging (faster execution)
+        --legacy: Use legacy (non-optimized) brute-force implementation
+    """
+    global QUIET_MODE
+    
     # Configuration paths
     base_dir = Path("simulation_data")
-    sim_input_path = Path("data/nofs-ids")  # Base path for simulation input files
+    sim_input_path = Path("data/nofs-ids")
     samples_file = base_dir / "lhs_samples_simple.npy"
     mapping_file = base_dir / "lhs_samples_simple_mapping.pkl"
     config_file = base_dir / "space_with_network.json"
@@ -1932,90 +2204,86 @@ def main():
     workload_base_file = "data/nofs-ids/traces/workload-10.json"
     output_dir = base_dir / "initial_results_simple"
     os.makedirs(output_dir, exist_ok=True)
-    # todo: max_workers = int(sys.argv[1])
+    
+    # Parse arguments
+    use_brute_force = '--brute-force' in sys.argv
+    quiet_mode = '--quiet' in sys.argv
+    use_legacy = '--legacy' in sys.argv
+    QUIET_MODE = quiet_mode
+    
     cpu_count = os.cpu_count()
-    print("CPU count: ", cpu_count)
     max_workers = cpu_count - 1 if cpu_count else 1
+    
+    if not quiet_mode:
+        print(f"CPU count: {cpu_count}, using {max_workers} workers")
+    
     # Setup logging
     logger = setup_logging(output_dir)
+    
     try:
-        # Create output directory
         output_dir.mkdir(parents=True, exist_ok=True)
-
-        logger.info("Starting simulation preparation")
-
-        # Load simulation inputs
-        logger.info("Loading simulation input files")
-        sim_inputs = load_simulation_inputs(sim_input_path)
-
-        # Load samples and mapping
-        logger.info("Loading samples and mapping")
-        samples = np.load(samples_file)
-        with open(mapping_file, 'rb') as f:
-            mapping = pickle.load(f)
-
-        # Load infrastructure config
-        logger.info("Loading infrastructure configuration")
-        with open(config_file, 'r') as f:
-            infra_config = json.load(f)
-
-        # Load workload base
-        logger.info("Loading workload base")
-        with open(workload_base_file, 'r') as f:
-            workload_base = json.load(f)
-
-        # Get list of applications from config
-        apps = [app for app in infra_config['wsc'].keys()]
-
-        # Process each sample
-        # Choose between regular execution and brute force placement optimization
-        use_brute_force = len(sys.argv) > 1 and sys.argv[1] == '--brute-force'
         
-        # Parse infrastructure file argument if provided
+        # Parse infrastructure file argument
         infrastructure_file = None
         if '--infrastructure' in sys.argv:
             idx = sys.argv.index('--infrastructure')
             if idx + 1 < len(sys.argv):
                 infrastructure_file = Path(sys.argv[idx + 1])
-                logger.info(f"Using infrastructure file: {infrastructure_file}")
-                print(f"[executecosim] Infrastructure file argument provided: {infrastructure_file}")
-                if infrastructure_file.exists():
-                    print(f"[executecosim] ✓ Infrastructure file exists and will be used")
-                else:
-                    print(f"[executecosim] ⚠️  WARNING: Infrastructure file does not exist: {infrastructure_file}")
-            else:
-                print(f"[executecosim] ⚠️  WARNING: --infrastructure flag provided but no file path given")
-        else:
-            print(f"[executecosim] No --infrastructure argument provided - will use legacy (non-deterministic) generation")
+                if not quiet_mode:
+                    print(f"[executecosim] Infrastructure file: {infrastructure_file}")
+                    if infrastructure_file.exists():
+                        print(f"[executecosim] ✓ Infrastructure file exists")
+                    else:
+                        print(f"[executecosim] ⚠️  WARNING: Infrastructure file does not exist")
 
         if use_brute_force:
-            # In co-simulation / brute-force mode we require a deterministic
-            # infrastructure file. Falling back to legacy, on-the-fly topology
-            # generation would reintroduce non-determinism into the training pipeline.
+            # Validate infrastructure file
             if infrastructure_file is None or not infrastructure_file.exists():
                 raise RuntimeError(
                     "[executecosim] Brute-force co-simulation requires a valid "
-                    "--infrastructure JSON file with deterministic network, replicas "
-                    "and queues. No usable file was provided."
+                    "--infrastructure JSON file. No usable file was provided."
                 )
-
-            logger.info(f"Using brute force placement optimization (generating ALL valid combinations)")
-            reactive_results_paths = execute_brute_force_placement_optimization(
-                apps, str(config_file), str(mapping_file), output_dir, samples,
-                sim_input_path, workload_base_file, max_workers,
-                infrastructure_file=infrastructure_file
-            )
-
-        # print(reactive_results_paths)
-        logger.info("Completed all simulations")
-
-        # logger.info('Finished model training')
-        logger.info(f'All files can be found under {output_dir}')
-
+            
+            # Load samples (use first sample only - no sample loop)
+            samples = np.load(samples_file)
+            sample = samples[0]  # Single sample - no loop needed
+            
+            # Load config to get app names
+            with open(config_file, 'r') as f:
+                infra_config = json.load(f)
+            apps = list(infra_config['wsc'].keys())
+            
+            if use_legacy:
+                # Use legacy implementation (for comparison/fallback)
+                if not quiet_mode:
+                    print("[executecosim] Using LEGACY brute-force implementation")
+                logger.info("Using legacy brute force placement optimization")
+                reactive_results_paths = execute_brute_force_placement_optimization(
+                    apps, str(config_file), str(mapping_file), output_dir, samples,
+                    sim_input_path, workload_base_file, max_workers,
+                    infrastructure_file=infrastructure_file
+                )
+            else:
+                # Use optimized implementation (default)
+                if not quiet_mode:
+                    print("[executecosim] Using OPTIMIZED brute-force implementation")
+                logger.info("Using optimized brute force placement optimization")
+                reactive_results_paths = execute_brute_force_optimized(
+                    apps, str(config_file), str(mapping_file), output_dir, sample,
+                    sim_input_path, workload_base_file, max_workers,
+                    infrastructure_file=infrastructure_file,
+                    quiet=quiet_mode
+                )
+            
+            logger.info("Completed all simulations")
+            logger.info(f'All files can be found under {output_dir}')
+        else:
+            print("[executecosim] No action specified. Use --brute-force to run optimization.")
 
     except Exception as e:
         logger.error(f"Fatal error: {str(e)}")
         raise e
+
 
 if __name__ == "__main__":
     main()

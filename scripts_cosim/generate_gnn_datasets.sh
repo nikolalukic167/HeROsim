@@ -35,21 +35,28 @@ mkdir -p "${OUT_BASE}" "${RESULTS_DIR}" "${BASE}/logs" "${WORKLOAD_TEMPLATES_DIR
 # Grid definition
 PROBS=(0.20 0.25 0.30 0.35 0.40 0.45 0.50 0.55 0.60 0.65 0.70 0.75 0.80 0.85 0.90)
 
-# Replica config matrix: (per_client per_server client_percentage server_percentage) → 15 configs
+# Replica config matrix: (per_client per_server client_percentage server_percentage) → 18 configs
+# Now includes cold start scenarios (0% preinit) and varied preinit levels
 REPLICA_CFGS=(
+  # Cold start scenarios (0% preinit - force autoscaling)
+  "3 3 0.0 0.0"
+  "2 3 0.0 0.0"
+  "1 3 0.0 0.0"
+  # Warm start scenarios (30-50% preinit)
+  "3 3 0.3 0.5"
+  "2 3 0.4 0.5"
+  "2 1 0.5 0.4"
+  # Moderate preinit (50-70%)
   "3 3 0.5 0.7"
   "2 3 0.6 0.8"
-  "2 1 0.6 0.9"
   "1 3 0.3 0.7"
-  "0 4 0.4 0.5"
   "2 2 0.5 0.8"
-  "1 4 0.6 0.6"
+  # High preinit (70-100%)
   "2 2 0.6 0.8"
-  "1 4 0.4 0.6"
-  "2 2 0.5 0.7"
+  "1 4 0.6 0.6"
+  "2 4 0.8 0.7"
   "3 2 0.7 0.8"
   "1 2 0.5 0.9"
-  "2 4 0.8 0.7"
   "3 1 0.6 0.8"
   "1 1 0.4 0.8"
 )
@@ -63,21 +70,21 @@ SEEDS=(101)
 
 # Queue distribution variants (type mean/std or lambda, min, max, step-meta)
 # Format: name type param1 param2 min max step
-# Expanded set to improve diversity while staying bounded [0,32]
+# Reduced for cold start scenarios - use smaller queues for realistic initial state
 QUEUE_DISTS=(
-  "pois4 poisson 4 0 0 32 1"
-  "pois6 poisson 6 0 0 32 1"
-  "pois8 poisson 8 0 0 32 1"
-  "pois12 poisson 12 0 0 32 1"
-  "pois16 poisson 16 0 0 32 1"
-  "pois20 poisson 20 0 0 32 1"
-  "norm8 normal 8 3 0 32 1"
-  "norm12 normal 12 4 0 32 1"
+  # Zero queues (cold start - most realistic)
+  "zero constant 0 0 0 0 0"
+  # Small queues (realistic initial load)
+  "pois2 poisson 2 0 0 8 1"
+  "pois4 poisson 4 0 0 12 1"
+  "pois6 poisson 6 0 0 16 1"
+  # Moderate queues (warm start)
+  "pois8 poisson 8 0 0 20 1"
+  "norm8 normal 8 3 0 20 1"
+  "norm12 normal 12 4 0 24 1"
+  # Larger queues (hot start - less common)
+  "pois12 poisson 12 0 0 24 1"
   "norm16 normal 16 5 0 32 1"
-  "norm20 normal 20 6 0 32 1"
-  "unif024 uniform 0 24 0 24 1"
-  "unif028 uniform 0 28 0 28 1"
-  "unif032 uniform 0 32 0 32 1"
 )
 
 # Workload generation parameters
@@ -236,7 +243,8 @@ for connection_probability in "${PROBS[@]}"; do
                 distribution: "none",
                 queue_distribution: "statistical",
                 queue_distribution_params: (
-                  if $qtype == "poisson" then {type:$qtype, lambda:$qp1, min:$qmin, max:$qmax, step:$qstep}
+                  if $qtype == "constant" then {type:"constant", value:$qp1, min:$qmin, max:$qmax, step:$qstep}
+                  elif $qtype == "poisson" then {type:$qtype, lambda:$qp1, min:$qmin, max:$qmax, step:$qstep}
                   elif $qtype == "normal" then {type:$qtype, mean:$qp1, stddev:($qp2|if .==0 then 1 else . end), min:$qmin, max:$qmax, step:$qstep}
                   elif $qtype == "uniform" then {type:$qtype, low:$qp1, high:$qp2, min:$qmin, max:$qmax, step:$qstep}
                   else {type:"poisson", lambda:4, min:$qmin, max:$qmax, step:$qstep} end)
@@ -245,7 +253,8 @@ for connection_probability in "${PROBS[@]}"; do
                 distribution: "none",
                 queue_distribution: "statistical",
                 queue_distribution_params: (
-                  if $qtype == "poisson" then {type:$qtype, lambda:$qp1, min:$qmin, max:$qmax, step:$qstep}
+                  if $qtype == "constant" then {type:"constant", value:$qp1, min:$qmin, max:$qmax, step:$qstep}
+                  elif $qtype == "poisson" then {type:$qtype, lambda:$qp1, min:$qmin, max:$qmax, step:$qstep}
                   elif $qtype == "normal" then {type:$qtype, mean:$qp1, stddev:($qp2|if .==0 then 1 else . end), min:$qmin, max:$qmax, step:$qstep}
                   elif $qtype == "uniform" then {type:$qtype, low:$qp1, high:$qp2, min:$qmin, max:$qmax, step:$qstep}
                   else {type:"poisson", lambda:4, min:$qmin, max:$qmax, step:$qstep} end)

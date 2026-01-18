@@ -1,17 +1,8 @@
 """
-Copyright 2024 b<>com
+Knative-style Batched Scheduler with Network Awareness
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+This scheduler batches tasks and places them using shortest-queue (least connections)
+strategy, similar to Knative's load balancing but with batching for efficiency.
 """
 
 from __future__ import annotations
@@ -19,28 +10,27 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from timeit import default_timer
-from typing import Set, Tuple, TYPE_CHECKING, List, Generator, Any, Dict
+from typing import Generator, List, Set, Tuple, TYPE_CHECKING, Dict, Any
 
 if TYPE_CHECKING:
     from src.placement.infrastructure import Node, Platform, Task
 
-from src.placement.model import SchedulerState, SystemState
-
+from src.placement.model import SystemState
 from src.placement.scheduler import Scheduler
 
 
-class RoundRobinScheduler(Scheduler):
+class KnativeNetworkScheduler(Scheduler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.batch_size = 5
-        self.batch_timeout = 0.1
+        self.batch_size = 5  # Batch size for efficient processing
+        self.batch_timeout = 0.1  # Timeout for collecting batch
 
     def scheduler_process(self) -> Generator:
         if False:
             yield
 
         print(
-            f"[ {self.env.now} ] RoundRobinNetwork Scheduler started with policy"
+            f"[ {self.env.now} ] KnativeNetwork Scheduler started with policy"
             f" {self.policy} (batch_size={self.batch_size})"
         )
 
@@ -51,7 +41,7 @@ class RoundRobinScheduler(Scheduler):
                 yield self.env.timeout(0.1)
                 continue
 
-            print(f"[ {self.env.now} ] RoundRobin: Processing batch of {len(batch_tasks)} tasks")
+            print(f"[ {self.env.now} ] Knative: Processing batch of {len(batch_tasks)} tasks")
             yield self.env.process(self._process_task_batch(batch_tasks))
 
     def _collect_task_batch(self) -> Generator[Any, Any, List[Task]]:
@@ -121,7 +111,7 @@ class RoundRobinScheduler(Scheduler):
                 replicas_created[task_type_name] = 0
                 continue
             
-            print(f"[ {self.env.now} ] RoundRobin: Pre-creating {deficit} replica(s) for {task_type_name} "
+            print(f"[ {self.env.now} ] Knative: Pre-creating {deficit} replica(s) for {task_type_name} "
                   f"(have {current_count}, need {needed_count} for batch)")
             
             # Get task type data
@@ -131,19 +121,41 @@ class RoundRobinScheduler(Scheduler):
                 replicas_created[task_type_name] = 0
                 continue
             
+            # Find source nodes from tasks of this type
+            source_nodes = set(
+                task.node_name for task in batch_tasks 
+                if task.type["name"] == task_type_name
+            )
+            
             created = 0
             for _ in range(deficit):
-                stop = yield self.env.process(
-                    self.autoscaler.create_first_replica(system_state, task_type)
-                )
-                if not isinstance(stop, StopIteration):
-                    created += 1
-                else:
-                    logging.warning(
-                        f"[ {self.env.now} ] RoundRobin: Could not create more replicas for {task_type_name} "
-                        f"(created {created}/{deficit})"
+                replica_created = False
+                for source_node in source_nodes:
+                    stop = yield self.env.process(
+                        self.autoscaler.create_first_replica(
+                            system_state,
+                            task_type,
+                            source_node_name=source_node
+                        )
                     )
-                    break
+                    
+                    if not isinstance(stop, StopIteration):
+                        created += 1
+                        replica_created = True
+                        break
+                
+                if not replica_created:
+                    stop = yield self.env.process(
+                        self.autoscaler.create_first_replica(system_state, task_type)
+                    )
+                    if not isinstance(stop, StopIteration):
+                        created += 1
+                    else:
+                        logging.warning(
+                            f"[ {self.env.now} ] Knative: Could not create more replicas for {task_type_name} "
+                            f"(created {created}/{deficit})"
+                        )
+                        break
             
             # Find newly created replicas
             for node, plat in system_state.replicas.get(task_type_name, set()):
@@ -152,20 +164,18 @@ class RoundRobinScheduler(Scheduler):
             
             replicas_created[task_type_name] = created
             if created > 0:
-                print(f"[ {self.env.now} ] RoundRobin: Pre-created {created} replica(s) for {task_type_name}")
+                print(f"[ {self.env.now} ] Knative: Pre-created {created} replica(s) for {task_type_name}")
         
-        # Wait for all newly created replicas to initialize
+        # Don't block waiting for initialization - let tasks use replicas when ready
+        # This allows batch processing to continue while replicas initialize in background
         if new_replicas:
-            print(f"[ {self.env.now} ] RoundRobin: Waiting for {len(new_replicas)} replica(s) to initialize...")
-            init_events = [plat.initialized for _, plat in new_replicas]
-            yield self.env.all_of(init_events)
-            print(f"[ {self.env.now} ] RoundRobin: All {len(new_replicas)} replica(s) initialized")
+            print(f"[ {self.env.now} ] Knative: Created {len(new_replicas)} replica(s), allowing initialization in background")
         
         return replicas_created
 
     def _process_task_batch(self, batch_tasks: List[Task]) -> Generator:
-        """Process a batch using round-robin placement strategy."""
-        print(f"[ {self.env.now} ] RoundRobin: Processing {len(batch_tasks)} tasks in batch")
+        """Process a batch using shortest-queue placement strategy."""
+        print(f"[ {self.env.now} ] Knative: Processing {len(batch_tasks)} tasks in batch")
         
         # Track scheduling time for the batch
         batch_start = default_timer()
@@ -177,9 +187,12 @@ class RoundRobinScheduler(Scheduler):
             self._ensure_replicas_for_batch(batch_tasks, system_state)
         )
         if any(count > 0 for count in replicas_created.values()):
-            print(f"[ {self.env.now} ] RoundRobin: Pre-created replicas: {replicas_created}")
+            print(f"[ {self.env.now} ] Knative: Pre-created replicas: {replicas_created}")
         
-        # Track used platforms within this batch to ensure unique placements
+        # Capture queue snapshot for load balancing
+        full_queue_snapshot = self._capture_full_queue_snapshot()
+        
+        # Track used platforms within this batch
         used_platforms: Set[Tuple[int, int]] = set()
         
         for task in batch_tasks:
@@ -187,7 +200,7 @@ class RoundRobinScheduler(Scheduler):
             task_replicas = system_state.replicas.get(task.type["name"], set())
 
             if not task_replicas:
-                logging.warning(f"[ {self.env.now} ] RoundRobin: No replicas for {task}")
+                logging.warning(f"[ {self.env.now} ] Knative: No replicas for {task}")
                 task.postponed_count += 1
                 
                 if task.postponed_count > 9999999:
@@ -196,17 +209,19 @@ class RoundRobinScheduler(Scheduler):
                 
                 yield self.tasks.put(task)
                 stop = yield self.env.process(
-                    self.autoscaler.create_first_replica(system_state, task.type)
+                    self.autoscaler.create_first_replica(
+                        system_state, task.type, source_node_name=task.node_name
+                    )
                 )
                 
+                # Check if replica creation succeeded
                 if isinstance(stop, StopIteration):
-                    logging.warning(f"[ {self.env.now} ] RoundRobin: Failed to create replica for {task.type['name']}")
+                    logging.warning(f"[ {self.env.now} ] Knative: Failed to create replica for {task.type['name']}")
                 
                 # CRITICAL: Force simulation time to advance
                 self.env.step()
                 continue
 
-            # Get valid replicas (network-aware)
             valid_replicas = self._get_valid_replicas(task_replicas, task)
             
             if not valid_replicas:
@@ -218,11 +233,13 @@ class RoundRobinScheduler(Scheduler):
                 
                 yield self.tasks.put(task)
                 stop = yield self.env.process(
-                    self.autoscaler.create_first_replica(system_state, task.type)
+                    self.autoscaler.create_first_replica(
+                        system_state, task.type, source_node_name=task.node_name
+                    )
                 )
                 
                 if isinstance(stop, StopIteration):
-                    logging.warning(f"[ {self.env.now} ] RoundRobin: Failed to create replica for {task.type['name']}")
+                    logging.warning(f"[ {self.env.now} ] Knative: Failed to create replica for {task.type['name']}")
                 
                 # CRITICAL: Force simulation time to advance
                 self.env.step()
@@ -244,38 +261,29 @@ class RoundRobinScheduler(Scheduler):
                 
                 yield self.tasks.put(task)
                 stop = yield self.env.process(
-                    self.autoscaler.create_first_replica(system_state, task.type)
+                    self.autoscaler.create_first_replica(
+                        system_state, task.type, source_node_name=task.node_name
+                    )
                 )
                 
                 if isinstance(stop, StopIteration):
-                    logging.warning(f"[ {self.env.now} ] RoundRobin: Failed to create replica for {task.type['name']}")
+                    logging.warning(f"[ {self.env.now} ] Knative: Failed to create replica for {task.type['name']}")
                 
                 # CRITICAL: Force simulation time to advance
                 self.env.step()
                 continue
 
-            # Round-robin placement: find least scheduled replica
-            state: SchedulerState = system_state.scheduler_state
-            
-            # Ensure scheduled_count is initialized
-            if not hasattr(state, 'scheduled_count'):
-                state.scheduled_count = {task.type["name"]: {} for task_type in self.data.task_types}
-            if task.type["name"] not in state.scheduled_count:
-                state.scheduled_count[task.type["name"]] = {}
-            
-            target_node, target_platform = min(
-                available_replicas,
-                key=lambda couple: state.scheduled_count[task.type["name"]].get(
-                    (couple[0].id, couple[1].id), 0
-                ),
-            )
+            # Store queue snapshot on task
+            task.queue_snapshot_at_scheduling = {
+                f"{node.node_name}:{plat.id}": full_queue_snapshot.get(f"{node.node_name}:{plat.id}", 0)
+                for node, plat in available_replicas
+            }
+            task.full_queue_snapshot = full_queue_snapshot
 
-            # Update scheduler state
-            state.scheduled_count[task.type["name"]][
-                (target_node.id, target_platform.id)
-            ] = state.scheduled_count[task.type["name"]].get(
-                (target_node.id, target_platform.id), 0
-            ) + 1
+            # Knative-style: Shortest queue (least connections) placement
+            target_node, target_platform = min(
+                available_replicas, key=lambda couple: len(couple[1].queue.items)
+            )
 
             # Mark this platform as used
             used_platforms.add((target_node.id, target_platform.id))
@@ -283,9 +291,9 @@ class RoundRobinScheduler(Scheduler):
             task.execution_node = target_node.node_name
             task.execution_platform = str(target_platform.id)
             
-            # Track scheduling decision time
+            # Track scheduling decision time (amortized over batch)
             task_end = default_timer()
-            task.roundrobin_decision_time = task_end - task_start
+            task.knative_decision_time = task_end - task_start
 
             node: Node = yield self.nodes.get(lambda node: node.id == target_node.id)
             task.node = node
@@ -304,14 +312,14 @@ class RoundRobinScheduler(Scheduler):
             yield node.platforms.put(platform)
             yield self.nodes.put(node)
 
-            print(f"RoundRobin placed task {task.id} on ({target_node.node_name}, platform {target_platform.id}) "
+            print(f"Knative placed task {task.id} on ({target_node.node_name}, platform {target_platform.id}) "
                   f"[queue: {len(target_platform.queue.items)}]")
 
         yield self.mutex.put(system_state)
         
         batch_end = default_timer()
         batch_time = (batch_end - batch_start) * 1000  # ms
-        print(f"[ {self.env.now} ] RoundRobin: Batch processing complete for {len(batch_tasks)} tasks "
+        print(f"[ {self.env.now} ] Knative: Batch processing complete for {len(batch_tasks)} tasks "
               f"(scheduling time: {batch_time:.2f}ms)")
 
     def _mark_task_failed(self, task: Task, reason: str):
@@ -329,15 +337,21 @@ class RoundRobinScheduler(Scheduler):
         if not task.done.triggered:
             task.done.succeed()
 
+    def _capture_full_queue_snapshot(self) -> Dict[str, int]:
+        queue_snapshot = {}
+        for node in self.nodes.items:
+            for platform in node.platforms.items:
+                key = f"{node.node_name}:{platform.id}"
+                queue_snapshot[key] = len(platform.queue.items)
+        return queue_snapshot
+
     def placement(self, system_state: SystemState, task: Task) -> Generator:
-        # This method is not used when scheduler_process is overridden
-        # but kept for compatibility
         if False:
             yield
         return None
 
     def _get_valid_replicas(self, replicas: Set[Tuple[Node, Platform]], task: Task) -> List[Tuple[Node, Platform]]:
-        """Get valid replicas based on network topology."""
+        """Get replicas that have network connectivity to the task's source node."""
         valid_replicas = []
         for node, platform in replicas:
             if node.node_name == task.node_name:

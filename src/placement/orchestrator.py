@@ -125,7 +125,7 @@ class Orchestrator:
             ]
             task_results: List[TaskResult] = [
                 task.result() for task in self.task_archive
-                # if not getattr(task, 'is_internal', False)
+                if not getattr(task, 'is_internal', False)
             ]
             node_results: List[NodeResult] = [
                 node.result() for node in self.nodes.items
@@ -583,14 +583,6 @@ class Orchestrator:
         if undispatched_tasks:
             print(f"[ {self.env.now} ] Gateway: WARNING - {len(undispatched_tasks)} tasks were never dispatched: {[f'{t.id}({t.type['name']})' for t in undispatched_tasks[:10]]}")
         
-        # Log task status for debugging
-        pending_tasks = [task for task in real_tasks if not task.done.triggered]
-        completed_tasks = [task for task in real_tasks if task.done.triggered]
-        print(f"[ {self.env.now} ] Gateway: Task status - {len(completed_tasks)} completed, {len(pending_tasks)} pending")
-        if pending_tasks:
-            print(f"[ {self.env.now} ] Gateway: Pending tasks: {[f'{t.id}({t.type['name']})' for t in pending_tasks[:10]]}")
-            print(f"[ {self.env.now} ] Gateway: Pending tasks: {[{'id': t.id, 'type': t.type['name'], 'scheduled': t.scheduled.triggered, 'arrived': t.arrived.triggered, 'started': t.started.triggered, 'done': t.done.triggered, 'failed': getattr(t, 'failed', False)} for t in pending_tasks[:10]]}")
-        
         # Simulation ends when:
         #  - all platforms are released
         #  - all dispatched real tasks are done (internal and undispatched tasks excluded)
@@ -598,6 +590,13 @@ class Orchestrator:
             yield self.env.all_of([task.done for task in real_tasks])
         else:
             print(f"[ {self.env.now} ] Gateway: No dispatched tasks to wait for")
+        
+        # Debug logging: final task status after all tasks complete
+        completed_tasks = [task for task in real_tasks if task.done.triggered]
+        failed_tasks = [task for task in real_tasks if getattr(task, 'failed', False)]
+        print(f"[ {self.env.now} ] Gateway: All tasks complete - {len(completed_tasks)} done, {len(failed_tasks)} failed")
+        if failed_tasks:
+            print(f"[ {self.env.now} ] Gateway: Failed tasks: {[{'id': t.id, 'type': t.type['name'], 'reason': getattr(t, 'failure_reason', 'unknown')} for t in failed_tasks[:10]]}")
         
         # End simulation
         # Capture final system state

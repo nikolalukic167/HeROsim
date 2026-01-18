@@ -69,24 +69,45 @@ class KnativeAutoscaler(Autoscaler):
         }
         """
 
-        replica_count = len(function_replicas)
+        platform_count = len(
+            [
+                platform
+                for platform in self.data.platform_types.values()
+                # if platform["hardware"] == "cpu"
+            ]
+        )
 
         # Per-function concurrency level
-        # Use TOTAL concurrency across all replicas (not average per replica)
-        # This matches Knative's autoscaling formula:
-        #   desired_replicas = ceil(total_concurrency / target_concurrency_per_replica)
-        total_concurrency: float = sum(function_concurrencies) if function_concurrencies else 0.0
+        # Knative only allocates CPUs (baseline platform)
+        in_system_concurrencies: PlatformVector = {
+            platform_type["shortName"]: (
+                0.0
+                if not function_concurrencies
+                else sum(function_concurrencies) / platform_count
+                # if platform_type["hardware"] == "cpu"
+                # else 0.0
+            )
+            for platform_type in self.data.platform_types.values()
+        }
+        #
+        replica_count = len(function_replicas)
+        # if task_type['name'] == 'rf' and replica_count < 1:
+        #     return {"any": 50}
+        # elif task_type['name'] == 'rf' and replica_count > 1:
+        #     return {"any": 0}
 
         # Result > 0 means scaling up
         # Result < 0 means scaling down
         # Result == 0 means current scaling level is adequate
-        # Formula: desired = ceil(total / target), scaling_diff = desired - current
         concurrency_results: PlatformVector = {
             platform_type["shortName"]: (
                 math.ceil(
-                    total_concurrency / target_concurrencies[platform_type["shortName"]]
+                    in_system_concurrencies[platform_type["shortName"]]
+                    / target_concurrencies[platform_type["shortName"]]
                 )
                 - replica_count
+                # if platform_type["hardware"] == "cpu"
+                # else 0
             )
             for platform_type in self.data.platform_types.values()
         }
@@ -220,21 +241,18 @@ class KnativeAutoscaler(Autoscaler):
         if False:
             yield
 
-        # CRITICAL FIX: Prefer server nodes over client nodes
-        # Replicas on client nodes can only be used by local tasks from that client,
-        # while replicas on server nodes can be used by tasks from ALL clients.
-        # This dramatically improves resource utilization.
-        
-        # Separate server and client node candidates
-        server_couples = [c for c in couples_suitable if not c[0].node_name.startswith('client_node')]
-        client_couples = [c for c in couples_suitable if c[0].node_name.startswith('client_node')]
-        
-        # Prefer server nodes, fall back to client nodes only if no server capacity
-        candidates = server_couples if server_couples else client_couples
-        
-        # Select the node with the most available platforms
+        """
+        # Knative only allocates CPUs
+        filtered_couples = set(filter(
+            lambda couple: couple[1].type["hardware"] == "cpu",
+            couples_suitable
+        ))
+        """
+
+        # Knative selects a replica on the most available node (cf. ENSURE)
         available_couple = max(
-            candidates,
+            # filtered_couples, key=lambda couple: couple[0].available_platforms
+            couples_suitable,
             key=lambda couple: couple[0].available_platforms,
         )
 

@@ -111,7 +111,7 @@ rfc3339-validator = "==0.1.4"
 rfc3986-validator = "==0.1.1"
 rpds-py = "==0.22.3"
 scikit-learn = "==1.6.1"
-scipy = "==1.12.0"
+scipy = "*"
 seaborn = "==0.13.2"
 send2trash = "==1.8.3"
 simpy = "==4.1.1"
@@ -142,6 +142,7 @@ skopt = "*"
 bayes-opt = "*"
 torch = "*"
 torch-geometric = "*"
+orjson = "*"
 
 [dev-packages]
 

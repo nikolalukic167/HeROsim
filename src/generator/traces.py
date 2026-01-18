@@ -128,7 +128,15 @@ def uniform_arrivals(min_rate: float, max_rate: float, duration: int) -> List[fl
 
 
 def generate_time_series(
-        data: SimulationData, rps: int, duration_time: int, pattern: str, apps: [], pdf_path: str, peaks: List, config: Dict = None
+        data: SimulationData,
+        rps: int,
+        duration_time: int,
+        pattern: str,
+        apps: [],
+        pdf_path: str,
+        peaks: List,
+        config: Dict = None,
+        app_weights: Dict[str, float] | None = None,
 ) -> TimeSeries:
     # Load client count from config if provided, otherwise use default
     if config and 'nodes' in config and 'client_nodes' in config['nodes']:
@@ -181,9 +189,12 @@ def generate_time_series(
     events: List[WorkloadEvent] = []
     qos_levels_per_app = {}
     if apps is not None:
-        app_types = apps
+        if isinstance(apps, str):
+            app_types = [apps]
+        else:
+            app_types = list(apps)
     else:
-        app_types = data.application_types.keys()
+        app_types = list(data.application_types.keys())
 
     for application_type in app_types:
         qos_type_count: int = len(data.qos_types)
@@ -192,30 +203,18 @@ def generate_time_series(
         qos_type: QoSType = data.qos_types[qos_type_name]
         qos_levels_per_app[str(application_type)] = qos_type
 
-    for i, timestamp in enumerate(arrivals):
-        application_type_count: int = len(data.application_types)
-        """
-        if app is not None:
+    weights = None
+    if app_weights:
+        weights = [max(0.0, float(app_weights.get(name, 0.0))) for name in app_types]
+        if sum(weights) <= 0:
+            weights = None
 
-            application_type_name: str = app
-            application_type: ApplicationType = data.application_types[
-                application_type_name
-            ]
-        """
-        # else:
-        application_type_index: int = random.randint(0, application_type_count - 1)
-        application_type_name: str = list(data.application_types)[
-            application_type_index
-        ]
-        application_type: ApplicationType = data.application_types[
-            application_type_name
-        ]
-        """
-        application_type_count: int = len(apps)
-        app_index = random.randint(0, application_type_count - 1)
-        application_type_name: str = apps[app_index]
-        application_type: ApplicationType = data.application_types[application_type_name]
-        """
+    for i, timestamp in enumerate(arrivals):
+        if weights is None:
+            application_type_name = random.choice(app_types)
+        else:
+            application_type_name = random.choices(app_types, weights=weights, k=1)[0]
+        application_type = data.application_types[application_type_name]
         if len(client_ids) > 0:
             node_name = f"client_node{client_ids[i] % n_clients}"
         else:

@@ -1,0 +1,3 @@
+- don't write big .md explanations
+    - except when I say it's for another LLM
+- the project uses pipenv

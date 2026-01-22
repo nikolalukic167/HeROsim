@@ -88,12 +88,12 @@ class DeterminedScheduler(Scheduler):
                 print(f"[ {self.env.now} ] DEBUG: Added task {task.id} to batch (size={len(batch)})")
             except:
                 # No more tasks available
-                logger.info(f"DeterminedScheduler: No more tasks available after {len(batch)} tasks")
-                print(f"[ {self.env.now} ] DEBUG: No more tasks available after {len(batch)} tasks")
+                # logger.info(f"DeterminedScheduler: No more tasks available after {len(batch)} tasks")
+                # print(f"[ {self.env.now} ] DEBUG: No more tasks available after {len(batch)} tasks")
                 break
         
         logger.info(f"DeterminedScheduler: Batch collection complete, returning {len(batch)} tasks")
-        print(f"[ {self.env.now} ] DEBUG: Batch collection complete, returning {len(batch)} tasks")
+        # print(f"[ {self.env.now} ] DEBUG: Batch collection complete, returning {len(batch)} tasks")
         return batch
 
     def _process_task_batch(self, batch_tasks: List[Task]) -> Generator:

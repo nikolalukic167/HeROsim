@@ -1,0 +1,10 @@
+---
+description: Core project guidelines and constraints
+alwaysApply: true
+---
+
+# Project Guidelines
+
+- When I ask for an explanation or analysis do not write md or txt documents, answer in chat directly
+- The project uses pipenv for dependency management
+- When running Python commands, use `pipenv run python3` or activate the pipenv environment first

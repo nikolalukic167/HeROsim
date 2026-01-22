@@ -278,7 +278,6 @@ def precreate_replicas(
                                 )
                                 for warmup_task in warmup_tasks:
                                     platform.queue.put(warmup_task)
-                                    print(f"    Enqueued {len(warmup_tasks)} warmup tasks (WARM) to {node_name}:{platform_id}")
                             except Exception as e:
                                 print(f"    ERROR enqueuing warmup tasks to {node_name}:{platform_id}: {e}")
                                 import traceback
@@ -379,7 +378,6 @@ def precreate_replicas(
                                     # Enqueue warmup tasks to the platform
                                     for warmup_task in warmup_tasks:
                                         platform.queue.put(warmup_task)
-                                        print(f"    Enqueued {len(warmup_tasks)} warmup tasks (WARM) to {node.node_name}:{platform.id}")
                                 except Exception as e:
                                     print(f"    ERROR enqueuing warmup tasks to {node.node_name}:{platform.id}: {e}")
                                     import traceback
@@ -447,7 +445,6 @@ def precreate_replicas(
                                     # Enqueue warmup tasks to the platform
                                     for warmup_task in warmup_tasks:
                                         platform.queue.put(warmup_task)
-                                        print(f"    Enqueued {len(warmup_tasks)} warmup tasks (WARM) to {node.node_name}:{platform.id}")
                                 except Exception as e:
                                     print(f"    ERROR enqueuing warmup tasks to {node.node_name}:{platform.id}: {e}")
                                     import traceback

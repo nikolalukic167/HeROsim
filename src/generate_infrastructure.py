@@ -192,15 +192,24 @@ def generate_replica_placements_deterministic(
     all_server_nodes = [node for node in nodes if not node.get('node_name', '').startswith('client_node')]
     
     # Handle percentage-based configuration
+    # NOTE: For replica placement (not preinit), we use higher percentages to ensure
+    # replicas are spread across enough nodes for network reachability
     preinit_clients = preinit_config.get('clients', [])
     preinit_servers = preinit_config.get('servers', [])
     
     if not preinit_clients and 'client_percentage' in preinit_config:
-        k = max(1, int(len(all_client_nodes) * float(preinit_config.get('client_percentage', 0))))
+        client_pct = float(preinit_config.get('client_percentage', 0))
+        # For replica placement, use at least 50% of clients even for cold start
+        replica_client_pct = max(client_pct, 0.5)
+        k = max(1, int(len(all_client_nodes) * replica_client_pct))
         preinit_clients = [n['node_name'] for n in all_client_nodes[:k]]
     
     if not preinit_servers and 'server_percentage' in preinit_config:
-        k = max(1, int(len(all_server_nodes) * float(preinit_config.get('server_percentage', 0))))
+        server_pct = float(preinit_config.get('server_percentage', 0))
+        # For replica placement, use at least 60% of servers even for cold start
+        # This ensures replicas are spread across enough nodes for network reachability
+        replica_server_pct = max(server_pct, 0.6)
+        k = max(1, int(len(all_server_nodes) * replica_server_pct))
         preinit_servers = [n['node_name'] for n in all_server_nodes[:k]]
     
     if preinit_clients == "all":
@@ -430,6 +439,51 @@ def generate_deterministic_infrastructure(
     replica_placements = generate_replica_placements_deterministic(
         nodes, config, sim_inputs, rng
     )
+    
+    # 2b. Ensure network connectivity to replica servers
+    # After placing replicas, ensure every client can reach MULTIPLE servers
+    # that have replicas for each task type (for uniqueness constraint)
+    print("[infra-gen] Ensuring replica reachability...")
+    clients = [n for n in nodes if n['node_name'].startswith('client_node')]
+    servers = [n for n in nodes if not n['node_name'].startswith('client_node')]
+    
+    # Minimum number of replica servers each client should reach per task type
+    MIN_REPLICA_SERVERS = 2
+    
+    for task_type_name, placements in replica_placements.items():
+        # Get servers that have replicas for this task type
+        replica_servers = set(p['node_name'] for p in placements if not p['node_name'].startswith('client_'))
+        
+        if not replica_servers:
+            continue
+        
+        for client in clients:
+            client_name = client['node_name']
+            
+            # Count how many replica servers this client can reach
+            reachable_replica_servers = [
+                server_name for server_name in replica_servers
+                if server_name in network_maps[client_name]
+            ]
+            
+            # Add connections until we reach the minimum
+            needed = MIN_REPLICA_SERVERS - len(reachable_replica_servers)
+            if needed > 0:
+                # Find servers with replicas that we're not connected to
+                available_servers = [
+                    s for s in servers 
+                    if s['node_name'] in replica_servers
+                    and s['node_name'] not in network_maps[client_name]
+                ]
+                rng.shuffle(available_servers)
+                
+                for server in available_servers[:needed]:
+                    server_name = server['node_name']
+                    # Use base latency for new connections
+                    latency = config.get('network', {}).get('latency', {}).get('base_latency', 0.1)
+                    network_maps[client_name][server_name] = latency
+                    network_maps[server_name][client_name] = latency
+                    print(f"[infra-gen] Added {task_type_name} reachability: {client_name} -> {server_name}")
     
     # 3. Generate queue distributions
     print("[infra-gen] Generating queue distributions...")

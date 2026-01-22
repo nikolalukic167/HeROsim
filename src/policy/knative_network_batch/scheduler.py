@@ -273,12 +273,21 @@ class KnativeNetworkScheduler(Scheduler):
                 self.env.step()
                 continue
 
+            # Capture temporal state snapshot
+            temporal_state_snapshot = self._capture_temporal_state_snapshot()
+            
             # Store queue snapshot on task
             task.queue_snapshot_at_scheduling = {
                 f"{node.node_name}:{plat.id}": full_queue_snapshot.get(f"{node.node_name}:{plat.id}", 0)
                 for node, plat in available_replicas
             }
             task.full_queue_snapshot = full_queue_snapshot
+            
+            # Store temporal state snapshot on task
+            task.temporal_state_at_scheduling = {
+                f"{node.node_name}:{plat.id}": temporal_state_snapshot.get(f"{node.node_name}:{plat.id}", {})
+                for node, plat in available_replicas
+            }
 
             # Knative-style: Shortest queue (least connections) placement
             target_node, target_platform = min(
@@ -344,6 +353,63 @@ class KnativeNetworkScheduler(Scheduler):
                 key = f"{node.node_name}:{platform.id}"
                 queue_snapshot[key] = len(platform.queue.items)
         return queue_snapshot
+    
+    def _capture_temporal_state_snapshot(self) -> Dict[str, Dict[str, float]]:
+        """Capture temporal state (remaining times) for all platforms."""
+        temporal_state = {}
+        
+        for node in self.nodes.items:
+            # Get node storage for communication time calculation
+            node_storage = None
+            for storage in node.storage.items:
+                if not storage.type.get("remote", False):
+                    node_storage = storage
+                    break
+            
+            for platform in node.platforms.items:
+                key = f"{node.node_name}:{platform.id}"
+                
+                # Initialize with zeros
+                current_task_remaining = 0.0
+                cold_start_remaining = 0.0
+                comm_remaining = 0.0
+                
+                if platform.current_task is not None:
+                    current_task = platform.current_task
+                    now = self.env.now
+                    
+                    # Current task cold start remaining
+                    if current_task.cold_started and not hasattr(current_task, "started_time"):
+                        # Task is still in cold start
+                        cold_start_duration = current_task.type["coldStartDuration"][platform.type["shortName"]]
+                        elapsed_cold_start = now - current_task.arrived_time
+                        cold_start_remaining = max(0.0, cold_start_duration - elapsed_cold_start)
+                    
+                    # Current task execution remaining
+                    if hasattr(current_task, "started_time") and current_task.started_time is not None:
+                        # Task has started executing
+                        exec_duration = current_task.type["executionTime"][platform.type["shortName"]]
+                        elapsed_exec = now - current_task.started_time
+                        current_task_remaining = max(0.0, exec_duration - elapsed_exec)
+                        
+                        # Communications remaining (estimate based on output state size)
+                        if node_storage and current_task.application:
+                            state_size_map = current_task.type.get("stateSize", {})
+                            app_name = current_task.application.type.get("name", "")
+                            if isinstance(state_size_map, dict) and app_name in state_size_map:
+                                output_size = state_size_map[app_name].get("output", 0)
+                                if isinstance(output_size, (int, float)) and output_size > 0:
+                                    throughput = node_storage.type.get("throughput", {}).get("write", 100.0 * 1024 * 1024)  # bytes/s
+                                    latency = node_storage.type.get("latency", {}).get("write", 0.001)  # seconds
+                                    comm_remaining = (output_size / throughput) + latency
+                
+                temporal_state[key] = {
+                    "current_task_remaining": current_task_remaining,
+                    "cold_start_remaining": cold_start_remaining,
+                    "comm_remaining": comm_remaining,
+                }
+        
+        return temporal_state
 
     def placement(self, system_state: SystemState, task: Task) -> Generator:
         if False:

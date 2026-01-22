@@ -258,14 +258,14 @@ def run_knative_baseline_for_dataset(
             "workload": workload,
         }
 
-        logger.info(f"Running knative_network simulation for {dataset_dir.name}...")
-        print(f"  Running knative_network simulation...")
+        logger.info(f"Running knative_network_batch simulation for {dataset_dir.name}...")
+        print(f"  Running knative_network_batch simulation...")
 
-        # Execute simulation with knative_network scheduler
+        # Execute simulation with knative_network_batch scheduler
         result = execute_simulation(
             full_config,
             sim_inputs,
-            scheduling_strategy='kn_network_kn_network',
+            scheduling_strategy='kn_network_batch_kn_network_batch',
             cache_policy='fifo',
             task_priority='fifo',
             keep_alive=KEEP_ALIVE,
@@ -300,6 +300,7 @@ def run_knative_baseline_for_dataset(
                     "queue_time": tr.get('queueTime'),
                     "queue_snapshot_at_scheduling": tr.get('queueSnapshotAtScheduling', {}),
                     "full_queue_snapshot": tr.get('fullQueueSnapshot', {}),
+                    "temporal_state_at_scheduling": tr.get('temporalStateAtScheduling', {}),
                 })
 
         # Build captured state with queue occupancy at scheduling time per task

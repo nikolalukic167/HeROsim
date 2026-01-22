@@ -156,6 +156,7 @@ class Task:
         self.system_state_snapshot: Optional[SystemStateResult] = None
         self.queue_snapshot_at_scheduling: Optional[Dict[str, int]] = None  # {node:platform -> queue_length}
         self.full_queue_snapshot: Optional[Dict[str, int]] = None  # All platforms, for verification
+        self.temporal_state_at_scheduling: Optional[Dict[str, Dict[str, float]]] = None  # {node:platform -> {current_task_remaining, cold_start_remaining, comm_remaining}}
 
         self.run = env.process(self.task_process())
 
@@ -347,6 +348,7 @@ class Task:
             "systemStateResult": self.system_state_snapshot,
             "queueSnapshotAtScheduling": self.queue_snapshot_at_scheduling,
             "fullQueueSnapshot": self.full_queue_snapshot,
+            "temporalStateAtScheduling": self.temporal_state_at_scheduling,
         }
 
 

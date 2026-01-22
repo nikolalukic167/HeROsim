@@ -47,11 +47,30 @@ done
 
 cd "${BASE}"
 
+# Check if system_state_captured_unique.json exists - complete it if not
+if [ ! -f "${DATASET_DIR}/system_state_captured_unique.json" ]; then
+    echo "Warning: system_state_captured_unique.json not found."
+    echo "Running baseline capture first to complete the dataset..."
+    echo ""
+    
+    cd "${BASE}" && python3 -m src.executeknativecosim \
+        --dataset-dir "${DATASET_DIR}" \
+        2>&1 | tail -5
+    
+    if [ ! -f "${DATASET_DIR}/system_state_captured_unique.json" ]; then
+        echo "ERROR: Failed to capture baseline. Cannot run determinism test."
+        exit 1
+    fi
+    echo ""
+    echo "Baseline captured. Proceeding with determinism test..."
+    echo ""
+fi
+
 # Run the Python determinism test
 echo "Running determinism test..."
 echo ""
 
-pipenv run python3 -m src.executeknativecosim_determinism_test \
+python3 -m src.executeknativecosim_determinism_test \
     "${DATASET_DIR}" \
     "${NUM_RUNS}" \
     2>&1 | tee "${OUTPUT_DIR}/test_output.txt"

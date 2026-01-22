@@ -145,7 +145,7 @@ def run_single_simulation(dataset_dir: Path, sim_input_path: Path, run_id: int) 
         KEEP_ALIVE,
         'fifo',
         QUEUE_LENGTH,
-        'kn_network_kn_network',
+        'kn_network_batch_kn_network_batch',
         full_config['workload'],
         'workload-knative',
     )
@@ -157,6 +157,7 @@ def run_single_simulation(dataset_dir: Path, sim_input_path: Path, run_id: int) 
     placements = []
     rtts = []
     queue_snapshots = []
+    temporal_states = []
     
     for tr in task_results:
         if tr.get('taskId') is not None and tr.get('taskId') >= 0:
@@ -167,6 +168,7 @@ def run_single_simulation(dataset_dir: Path, sim_input_path: Path, run_id: int) 
             })
             rtts.append(tr.get('elapsedTime', 0))
             queue_snapshots.append(tr.get('queueSnapshotAtScheduling', {}))
+            temporal_states.append(tr.get('temporalStateAtScheduling', {}))
     
     total_rtt = sum(rtts)
     
@@ -175,6 +177,7 @@ def run_single_simulation(dataset_dir: Path, sim_input_path: Path, run_id: int) 
         'total_rtt': total_rtt,
         'placements': placements,
         'queue_snapshots': queue_snapshots,
+        'temporal_states': temporal_states,
         'individual_rtts': rtts,
     }
 
@@ -191,6 +194,8 @@ def compare_runs(results: list) -> Dict[str, Any]:
         'rtt_all_same': len(set(r['total_rtt'] for r in results)) == 1,
         'placement_differences': [],
         'queue_snapshot_differences': [],
+        'temporal_state_differences': [],
+        'temporal_state_uniformity_stats': {},
         'individual_rtt_differences': [],
     }
     
@@ -216,6 +221,44 @@ def compare_runs(results: list) -> Dict[str, Any]:
                     'current': q2,
                 })
     
+    # Compare temporal states and compute uniformity statistics
+    all_temporal_values = {'current_task_remaining': [], 'cold_start_remaining': [], 'comm_remaining': []}
+    for i, r in enumerate(results):
+        for j, ts in enumerate(r['temporal_states']):
+            # Collect all temporal values for uniformity analysis
+            for platform_key, state in ts.items():
+                if isinstance(state, dict):
+                    all_temporal_values['current_task_remaining'].append(state.get('current_task_remaining', 0.0))
+                    all_temporal_values['cold_start_remaining'].append(state.get('cold_start_remaining', 0.0))
+                    all_temporal_values['comm_remaining'].append(state.get('comm_remaining', 0.0))
+            
+            # Compare with base run
+            if i > 0:
+                base_ts = base['temporal_states'][j]
+                if base_ts != ts:
+                    comparison['temporal_state_differences'].append({
+                        'run': i,
+                        'task_id': j,
+                        'base': base_ts,
+                        'current': ts,
+                    })
+    
+    # Compute uniformity statistics
+    import statistics
+    for key, values in all_temporal_values.items():
+        if values:
+            non_zero = [v for v in values if v > 0]
+            comparison['temporal_state_uniformity_stats'][key] = {
+                'count': len(values),
+                'non_zero_count': len(non_zero),
+                'mean': statistics.mean(values) if values else 0.0,
+                'median': statistics.median(values) if values else 0.0,
+                'stdev': statistics.stdev(values) if len(values) > 1 else 0.0,
+                'min': min(values) if values else 0.0,
+                'max': max(values) if values else 0.0,
+                'mean_non_zero': statistics.mean(non_zero) if non_zero else 0.0,
+            }
+    
     # Compare individual RTTs
     for i, r in enumerate(results[1:], 1):
         for j, (rtt1, rtt2) in enumerate(zip(base['individual_rtts'], r['individual_rtts'])):
@@ -230,6 +273,7 @@ def compare_runs(results: list) -> Dict[str, Any]:
     
     comparison['placements_deterministic'] = len(comparison['placement_differences']) == 0
     comparison['queue_snapshots_deterministic'] = len(comparison['queue_snapshot_differences']) == 0
+    comparison['temporal_states_deterministic'] = len(comparison['temporal_state_differences']) == 0
     comparison['rtts_deterministic'] = len(comparison['individual_rtt_differences']) == 0
     
     return comparison
@@ -244,6 +288,23 @@ def main():
     dataset_dir = Path(sys.argv[1])
     num_runs = int(sys.argv[2]) if len(sys.argv) > 2 else 3
     sim_input_path = Path("data/nofs-ids")
+    
+    # Check if system_state_captured_unique.json exists - if not, complete it first
+    captured_state_file = dataset_dir / "system_state_captured_unique.json"
+    if not captured_state_file.exists():
+        print(f"Warning: {captured_state_file} not found. Running baseline capture first...")
+        # Import and run the baseline capture
+        from src.executeknativecosim import run_knative_baseline_for_dataset
+        import logging
+        logger = logging.getLogger('simulation')
+        logger.setLevel(logging.WARNING)  # Reduce noise
+        
+        success = run_knative_baseline_for_dataset(dataset_dir, sim_input_path, logger)
+        if not success:
+            print(f"ERROR: Failed to capture baseline for {dataset_dir.name}")
+            sys.exit(1)
+        print("Baseline captured. Proceeding with determinism test...")
+        print()
     
     if not dataset_dir.exists():
         print(f"ERROR: Dataset directory not found: {dataset_dir}")
@@ -269,7 +330,19 @@ def main():
     print(f"All RTTs same: {comparison['rtt_all_same']}")
     print(f"Placements deterministic: {comparison['placements_deterministic']}")
     print(f"Queue snapshots deterministic: {comparison['queue_snapshots_deterministic']}")
+    print(f"Temporal states deterministic: {comparison['temporal_states_deterministic']}")
     print(f"Individual RTTs deterministic: {comparison['rtts_deterministic']}")
+    
+    # Print temporal state uniformity statistics
+    if comparison['temporal_state_uniformity_stats']:
+        print(f"\n=== Temporal State Uniformity Statistics ===")
+        for key, stats in comparison['temporal_state_uniformity_stats'].items():
+            print(f"{key}:")
+            print(f"  Total samples: {stats['count']}, Non-zero: {stats['non_zero_count']}")
+            print(f"  Mean: {stats['mean']:.6f}, Median: {stats['median']:.6f}, StdDev: {stats['stdev']:.6f}")
+            print(f"  Range: [{stats['min']:.6f}, {stats['max']:.6f}]")
+            if stats['non_zero_count'] > 0:
+                print(f"  Mean (non-zero): {stats['mean_non_zero']:.6f}")
     
     if not comparison['placements_deterministic']:
         print(f"\nPlacement differences ({len(comparison['placement_differences'])}):")
@@ -283,6 +356,13 @@ def main():
             print(f"    Base: {diff['base']}")
             print(f"    Current: {diff['current']}")
     
+    if not comparison['temporal_states_deterministic']:
+        print(f"\nTemporal state differences ({len(comparison['temporal_state_differences'])}):")
+        for diff in comparison['temporal_state_differences'][:3]:
+            print(f"  Run {diff['run']}, Task {diff['task_id']}:")
+            print(f"    Base: {diff['base']}")
+            print(f"    Current: {diff['current']}")
+    
     if not comparison['rtts_deterministic']:
         print(f"\nIndividual RTT differences ({len(comparison['individual_rtt_differences'])}):")
         for diff in comparison['individual_rtt_differences'][:5]:
@@ -290,7 +370,7 @@ def main():
     
     # Summary
     print()
-    if comparison['placements_deterministic'] and comparison['queue_snapshots_deterministic'] and comparison['rtts_deterministic']:
+    if comparison['placements_deterministic'] and comparison['queue_snapshots_deterministic'] and comparison['temporal_states_deterministic'] and comparison['rtts_deterministic']:
         print("✓ SIMULATION IS DETERMINISTIC")
     else:
         print("✗ SIMULATION IS NOT DETERMINISTIC")
@@ -298,6 +378,8 @@ def main():
             print("  - Placements vary between runs")
         if not comparison['queue_snapshots_deterministic']:
             print("  - Queue snapshots vary between runs")
+        if not comparison['temporal_states_deterministic']:
+            print("  - Temporal states vary between runs")
         if not comparison['rtts_deterministic']:
             print("  - RTTs vary between runs")
 

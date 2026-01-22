@@ -1,6 +1,7 @@
 import json
 import logging
 import math
+import multiprocessing
 import os
 import pickle
 import sys
@@ -98,11 +99,17 @@ def _init_worker(
     sample: np.ndarray,
     mapping: Dict[int, str],
     output_dir: Path,
-    quiet: bool = False
+    quiet: bool = False,
+    best_rtt_value: Optional[Any] = None,
+    best_rtt_lock: Optional[Any] = None
 ):
     """
     Initialize worker process with shared immutable data.
     Called once per worker process, not per task.
+    
+    Args:
+        best_rtt_value: Shared multiprocessing.Value for tracking best RTT across workers
+        best_rtt_lock: Lock for atomic operations on best_rtt_value
     """
     global _worker_shared_data, QUIET_MODE
     QUIET_MODE = quiet
@@ -117,6 +124,8 @@ def _init_worker(
         'sample': sample,
         'mapping': mapping,
         'output_dir': output_dir,
+        'best_rtt_value': best_rtt_value,
+        'best_rtt_lock': best_rtt_lock,
     }
 
 
@@ -647,6 +656,10 @@ def prepare_simulation_config(
             for task_type in original_config.get('replicas', {}).keys()
         }
     infrastructure_config['prewarm'] = prewarm_config
+    
+    # Add replica_plan so simulation.py can pre-create replicas
+    if replica_plan is not None:
+        infrastructure_config['replica_plan'] = replica_plan
 
     return infrastructure_config
 
@@ -956,7 +969,8 @@ def generate_brute_force_placement_combinations(
         infrastructure_config: Dict[str, Any],
         sim_inputs: Dict[str, Any],
         replica_plan: Dict[str, Any],
-        active_replicas: Optional[Dict[str, List[Tuple[str, int]]]] = None
+        active_replicas: Optional[Dict[str, List[Tuple[str, int]]]] = None,
+        use_all_replicas: bool = False
 ) -> List[Dict[int, Tuple[int, int]]]:
     """
     Generate all possible placement combinations for tasks.
@@ -965,38 +979,59 @@ def generate_brute_force_placement_combinations(
     2. Don't schedule on non-existent replicas for that function
     3. Ensure all tasks have valid, unique replicas (no two tasks share the same replica)
     
-    CRITICAL: active_replicas is REQUIRED for co-simulation mode. Legacy replica configs
-    are disabled because they don't accurately reflect post-warmup system state and cause
-    invalid placements (e.g., placing dnn2 tasks on platforms that only have dnn1 replicas).
+    For warm start scenarios, active_replicas from system state capture is used.
+    For cold start scenarios (use_all_replicas=True), uses all replicas from
+    infrastructure.json's deterministic_replica_placements directly.
     
     Args:
         workload_events: List of workload events with timestamps and node_name
         infrastructure_config: Infrastructure configuration with nodes and network maps
         sim_inputs: Simulation inputs containing task_types and platform_types
         replica_plan: Replica placement plan (used for reference, not for generating placements)
-        active_replicas: REQUIRED dict mapping task_type -> list of (node_name, platform_id) tuples.
-                        Must be provided from system state capture. If None, returns empty list.
+        active_replicas: Dict mapping task_type -> list of (node_name, platform_id) tuples.
+                        Used for warm start scenarios.
+        use_all_replicas: If True, use all replicas from infrastructure.json directly
+                         (cold start mode). If False, use active_replicas from state capture.
     
     Returns:
         List of placement plans, each mapping task_id to (node_id, platform_id) tuple.
         Each placement ensures all tasks have valid, unique replicas.
-        Returns empty list if active_replicas is None (state capture failed).
+        Returns empty list if no valid placements can be generated.
     """
     logger = logging.getLogger('simulation')
     logger.info(f"=== Generating Brute Force Placement Combinations (ALL combinations) ===")
     print(f"\n=== Generating Brute Force Placement Combinations (ALL combinations) ===")
     
-    if active_replicas is not None:
-        logger.info("Using captured active replicas from post-warmup system state")
-        print(f"✓ Using captured active replicas from post-warmup system state")
-        logger.info(f"=== Active replicas structure ===")
-        for task_type, replicas in active_replicas.items():
-            logger.info(f"  {task_type}: {len(replicas)} active replicas")
-            print(f"  {task_type}: {len(replicas)} active replicas")
-            for idx, replica in enumerate(replicas[:5]):  # Log first 5
-                logger.info(f"    [{idx}] {replica}")
-            if len(replicas) > 5:
-                logger.info(f"    ... and {len(replicas) - 5} more")
+    # Determine which replica source to use
+    det_placements = infrastructure_config.get('deterministic_replica_placements', {})
+    
+    if use_all_replicas and det_placements:
+        logger.info("COLD START MODE: Using ALL replicas from infrastructure.json")
+        print(f"✓ COLD START MODE: Using all replicas from deterministic_replica_placements")
+        for task_type, placements in det_placements.items():
+            logger.info(f"  {task_type}: {len(placements)} replicas from infrastructure")
+            print(f"  {task_type}: {len(placements)} replicas from infrastructure")
+    elif active_replicas is not None:
+        # Check if any task type has 0 replicas - if so, fall back to infrastructure replicas
+        missing_replicas = [tt for tt, reps in active_replicas.items() if len(reps) == 0]
+        if missing_replicas and det_placements:
+            logger.info(f"Active replicas missing for {missing_replicas}, falling back to infrastructure replicas")
+            print(f"⚠️  Active replicas missing for {missing_replicas}, using infrastructure replicas (cold start fallback)")
+            use_all_replicas = True
+            for task_type, placements in det_placements.items():
+                logger.info(f"  {task_type}: {len(placements)} replicas from infrastructure")
+                print(f"  {task_type}: {len(placements)} replicas from infrastructure")
+        else:
+            logger.info("Using captured active replicas from post-warmup system state")
+            print(f"✓ Using captured active replicas from post-warmup system state")
+            logger.info(f"=== Active replicas structure ===")
+            for task_type, replicas in active_replicas.items():
+                logger.info(f"  {task_type}: {len(replicas)} active replicas")
+                print(f"  {task_type}: {len(replicas)} active replicas")
+                for idx, replica in enumerate(replicas[:5]):  # Log first 5
+                    logger.info(f"    [{idx}] {replica}")
+                if len(replicas) > 5:
+                    logger.info(f"    ... and {len(replicas) - 5} more")
     else:
         logger.info("Using initial replica plan (no captured state provided)")
         print(f"⚠️  Using initial replica plan (no captured state provided)")
@@ -1056,7 +1091,36 @@ def generate_brute_force_placement_combinations(
     # Simulate replica creation
     available_platforms = {}
     
-    if active_replicas is not None:
+    if use_all_replicas and det_placements:
+        # COLD START: Use all replicas from infrastructure.json directly
+        print(f"Converting infrastructure replicas to platform_info format (cold start)...")
+        logger.info("=== Using deterministic_replica_placements (cold start mode) ===")
+        for task_type_name, placements in det_placements.items():
+            if task_type_name not in available_platforms:
+                available_platforms[task_type_name] = []
+            
+            for placement in placements:
+                node_name = placement['node_name']
+                platform_id = placement['platform_id']
+                platform_type = placement['platform_type']
+                
+                if node_name not in node_id_map:
+                    logger.warning(f"  Node {node_name} not in node_id_map, skipping")
+                    continue
+                
+                available_platforms[task_type_name].append({
+                    'node_name': node_name,
+                    'node_id': node_id_map[node_name],
+                    'platform_type': platform_type,
+                    'platform_id': platform_id
+                })
+            
+            print(f"  {task_type_name}: {len(available_platforms[task_type_name])} replicas available")
+        
+        print(f"Total: {sum(len(v) for v in available_platforms.values())} replicas from infrastructure")
+        logger.info(f"[PLACEMENT] Cold start - available_platforms: {[(k, len(v)) for k, v in available_platforms.items()]}")
+    
+    elif active_replicas is not None:
         # Use captured active replicas instead of initial replica plan
         print(f"Converting captured active replicas to platform_info format...")
         logger.info("=== Starting replica matching process ===")
@@ -1322,18 +1386,46 @@ def generate_brute_force_placement_combinations(
     
     # Generate all combinations ensuring each task has a unique replica
     logger.info("Generating placement combinations with unique replica constraint...")
-    combinations = generate_all_combinations_with_unique_replicas(tasks)
+    # Allow skipping datasets with too many combinations (configurable via environment or config)
+    skip_threshold = int(os.environ.get('MAX_PLACEMENT_COMBINATIONS_SKIP', '0'))  # 0 = never skip
+    combinations = generate_all_combinations_with_unique_replicas(
+        tasks, 
+        max_combinations_warning=100000,
+        skip_if_exceeds=skip_threshold if skip_threshold > 0 else None
+    )
+    
+    if not combinations:
+        logger.warning("No placement combinations generated (dataset skipped due to size)")
+        print("⚠️  Dataset skipped: too many placement combinations")
     
     logger.info(f"Generated {len(combinations)} valid placement combinations (all tasks have unique replicas)")
     print(f"Generated {len(combinations)} valid placement combinations (all tasks have unique replicas)")
     return combinations
 
 
-def generate_all_combinations_with_unique_replicas(tasks: List[Dict]) -> List[Dict[int, Tuple[int, int]]]:
+def generate_all_combinations_with_unique_replicas(
+    tasks: List[Dict],
+    max_combinations_warning: int = 100000,
+    skip_if_exceeds: Optional[int] = None
+) -> List[Dict[int, Tuple[int, int]]]:
     """
     Generate all possible placement combinations for tasks.
     Ensures that each task gets a unique replica (no two tasks share the same (node_id, platform_id)).
     Only returns placements where ALL tasks have valid replicas.
+    
+    IMPORTANT: This function does NOT cap combinations because:
+    1. Training requires ALL placements to find the true optimal
+    2. Capping would create incorrect training labels (suboptimal labeled as optimal)
+    3. Negative sampling in StructuredRegretLoss needs all valid placements
+    
+    Args:
+        tasks: List of task dictionaries with feasible_platforms
+        max_combinations_warning: Warn if combinations exceed this (default: 100000)
+        skip_if_exceeds: If set, return empty list if combinations exceed this threshold (skips dataset)
+    
+    Returns:
+        List of placement plans, each mapping task_id to (node_id, platform_id).
+        Returns empty list if skip_if_exceeds is set and threshold is exceeded.
     """
     if not tasks:
         return [{}]
@@ -1345,6 +1437,21 @@ def generate_all_combinations_with_unique_replicas(tasks: List[Dict]) -> List[Di
     
     print(f"Total possible combinations (before uniqueness constraint): {total_possible}")
     
+    # Check if we should skip this dataset
+    if skip_if_exceeds is not None and total_possible > skip_if_exceeds:
+        print(f"⚠️  SKIPPING DATASET: Combinations ({total_possible:,}) exceed threshold ({skip_if_exceeds:,})")
+        print(f"   This dataset would take too long to process. Consider:")
+        print(f"   - Reducing number of tasks")
+        print(f"   - Reducing feasible platforms per task")
+        print(f"   - Increasing skip_if_exceeds threshold")
+        return []
+    
+    # Warn if combinations are very large
+    if total_possible > max_combinations_warning:
+        print(f"⚠️  WARNING: Large search space detected ({total_possible:,} combinations)")
+        print(f"   This dataset may take a long time to process.")
+        print(f"   Estimated time: ~{total_possible / 100:.0f} seconds at 100 sim/s")
+    
     combinations = []
     used_replicas = set()  # Track (node_id, platform_id) tuples that are already used
     
@@ -1354,16 +1461,13 @@ def generate_all_combinations_with_unique_replicas(tasks: List[Dict]) -> List[Di
             # All tasks have been assigned unique replicas
             # Verify that all tasks are in the placement and all values are valid
             if len(current_placement) != len(tasks):
-                print(f"⚠️  WARNING: Incomplete placement generated: {len(current_placement)}/{len(tasks)} tasks assigned")
                 return
             
             # Validate all placements have valid integer values
             for task_id, (node_id, platform_id) in current_placement.items():
                 if not isinstance(node_id, int) or not isinstance(platform_id, int):
-                    print(f"⚠️  WARNING: Invalid placement for task {task_id}: node_id={node_id} (type: {type(node_id)}), platform_id={platform_id} (type: {type(platform_id)})")
                     return
                 if node_id < 0 or platform_id < 0:
-                    print(f"⚠️  WARNING: Invalid placement for task {task_id}: negative values node_id={node_id}, platform_id={platform_id}")
                     return
             
             combinations.append(current_placement.copy())
@@ -1373,7 +1477,6 @@ def generate_all_combinations_with_unique_replicas(tasks: List[Dict]) -> List[Di
         
         # CRITICAL: If this task has no feasible platforms, we cannot generate valid placements
         if not task['feasible_platforms']:
-            print(f"  ❌ Task {task['task_id']} ({task['task_type']}) has no feasible platforms - cannot generate valid placement")
             return  # Backtrack - this path cannot lead to a valid placement
         
         # Try each feasible platform for this task
@@ -1384,11 +1487,9 @@ def generate_all_combinations_with_unique_replicas(tasks: List[Dict]) -> List[Di
             platform_id = platform_info.get('platform_id')
             
             if node_id is None or platform_id is None:
-                print(f"  ❌ Task {task['task_id']} ({task['task_type']}): Invalid platform_info with None values: {platform_info}")
                 continue
             
             if not isinstance(node_id, int) or not isinstance(platform_id, int):
-                print(f"  ❌ Task {task['task_id']} ({task['task_type']}): Invalid platform_info with non-integer values: node_id={node_id} (type: {type(node_id)}), platform_id={platform_id} (type: {type(platform_id)})")
                 continue
             
             replica = (node_id, platform_id)
@@ -1411,7 +1512,6 @@ def generate_all_combinations_with_unique_replicas(tasks: List[Dict]) -> List[Di
         
         # If no valid replica was found for this task (all were used), backtrack
         if not found_valid_replica:
-            # This is expected when exploring the search space - no need to log
             return  # Backtrack - this path cannot lead to a valid placement
     
     # Start recursive generation
@@ -1589,11 +1689,17 @@ def process_placement_fast(placement_plan: Dict[int, Tuple[int, int]]) -> Tuple[
     is accessed from the global _worker_shared_data dict initialized by _init_worker.
     This dramatically reduces pickling overhead for each task submission.
     
+    OPTIMIZATION: Only writes result file if RTT is better than current best.
+    This reduces I/O by 99%+ for large datasets.
+    
     Args:
         placement_plan: Dict mapping task_id -> (node_id, platform_id)
     
     Returns:
-        Tuple of (result_file_path, rtt_value, result_dict)
+        Tuple of (result_file_path, rtt_value, placement_plan)
+        - result_file_path is None if this result was not written (worse than best)
+        - rtt_value is always returned (for tracking and placements.jsonl)
+        - placement_plan is always returned (for placements.jsonl)
     """
     global _worker_shared_data, QUIET_MODE
     
@@ -1608,6 +1714,8 @@ def process_placement_fast(placement_plan: Dict[int, Tuple[int, int]]) -> Tuple[
     sample = _worker_shared_data['sample']
     mapping = _worker_shared_data['mapping']
     output_dir = _worker_shared_data['output_dir']
+    best_rtt_value = _worker_shared_data.get('best_rtt_value')
+    best_rtt_lock = _worker_shared_data.get('best_rtt_lock')
     
     try:
         # Prepare infrastructure configuration with the specific placement plan
@@ -1646,7 +1754,7 @@ def process_placement_fast(placement_plan: Dict[int, Tuple[int, int]]) -> Tuple[
             'placement_plan': placement_plan,
         }
 
-        # Calculate RTT directly from stats
+        # Calculate RTT FIRST (before file I/O)
         stats = result.get('stats', {})
         task_results = stats.get('taskResults', [])
         rtt = 0.0
@@ -1658,13 +1766,44 @@ def process_placement_fast(placement_plan: Dict[int, Tuple[int, int]]) -> Tuple[
                 counted = True
         rtt_value = float(rtt) if counted else float('inf')
 
-        # Generate unique result file path
-        placement_key = json_dumps(sorted(placement_plan.items()))
-        placement_hash = hashlib.sha1(placement_key.encode('utf-8')).hexdigest()[:16]
-        unique_suffix = uuid.uuid4().hex[:8]
-        result_file = output_dir / f"simulation_placement_{placement_hash}_{unique_suffix}.json"
+        # OPTIMIZATION: Only write file if this is better than current best RTT
+        # Use lock-free read first to minimize contention, then lock only if needed
+        should_write = False
+        if best_rtt_value is not None and best_rtt_lock is not None:
+            # Lock-free read: check current best without acquiring lock (faster)
+            # This avoids serializing all workers when most RTTs are worse
+            current_best = best_rtt_value.value
+            
+            # Only acquire lock if we might have a better result (reduces contention)
+            if rtt_value < current_best:
+                # Now acquire lock for atomic check-and-update
+                with best_rtt_lock:
+                    # Re-check after acquiring lock (double-check pattern)
+                    # Another worker might have updated it while we waited
+                    current_best = best_rtt_value.value
+                    if rtt_value < current_best:
+                        best_rtt_value.value = rtt_value
+                        should_write = True
+        else:
+            # Fallback: always write if shared state not available (shouldn't happen)
+            should_write = True
 
-        return result_file, rtt_value, result
+        result_file = None
+        if should_write:
+            # Generate unique result file path and write result to disk
+            # This avoids passing large result objects through IPC (memory optimization)
+            placement_key = json_dumps(sorted(placement_plan.items()))
+            placement_hash = hashlib.sha1(placement_key.encode('utf-8')).hexdigest()[:16]
+            unique_suffix = uuid.uuid4().hex[:8]
+            result_file = output_dir / f"simulation_placement_{placement_hash}_{unique_suffix}.json"
+            
+            # Write full result to disk (worker-side) to avoid memory accumulation in main process
+            with open(result_file, 'w') as f:
+                json.dump(result, f, cls=DataclassJSONEncoder)
+
+        # Return file path (None if not written), RTT, and placement plan
+        # RTT and placement_plan are always returned (needed for placements.jsonl)
+        return result_file, rtt_value, placement_plan
 
     except Exception as e:
         if not QUIET_MODE:
@@ -1682,7 +1821,10 @@ def execute_brute_force_optimized(
         workload_base_file: str,
         max_workers: int,
         infrastructure_file: Path,
-        quiet: bool = False
+        quiet: bool = False,
+        final_dataset_dir: Optional[Path] = None,
+        early_termination_rtt: Optional[float] = None,
+        early_termination_pct: Optional[float] = None
 ) -> List[str]:
     """
     Optimized brute force placement optimization.
@@ -1698,13 +1840,16 @@ def execute_brute_force_optimized(
         apps: List of application names
         config_file: Path to infrastructure configuration file
         mapping_file: Path to mapping file
-        output_dir: Output directory for results
+        output_dir: Output directory for results (temporary)
         sample: Single sample array (not array of samples)
         sim_input_path: Path to simulation input files
         workload_base_file: Path to workload base file
         max_workers: Maximum number of parallel workers
         infrastructure_file: Path to infrastructure.json (REQUIRED)
         quiet: If True, suppress per-placement logging
+        final_dataset_dir: If provided, write progress/metadata files here instead of output_dir
+        early_termination_rtt: If set, stop when RTT <= this value (saves time)
+        early_termination_pct: If set, stop after checking this % of placements (0.0-1.0)
     
     Returns:
         List of result file paths
@@ -1789,112 +1934,274 @@ def execute_brute_force_optimized(
     _log(f"Generated {num_placements} placement combinations")
     
     if not placement_combinations:
-        raise RuntimeError("No valid placement combinations found")
+        # Create empty placements.jsonl to indicate infeasible scenario
+        placements_file = output_dir / "placements.jsonl"
+        placements_file.touch()
+        _log("  No valid placement combinations - scenario is infeasible")
+        return []  # Return empty list instead of raising exception
     
     # Phase 3: Execute simulations in parallel with worker initializer
     _log(f"\n[Phase 3] Executing {num_placements} simulations with {max_workers} workers...")
     
     best_rtt = float('inf')
-    best_result_data = None
-    best_file = None
-    placement_summaries = []
+    best_file = None  # Path to best result (written by worker, loaded at end if needed)
     rtts = []
+    num_written = 0  # Track placements written to disk (streaming)
     
-    # Use worker initializer to share data once per worker (not per task!)
-    with concurrent.futures.ProcessPoolExecutor(
-        max_workers=max_workers,
-        initializer=_init_worker,
-        initargs=(
-            sim_inputs,
-            infra_config,
-            base_nodes,
-            flattened_workloads,
-            replica_plan,
-            apps,
-            infrastructure_file,
-            sample,
-            mapping,
-            output_dir,
-            quiet,
-        )
-    ) as executor:
-        # Submit all placement plans - only the small placement_plan dict is pickled per task
-        futures = {
-            executor.submit(process_placement_fast, plan): idx 
-            for idx, plan in enumerate(placement_combinations)
-        }
-        
-        completed = 0
-        for future in concurrent.futures.as_completed(futures):
-            completed += 1
-            placement_idx = futures[future]
+    # Create shared state for best RTT tracking across workers (for I/O optimization)
+    manager = multiprocessing.Manager()
+    best_rtt_value = manager.Value('d', float('inf'))  # 'd' = double (float)
+    best_rtt_lock = manager.Lock()
+    
+    # Open placements file for streaming writes (avoid memory accumulation)
+    placements_file = output_dir / "placements.jsonl"
+    placements_fh = open(placements_file, 'w')
+    elapsed_time = 0  # Initialize for finally block safety
+    
+    try:
+        # Use worker initializer to share data once per worker (not per task!)
+        with concurrent.futures.ProcessPoolExecutor(
+            max_workers=max_workers,
+            initializer=_init_worker,
+            initargs=(
+                sim_inputs,
+                infra_config,
+                base_nodes,
+                flattened_workloads,
+                replica_plan,
+                apps,
+                infrastructure_file,
+                sample,
+                mapping,
+                output_dir,
+                quiet,
+                best_rtt_value,
+                best_rtt_lock,
+            )
+        ) as executor:
+            # Submit all placement plans - only the small placement_plan dict is pickled per task
+            futures = {
+                executor.submit(process_placement_fast, plan): idx 
+                for idx, plan in enumerate(placement_combinations)
+            }
             
-            try:
-                result_file, cur_rtt, result_data = future.result()
+            completed = 0
+            timeout_per_placement = 2  # 2 seconds per placement (sims take ~10ms, 2s provides 200x safety margin)
+            timed_out_count = 0
+            
+            # Calculate update interval once
+            update_interval = max(1, min(1000, num_placements // 100))
+            progress_dir = final_dataset_dir if final_dataset_dir else output_dir
+            
+            for future in concurrent.futures.as_completed(futures):
+                completed += 1
+                placement_idx = futures[future]
                 
-                if result_file is None or result_data is None:
-                    continue
+                try:
+                    # Add timeout to prevent infinite hangs
+                    # Workers now return (result_file, rtt, placement_plan) - no large result dict
+                    # result_file may be None if worker didn't write (worse than best RTT)
+                    result_file, cur_rtt, placement_plan = future.result(timeout=timeout_per_placement)
+                    
+                    if placement_plan is None:
+                        # Error case: placement_plan is None (worker failed)
+                        # Still update progress even for None results
+                        if completed % update_interval == 0 and progress_dir:
+                            try:
+                                progress_file = progress_dir / "placement_progress.txt"
+                                elapsed = time.time() - time_started
+                                rate = completed / elapsed if elapsed > 0 else 0
+                                with open(progress_file, 'w') as pf:
+                                    pf.write(f"{completed}/{num_placements}\n")
+                                    pf.write(f"Rate: {rate:.1f} sim/s\n")
+                                    if best_rtt < float('inf'):
+                                        pf.write(f"Best RTT: {best_rtt:.3f}s\n")
+                            except Exception:
+                                pass
+                        continue
+                    
+                    rtts.append(cur_rtt)
+                    
+                    # Track best result file (only if worker wrote a file)
+                    # Note: result_file can be None if worker didn't write (worse RTT)
+                    if result_file is not None:
+                        # This is guaranteed to be better than previous best (worker checked)
+                        # Update our local tracking
+                        if cur_rtt < best_rtt:
+                            best_rtt = cur_rtt
+                            best_file = str(result_file)
+                            
+                            # Early termination: stop if we found a "good enough" RTT
+                            if early_termination_rtt is not None and best_rtt <= early_termination_rtt:
+                                if not quiet:
+                                    _log(f"  Early termination: Found RTT {best_rtt:.3f}s <= {early_termination_rtt:.3f}s", force=True)
+                                logger.info(f"Early termination triggered: RTT {best_rtt:.3f}s <= {early_termination_rtt:.3f}s")
+                                # Cancel remaining futures
+                                for remaining_future in futures:
+                                    if remaining_future != future:
+                                        remaining_future.cancel()
+                                break
+                    else:
+                        # Worker didn't write file (worse RTT than best)
+                        # Still update best_rtt if needed (worker may have updated shared value)
+                        if cur_rtt < best_rtt:
+                            best_rtt = cur_rtt
+                            # Also check shared value in case another worker updated it
+                            with best_rtt_lock:
+                                if best_rtt_value.value < best_rtt:
+                                    best_rtt = best_rtt_value.value
+                    
+                    # Stream write placement summary to disk (avoid memory accumulation)
+                    # Write to placements.jsonl regardless of whether file was written
+                    # This preserves all placement-RTT pairs for RTT hash table
+                    summary = {"placement_plan": placement_plan, "rtt": cur_rtt}
+                    placements_fh.write(json.dumps(summary, separators=(',', ':')) + '\n')
+                    num_written += 1
+                    
+                    # Flush periodically to ensure data is written
+                    if num_written % 1000 == 0:
+                        placements_fh.flush()
+                    
+                except concurrent.futures.TimeoutError:
+                    timed_out_count += 1
+                    future.cancel()  # Cancel the hung future (doesn't stop running processes but marks as cancelled)
+                    if not quiet:
+                        _log(f"  Placement {placement_idx} timed out after {timeout_per_placement}s - skipping")
+                    logger.warning(f"Placement {placement_idx} timed out after {timeout_per_placement}s")
+                    # Continue to progress update below
+                except Exception as e:
+                    if not quiet:
+                        _log(f"  Worker failed for placement {placement_idx}: {e}")
+                    logger.warning(f"Worker failed for placement {placement_idx}: {e}")
+                    # Continue to progress update below
                 
-                rtts.append(cur_rtt)
+                # Write placement progress (for ALL completions, including timeouts/errors)
+                if completed % update_interval == 0 and progress_dir:
+                    try:
+                        progress_file = progress_dir / "placement_progress.txt"
+                        elapsed = time.time() - time_started
+                        rate = completed / elapsed if elapsed > 0 else 0
+                        with open(progress_file, 'w') as pf:
+                            pf.write(f"{completed}/{num_placements}\n")
+                            pf.write(f"Rate: {rate:.1f} sim/s\n")
+                            if best_rtt < float('inf'):
+                                pf.write(f"Best RTT: {best_rtt:.3f}s\n")
+                            if timed_out_count > 0:
+                                pf.write(f"Timeouts: {timed_out_count}\n")
+                    except Exception:
+                        pass  # Don't fail on progress file write errors
                 
-                # Track best result
-                if cur_rtt < best_rtt:
-                    best_rtt = cur_rtt
-                    best_result_data = result_data
-                    best_file = str(result_file)
-                
-                # Keep placement summary
-                placement = result_data.get('sample', {}).get('placement_plan', {})
-                placement_summaries.append({
-                    "placement_plan": placement,
-                    "rtt": cur_rtt
-                })
+                # Early termination: stop after checking X% of placements
+                if early_termination_pct is not None and completed >= int(num_placements * early_termination_pct):
+                    if not quiet:
+                        _log(f"  Early termination: Checked {completed}/{num_placements} ({100*completed/num_placements:.1f}%) placements", force=True)
+                    logger.info(f"Early termination triggered: Checked {100*early_termination_pct:.1f}% of placements")
+                    # Cancel remaining futures
+                    for remaining_future in futures:
+                        if remaining_future != future:
+                            remaining_future.cancel()
+                    break
                 
                 # Progress update (every 10% or every 1000)
                 if not quiet and (completed % max(1, num_placements // 10) == 0 or completed % 1000 == 0):
                     elapsed = time.time() - time_started
                     rate = completed / elapsed if elapsed > 0 else 0
                     _log(f"  Progress: {completed}/{num_placements} ({100*completed/num_placements:.1f}%) - {rate:.1f} sim/s - best RTT: {best_rtt:.3f}s")
-                    
-            except Exception as e:
-                if not quiet:
-                    _log(f"  Worker failed for placement {placement_idx}: {e}")
+        
+        elapsed_time = time.time() - time_started
     
-    elapsed_time = time.time() - time_started
+    finally:
+        # Close the streaming placements file (ensure cleanup even on error)
+        placements_fh.close()
+        # Sync final best_rtt from shared value (in case workers updated it)
+        with best_rtt_lock:
+            if best_rtt_value.value < best_rtt:
+                best_rtt = best_rtt_value.value
+    
+    if timed_out_count > 0:
+        _log(f"\n[WARNING] {timed_out_count} placement(s) timed out and were skipped", force=True)
+        logger.warning(f"{timed_out_count} placement(s) timed out during execution")
     
     # Write results
     _log(f"\n[Phase 4] Writing results...")
     
-    # Write placement summaries (JSONL format)
-    if placement_summaries:
-        try:
-            placements_file = output_dir / "placements.jsonl"
-            with open(placements_file, 'w') as f:
-                for summary in placement_summaries:
-                    # Use stdlib json for placements to avoid orjson issues
-                    f.write(json.dumps(summary, separators=(',', ':')) + '\n')
-            _log(f"  Saved {len(placement_summaries)} placement summaries")
-        except Exception as e:
-            _log(f"  ERROR: Failed to write placements: {e}")
+    # Count how many result files were actually written (I/O optimization impact)
+    result_files_written = len(list(output_dir.glob("simulation_placement_*.json")))
+    if num_placements > 0:
+        io_reduction_pct = 100.0 * (1.0 - result_files_written / num_placements)
+        _log(f"  I/O Optimization: {result_files_written}/{num_placements} result files written ({io_reduction_pct:.1f}% reduction)")
     
-    # Write best result
+    # Placement summaries already written via streaming
+    if num_written > 0:
+        _log(f"  Saved {num_written} placement summaries (streamed)")
+    
+    # Find best result file (may need to search if best_file wasn't updated in main thread)
+    # Workers write files only when they're better than current best, so we need to find
+    # the file that corresponds to the final best_rtt
     result_paths = []
-    if best_result_data is not None:
+    
+    # If we have a best_file, use it (most common case)
+    if best_file is not None and Path(best_file).exists():
         optimal_file_path = output_dir / "simulation_1_optimal.json"
         try:
-            with open(optimal_file_path, 'w') as f:
-                # Use stdlib json with DataclassJSONEncoder for complex objects
-                json.dump(best_result_data, f, indent=2, cls=DataclassJSONEncoder)
-            best_file = str(optimal_file_path)
-            result_paths.append(best_file)
+            # Copy the best result file to the canonical optimal path
+            import shutil
+            shutil.copy2(best_file, optimal_file_path)
+            result_paths.append(str(optimal_file_path))
             
             # Write best.json sidecar
-            best_info = {"file": os.path.basename(best_file), "rtt": best_rtt}
+            best_info = {"file": os.path.basename(str(optimal_file_path)), "rtt": best_rtt}
             with open(output_dir / "best.json", 'w') as f:
                 f.write(json_dumps(best_info))
             _log(f"  Saved optimal result: RTT={best_rtt:.3f}s")
         except Exception as e:
-            _log(f"  ERROR: Failed to write optimal result: {e}")
+            _log(f"  ERROR: Failed to copy optimal result: {e}")
+    elif best_rtt < float('inf') and rtts:
+        # Fallback: search for file with matching RTT (shouldn't happen often)
+        # This handles edge case where best_file wasn't tracked in main thread
+        _log(f"  Searching for best result file (RTT={best_rtt:.3f}s)...")
+        # Search through result files to find one with matching RTT
+        for result_file in output_dir.glob("simulation_placement_*.json"):
+            try:
+                with open(result_file, 'r') as f:
+                    result_data = json.load(f)
+                stats = result_data.get('stats', {})
+                task_results = stats.get('taskResults', [])
+                file_rtt = sum(tr.get('elapsedTime', 0) for tr in task_results if tr.get('taskId') is not None and tr.get('taskId') >= 0)
+                if abs(file_rtt - best_rtt) < 0.001:  # Float comparison tolerance
+                    optimal_file_path = output_dir / "simulation_1_optimal.json"
+                    import shutil
+                    shutil.copy2(result_file, optimal_file_path)
+                    result_paths.append(str(optimal_file_path))
+                    best_info = {"file": os.path.basename(str(optimal_file_path)), "rtt": best_rtt}
+                    with open(output_dir / "best.json", 'w') as f:
+                        f.write(json_dumps(best_info))
+                    _log(f"  Saved optimal result: RTT={best_rtt:.3f}s")
+                    break
+            except Exception:
+                continue
+    
+    # Write final progress
+    progress_dir = final_dataset_dir if final_dataset_dir else output_dir
+    if progress_dir:
+        progress_file = progress_dir / "placement_progress.txt"
+        try:
+            with open(progress_file, 'w') as pf:
+                pf.write(f"{len(rtts)}/{num_placements}\n")
+                pf.write(f"Rate: {len(rtts)/elapsed_time:.1f} sim/s\n")
+                if rtts:
+                    pf.write(f"Best RTT: {best_rtt:.3f}s\n")
+                pf.write("Status: COMPLETE\n")
+        except Exception:
+            pass  # Don't fail on progress file write errors
+        
+        # Store num_placements in dataset directory for progress.txt logging
+        try:
+            metadata_file = progress_dir / "placement_metadata.json"
+            with open(metadata_file, 'w') as mf:
+                json.dump({"num_placements": num_placements, "completed": len(rtts)}, mf)
+        except Exception:
+            pass
     
     # Summary
     _log(f"\n=== Optimization Complete ===")

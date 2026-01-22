@@ -21,6 +21,8 @@ import argparse
 import json
 import os
 import random
+import signal
+import subprocess
 import sys
 import time
 from copy import deepcopy
@@ -63,25 +65,39 @@ except ImportError:
 from src.generate_infrastructure import generate_deterministic_infrastructure
 from src.executecosimulation import execute_brute_force_optimized, load_simulation_inputs
 
+# Timeout for brute-force simulation (1 hour per dataset)
+SIMULATION_TIMEOUT = 900  # seconds
+
 
 # =============================================================================
 # CONFIGURATION GRIDS
 # =============================================================================
 
 # Connection probabilities for network topology
-# NOTE: Start with higher connectivity (0.50+) for reliable placement generation
-# Low connectivity (< 0.40) often causes "no feasible placement" failures
+# NOTE: With cold start support, lower connectivity should work better now
+# since we use all infrastructure replicas instead of captured active ones
 CONNECTION_PROBABILITIES = [
-    0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90,
-    # Lower connectivity (more challenging, may have higher failure rate)
-    0.40, 0.45, 0.35, 0.30, 0.25, 0.20
+    # Standard range - balanced diversity
+    0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90,
+    # Lower connectivity (more challenging but valid scenarios)
+    0.25, 0.20
 ]
 
 # Replica configurations: (per_client, per_server, client_preinit_pct, server_preinit_pct)
-# NOTE: Configurations with 0% preinit cause "no active replicas" issues because
-# replicas are only created during task execution. Start with moderate preinit.
+# NOTE: Cold start (0% preinit) now supported - uses all infrastructure replicas directly
 REPLICA_CONFIGS = [
-    # Moderate preinit (50-70%) - most reliable
+    # Cold start scenarios (0% preinit - force autoscaling) - MOST REALISTIC
+    # Uses all replicas from infrastructure.json directly
+    (3, 3, 0.0, 0.0),
+    (2, 3, 0.0, 0.0),
+    (1, 3, 0.0, 0.0),
+    (2, 2, 0.0, 0.0),
+    (1, 2, 0.0, 0.0),
+    # Warm start scenarios (30-50% preinit)
+    (3, 3, 0.3, 0.5),
+    (2, 3, 0.4, 0.5),
+    (2, 1, 0.5, 0.4),
+    # Moderate preinit (50-70%)
     (2, 2, 0.5, 0.8),
     (3, 3, 0.5, 0.7),
     (2, 3, 0.6, 0.8),
@@ -94,15 +110,6 @@ REPLICA_CONFIGS = [
     (1, 2, 0.5, 0.9),
     (3, 1, 0.6, 0.8),
     (1, 1, 0.4, 0.8),
-    # Warm start scenarios (30-50% preinit)
-    (3, 3, 0.3, 0.5),
-    (2, 3, 0.4, 0.5),
-    (2, 1, 0.5, 0.4),
-    # Cold start scenarios (0% preinit) - DISABLED: causes no-replica issues
-    # These require dynamic autoscaling which doesn't work well with brute-force
-    # (3, 3, 0.0, 0.0),
-    # (2, 3, 0.0, 0.0),
-    # (1, 3, 0.0, 0.0),
 ]
 
 # Queue distribution configurations: (name, type, param1, param2, min, max, step)
@@ -334,7 +341,12 @@ def generate_single_dataset(
         results_dir.mkdir(parents=True, exist_ok=True)
         
         # Run optimized brute-force simulation
-        log(f"  Running brute-force optimization...", quiet)
+        # NOTE: No timeout wrapper here because execute_brute_force_optimized uses ProcessPoolExecutor internally.
+        # If it hangs, the process will need to be killed externally. The simulation itself should complete
+        # within reasonable time for most datasets. If it hangs, check for deadlocks in the simulation code.
+        log(f"  Running brute-force optimization (max {SIMULATION_TIMEOUT}s expected)...", quiet)
+        
+        sim_start = time.time()
         result_paths = execute_brute_force_optimized(
             apps=apps,
             config_file=str(config_path),
@@ -345,11 +357,19 @@ def generate_single_dataset(
             workload_base_file=str(traces_dir / "workload-10.json"),
             max_workers=max_workers,
             infrastructure_file=infra_file,
-            quiet=quiet
+            quiet=quiet,
+            final_dataset_dir=output_dir  # Write progress files to final dataset directory
         )
+        sim_duration = time.time() - sim_start
+        
+        # Warn if simulation took too long (but don't fail - it might be legitimate)
+        if sim_duration > SIMULATION_TIMEOUT:
+            log(f"  WARNING: Simulation took {sim_duration:.1f}s (exceeded {SIMULATION_TIMEOUT}s threshold)", quiet, force=True)
         
         # Check for results and copy to dataset directory
         best_json = results_dir / "best.json"
+        placements_file = results_dir / "placements.jsonl"
+        
         if best_json.exists():
             # Copy results to dataset directory
             with open(best_json, 'r') as f:
@@ -369,32 +389,54 @@ def generate_single_dataset(
                 shutil.copy2(optimal_src, output_dir / "optimal_result.json")
             
             # Copy placements
-            placements_src = results_dir / "placements.jsonl"
-            if placements_src.exists():
+            if placements_file.exists():
                 (output_dir / "placements").mkdir(exist_ok=True)
-                with open(placements_src, 'r') as f:
+                with open(placements_file, 'r') as f:
                     placements_content = f.read()
                 with open(output_dir / "placements" / "placements.jsonl", 'w') as f:
                     f.write(placements_content)
+            
+            # Copy placement metadata if it exists (will be written by execute_brute_force_optimized)
+            metadata_src = results_dir / "placement_metadata.json"
+            if metadata_src.exists():
+                import shutil
+                shutil.copy2(metadata_src, output_dir / "placement_metadata.json")
+            
+            # Copy placement progress if it exists
+            progress_src = results_dir / "placement_progress.txt"
+            if progress_src.exists():
+                import shutil
+                shutil.copy2(progress_src, output_dir / "placement_progress.txt")
             
             # Clean up results directory
             for f in results_dir.glob("simulation_*.json"):
                 f.unlink()
             if best_json.exists():
                 best_json.unlink()
-            if placements_src.exists():
-                placements_src.unlink()
+            if placements_file.exists():
+                placements_file.unlink()
+            if metadata_src.exists():
+                metadata_src.unlink()
+            if progress_src.exists():
+                progress_src.unlink()
             
             duration = time.time() - start_time
-            return True, optimal_rtt, duration
+            return 'success', optimal_rtt, duration
         else:
+            # No results - check if this was an infeasible scenario (placements.jsonl empty or missing)
             duration = time.time() - start_time
-            return False, float('inf'), duration
+            if placements_file.exists() and placements_file.stat().st_size == 0:
+                # Empty placements file = infeasible scenario, skip gracefully
+                placements_file.unlink()
+                return 'skipped', float('inf'), duration
+            else:
+                # Some other issue
+                return 'failed', float('inf'), duration
             
     except Exception as e:
         duration = time.time() - start_time
         log(f"  ERROR: {e}", quiet, force=True)
-        return False, float('inf'), duration
+        return 'failed', float('inf'), duration
 
 
 def main():
@@ -411,10 +453,13 @@ def main():
                         help='Number of parallel workers (default: CPU count - 1)')
     parser.add_argument('--resume', action='store_true',
                         help='Skip datasets that already exist')
+    parser.add_argument('--start-from', type=int, default=0,
+                        help='Start from dataset index (e.g., 118 to start from ds_00118)')
     args = parser.parse_args()
     
     quiet = args.quiet
-    max_datasets = args.max_datasets
+    # max_datasets is relative to start_from (e.g., --start-from 132 --max-datasets 1 means generate ds_00132 only)
+    max_datasets = args.start_from + args.max_datasets
     cpu_count = os.cpu_count()
     max_workers = args.workers or (cpu_count - 1 if cpu_count and cpu_count > 1 else 1)
     
@@ -434,7 +479,7 @@ def main():
     (PROJECT_ROOT / "logs").mkdir(parents=True, exist_ok=True)
     
     log(f"=== Optimized GNN Dataset Generation ===", quiet)
-    log(f"Max datasets: {max_datasets}", quiet)
+    log(f"Max datasets: {args.max_datasets} (up to ds_{max_datasets-1:05d})", quiet)
     log(f"Workers: {max_workers}", quiet)
     log(f"Using orjson: {HAS_ORJSON}", quiet)
     log(f"Quiet mode: {quiet}", quiet)
@@ -456,10 +501,13 @@ def main():
     # Generate datasets
     log(f"\n=== Starting Dataset Generation ===", quiet)
     
-    dataset_idx = 0
+    dataset_idx = args.start_from
+    if dataset_idx > 0:
+        log(f"Starting from dataset index: {dataset_idx} (ds_{dataset_idx:05d})", quiet)
     template_idx = 0
     total_time = 0
     successful = 0
+    skipped = 0
     failed = 0
     
     total_combinations = (
@@ -472,10 +520,20 @@ def main():
     
     start_time = time.time()
     
+    # Calculate starting positions for nested loops
+    start_from = args.start_from
+    current_idx = 0
+    
     for conn_prob in CONNECTION_PROBABILITIES:
         for replica_cfg in REPLICA_CONFIGS:
             for seed in SEEDS:
                 for queue_dist in QUEUE_DISTRIBUTIONS:
+                    # Skip until we reach the starting index
+                    if current_idx < start_from:
+                        current_idx += 1
+                        template_idx = (template_idx + 1) % NUM_WORKLOAD_TEMPLATES
+                        continue
+                    
                     if dataset_idx >= max_datasets:
                         break
                     
@@ -486,6 +544,7 @@ def main():
                     if args.resume and (output_dir / "best.json").exists():
                         log(f"[{dataset_id}] Skipping (already exists)", quiet)
                         dataset_idx += 1
+                        current_idx += 1
                         template_idx = (template_idx + 1) % NUM_WORKLOAD_TEMPLATES
                         continue
                     
@@ -504,7 +563,7 @@ def main():
                         f"cpct={client_pct} spct={server_pct} q={qname}", quiet)
                     
                     # Generate dataset
-                    success, rtt, duration = generate_single_dataset(
+                    status, rtt, duration = generate_single_dataset(
                         dataset_id=dataset_id,
                         output_dir=output_dir,
                         config=config,
@@ -519,20 +578,40 @@ def main():
                     
                     total_time += duration
                     
-                    if success:
+                    # Read placement count from metadata file if it exists
+                    placement_count_str = ""
+                    metadata_file = output_dir / "placement_metadata.json"
+                    if metadata_file.exists():
+                        try:
+                            with open(metadata_file, 'r') as mf:
+                                metadata = json.load(mf)
+                                num_placements = metadata.get('num_placements', 0)
+                                if num_placements > 0:
+                                    placement_count_str = f" placements: {num_placements}"
+                        except Exception:
+                            pass
+                    
+                    if status == 'success':
                         successful += 1
                         log(f"  SUCCESS: RTT={rtt:.3f}s ({duration:.1f}s)", quiet)
                         with open(progress_log, 'a') as f:
                             f.write(f"{dataset_id} SUCCESS {datetime.now().isoformat()} "
-                                   f"{duration:.1f}s RTT={rtt:.3f}s q={qname}\n")
+                                   f"{duration:.1f}s RTT={rtt:.3f}s q={qname}{placement_count_str}\n")
+                    elif status == 'skipped':
+                        skipped += 1
+                        log(f"  SKIPPED: infeasible configuration ({duration:.1f}s)", quiet)
+                        with open(progress_log, 'a') as f:
+                            f.write(f"{dataset_id} SKIPPED {datetime.now().isoformat()} "
+                                   f"{duration:.1f}s (infeasible) q={qname}{placement_count_str}\n")
                     else:
                         failed += 1
                         log(f"  FAILED ({duration:.1f}s)", quiet)
                         with open(progress_log, 'a') as f:
                             f.write(f"{dataset_id} FAILED {datetime.now().isoformat()} "
-                                   f"{duration:.1f}s\n")
+                                   f"{duration:.1f}s{placement_count_str}\n")
                     
                     dataset_idx += 1
+                    current_idx += 1
                     template_idx = (template_idx + 1) % NUM_WORKLOAD_TEMPLATES
                     
                     # Progress update
@@ -554,9 +633,12 @@ def main():
     total_elapsed = time.time() - start_time
     
     log(f"\n=== Generation Complete ===", quiet, force=True)
-    log(f"Total datasets: {dataset_idx}", quiet, force=True)
+    log(f"Total attempted: {dataset_idx}", quiet, force=True)
     log(f"Successful: {successful}", quiet, force=True)
+    log(f"Skipped (infeasible): {skipped}", quiet, force=True)
     log(f"Failed: {failed}", quiet, force=True)
+    if successful > 0:
+        log(f"Success rate: {100*successful/(successful+failed+skipped):.1f}%", quiet, force=True)
     log(f"Total time: {total_elapsed:.1f}s ({total_elapsed/60:.1f} min)", quiet, force=True)
     log(f"Average time per dataset: {total_elapsed/max(1, dataset_idx):.1f}s", quiet, force=True)
     log(f"Output directory: {output_base}", quiet, force=True)

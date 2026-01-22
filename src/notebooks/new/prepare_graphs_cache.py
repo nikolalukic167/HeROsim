@@ -31,7 +31,7 @@ torch.manual_seed(42)
 # ============================================================================
 # Configuration
 # ============================================================================
-BASE_DIR = Path("/root/projects/my-herosim/simulation_data/artifacts/run2000/gnn_datasets")
+BASE_DIR = Path("/root/projects/my-herosim/simulation_data/artifacts/run300/gnn_datasets")
 CACHE_DIR = BASE_DIR.parent / "graphs_cache_with_queues"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -47,7 +47,7 @@ METADATA_CACHE_PATH = CACHE_DIR / "metadata.json"
 QUEUE_NORM_FACTOR = 10.0
 
 # Version for cache invalidation (increment when graph construction logic changes)
-CACHE_VERSION = "2.0"  # Bumped for queue features
+CACHE_VERSION = "3.1"  # Removed QoS features (qos_deviation, deadline) since co-simulation doesn't capture QoS violations as ground truth
 
 # ============================================================================
 # DATA LOADING (same as main script)
@@ -179,35 +179,88 @@ def extract_dataset_to_dataframes(optimal_result_path: Path) -> Dict[str, pd.Dat
     }
 
 
-def load_queue_snapshot(dataset_dir: Path) -> Dict[str, int]:
+def load_extended_state_data(dataset_dir: Path) -> Dict[str, Any]:
     """
-    Load full_queue_snapshot from system_state_captured_unique.json.
-    Returns: Dict mapping "node_name:platform_id" -> queue_length
+    Load extended state data from system_state_captured_unique.json and workload.json.
+    For run300 datasets, also tries to load from infrastructure.json queue_distributions.
+    Returns dict with:
+    - queue_snapshot: Dict mapping "node_name:platform_id" -> queue_length
+    - temporal_state: Dict mapping "node_name:platform_id" -> {current_task_remaining, cold_start_remaining, comm_remaining}
+    - platform_current_tasks: Dict mapping "node_name:platform_id" -> task_type (if has current task)
+    Note: QoS data removed since co-simulation doesn't capture QoS violations as ground truth.
+    """
+    result = {
+        'queue_snapshot': {},
+        'temporal_state': {},
+        'platform_current_tasks': {}
+    }
     
-    We use the first task's full_queue_snapshot since all tasks in a batch
-    see the same queue state at scheduling time.
-    """
+    # Load queue snapshot from system_state_captured_unique.json (if available)
     ssc_path = dataset_dir / "system_state_captured_unique.json"
-    if not ssc_path.exists():
-        return {}
+    if ssc_path.exists():
+        try:
+            with open(ssc_path, 'r') as f:
+                data = json.load(f)
+            
+            task_placements = data.get('task_placements', [])
+            if task_placements:
+                # Use first task's full_queue_snapshot (same for all tasks in batch)
+                full_queue_snapshot = task_placements[0].get('full_queue_snapshot', {})
+                result['queue_snapshot'] = {k: int(v) for k, v in full_queue_snapshot.items()}
+                
+                # Extract temporal state from task placements
+                # Each task has temporal_state_at_scheduling for its valid replica platforms
+                # Merge across all tasks to get complete platform coverage
+                merged_temporal_state = {}
+                for tp in task_placements:
+                    temp_state = tp.get('temporal_state_at_scheduling', {})
+                    if isinstance(temp_state, dict):
+                        # Merge temporal state (later tasks may overwrite earlier ones for same platform)
+                        # This is fine since all tasks in batch see same snapshot, just filtered differently
+                        for platform_key, state_dict in temp_state.items():
+                            if isinstance(state_dict, dict):
+                                # Convert values to float (they should already be floats in JSON)
+                                merged_temporal_state[platform_key] = {
+                                    'current_task_remaining': float(state_dict.get('current_task_remaining', 0.0)),
+                                    'cold_start_remaining': float(state_dict.get('cold_start_remaining', 0.0)),
+                                    'comm_remaining': float(state_dict.get('comm_remaining', 0.0))
+                                }
+                
+                if merged_temporal_state:
+                    result['temporal_state'] = merged_temporal_state
+        except Exception as e:
+            print(f"[WARN] Failed to load extended state from {ssc_path}: {e}")
     
-    try:
-        with open(ssc_path, 'r') as f:
-            data = json.load(f)
-        
-        task_placements = data.get('task_placements', [])
-        if not task_placements:
-            return {}
-        
-        # Use first task's full_queue_snapshot (same for all tasks in batch)
-        full_queue_snapshot = task_placements[0].get('full_queue_snapshot', {})
-        
-        # Convert to int values (they should already be int, but ensure consistency)
-        return {k: int(v) for k, v in full_queue_snapshot.items()}
+    # Fallback: Load queue data from infrastructure.json (run300 format)
+    if not result['queue_snapshot']:
+        infra_path = dataset_dir / "infrastructure.json"
+        if infra_path.exists():
+            try:
+                with open(infra_path, 'r') as f:
+                    infra_data = json.load(f)
+                
+                # Load queue_distributions: task_type -> { "node_name:platform_id": queue_length }
+                queue_distributions = infra_data.get('queue_distributions', {})
+                
+                # Merge queue distributions across all task types into single queue_snapshot
+                # If same platform appears in multiple task types, take the maximum queue length
+                merged_queues = {}
+                for task_type, queues in queue_distributions.items():
+                    for key, queue_length in queues.items():
+                        # key is "node_name:platform_id"
+                        if key not in merged_queues:
+                            merged_queues[key] = int(queue_length)
+                        else:
+                            # Take maximum if platform appears for multiple task types
+                            merged_queues[key] = max(merged_queues[key], int(queue_length))
+                
+                result['queue_snapshot'] = merged_queues
+            except Exception as e:
+                print(f"[WARN] Failed to load queue data from {infra_path}: {e}")
     
-    except Exception as e:
-        print(f"[WARN] Failed to load queue snapshot from {ssc_path}: {e}")
-        return {}
+    # Note: QoS data loading removed since co-simulation doesn't capture QoS violations as ground truth
+    
+    return result
 
 
 def load_all_datasets(base_dir: Path, require_queue_data: bool = True) -> Dict[str, Dict[str, pd.DataFrame]]:
@@ -231,11 +284,11 @@ def load_all_datasets(base_dir: Path, require_queue_data: bool = True) -> Dict[s
         if not optimal_result_path.exists():
             continue
         
-        # Load queue snapshot
-        queue_snapshot = load_queue_snapshot(dataset_dir)
+        # Load extended state data (queue, temporal, QoS)
+        extended_state = load_extended_state_data(dataset_dir)
         
         # Skip if queue data is required but not available
-        if require_queue_data and not queue_snapshot:
+        if require_queue_data and not extended_state.get('queue_snapshot'):
             skipped_no_queue += 1
             continue
         
@@ -244,7 +297,9 @@ def load_all_datasets(base_dir: Path, require_queue_data: bool = True) -> Dict[s
             all_datasets[dataset_dir.name] = {
                 **dataframes,
                 'dataset_dir': dataset_dir,
-                'queue_snapshot': queue_snapshot  # Add queue data
+                'queue_snapshot': extended_state.get('queue_snapshot', {}),
+                'temporal_state': extended_state.get('temporal_state', {}),
+                'platform_current_tasks': extended_state.get('platform_current_tasks', {})
             }
         except Exception as e:
             tqdm.write(f"  Error loading {dataset_dir.name}: {e}")
@@ -263,13 +318,13 @@ def load_all_datasets(base_dir: Path, require_queue_data: bool = True) -> Dict[s
 def _parse_jsonl_file_to_dict(jsonl_path: Path) -> Dict[Tuple[str, Tuple[Tuple[int, int], ...]], float]:
     """Parse a single JSONL file and return dict of (dataset_id, combo) -> rtt."""
     results = {}
-        try:
-            dataset_id = jsonl_path.parent.parent.name
-            with open(jsonl_path, 'r') as f:
-                for line in f:
+    try:
+        dataset_id = jsonl_path.parent.parent.name
+        with open(jsonl_path, 'r') as f:
+            for line in f:
                 line = line.strip()
                 if not line:
-                        continue
+                    continue
                 
                 try:
                     data = json.loads(line)
@@ -295,16 +350,16 @@ def _parse_jsonl_file_to_dict(jsonl_path: Path) -> Dict[Tuple[str, Tuple[Tuple[i
                         
                 except (json.JSONDecodeError, ValueError, KeyError, IndexError):
                     continue
-        except Exception:
-            pass
+    except Exception:
+        pass
     
-        return results
+    return results
     
 
 def build_and_save_rtt_hash_table_chunked(
     base_dir: Path, 
     cache_dir: Path,
-    n_jobs: int = 8,
+    n_jobs: int = 12,
     chunk_size: int = 5_000_000
 ) -> int:
     """
@@ -425,7 +480,13 @@ TASK_PLATFORM_COMPATIBILITY = {
     'dnn2': ['rpiCpu', 'xavierGpu', 'xavierCpu']
 }
 
-def build_graph(df_nodes, df_tasks, df_platforms, queue_snapshot: Optional[Dict[str, int]] = None) -> Data:
+def build_graph(
+    df_nodes, 
+    df_tasks, 
+    df_platforms, 
+    queue_snapshot: Optional[Dict[str, int]] = None,
+    temporal_state: Optional[Dict[str, Dict[str, float]]] = None
+) -> Data:
     """
     Build a bipartite graph with tasks and platforms as nodes.
     
@@ -434,6 +495,7 @@ def build_graph(df_nodes, df_tasks, df_platforms, queue_snapshot: Optional[Dict[
         df_tasks: DataFrame with task information
         df_platforms: DataFrame with platform information
         queue_snapshot: Dict mapping "node_name:platform_id" -> queue_length (from full_queue_snapshot)
+        temporal_state: Dict mapping "node_name:platform_id" -> {current_task_remaining, ...}
     """
     
     # Load priors (task-types) used for edge features
@@ -473,7 +535,8 @@ def build_graph(df_nodes, df_tasks, df_platforms, queue_snapshot: Optional[Dict[
     plat_node_by_pos = df_platforms['node_name'].to_numpy()
     plat_ids_arr = df_platforms['platform_id'].to_numpy()
     
-    # TASK FEATURES
+    # TASK FEATURES (3 dims: 2 type + 1 source)
+    # Note: QoS features removed since co-simulation doesn't capture QoS violations as ground truth
     task_types_vocab = np.array(['dnn1', 'dnn2'])
     task_type_arr = df_tasks['task_type'].to_numpy()
     task_onehot = (task_type_arr[:, None] == task_types_vocab[None, :]).astype(float)
@@ -486,7 +549,7 @@ def build_graph(df_nodes, df_tasks, df_platforms, queue_snapshot: Optional[Dict[
     task_features = np.concatenate([task_onehot, src_norm], axis=1)
     task_features_tensor = torch.from_numpy(task_features).to(torch.float32)
     
-    # PLATFORM FEATURES (now 8 dims: 5 type + 2 replica + 1 queue)
+    # PLATFORM FEATURES (now 15 dims: 5 type + 2 replica + 1 queue + 3 temporal + 2 consolidation + 2 target_concurrency)
     platform_types_vocab = np.array(['rpiCpu','xavierCpu','xavierGpu','xavierDla','pynqFpga'])
     plat_type_arr = df_platforms['platform_type'].to_numpy()
     plat_onehot = (plat_type_arr[:, None] == platform_types_vocab[None, :]).astype(float)
@@ -509,8 +572,113 @@ def build_graph(df_nodes, df_tasks, df_platforms, queue_snapshot: Optional[Dict[
     # Normalize queue lengths
     queue_lengths_norm = (queue_lengths / QUEUE_NORM_FACTOR).reshape(-1, 1)
     
-    # Concatenate all platform features: [type_onehot(5), has_dnn1(1), has_dnn2(1), queue_length(1)]
-    platform_features = np.concatenate([plat_onehot, has_dnn1, has_dnn2, queue_lengths_norm], axis=1)
+    # TEMPORAL STATE FEATURES (current task remaining times)
+    # Since we don't have exact temporal state, we approximate:
+    # - If queue > 0: platform is busy, estimate remaining time
+    # - Otherwise: platform is idle
+    current_task_remaining = np.zeros(n_platforms, dtype=np.float64)
+    cold_start_remaining = np.zeros(n_platforms, dtype=np.float64)
+    comm_remaining = np.zeros(n_platforms, dtype=np.float64)
+    
+    if temporal_state:
+        for pos in range(n_platforms):
+            node_name = str(plat_node_by_pos[pos])
+            plat_id = int(plat_ids_arr[pos])
+            key = f"{node_name}:{plat_id}"
+            temp_state = temporal_state.get(key, {})
+            current_task_remaining[pos] = temp_state.get('current_task_remaining', 0.0)
+            cold_start_remaining[pos] = temp_state.get('cold_start_remaining', 0.0)
+            comm_remaining[pos] = temp_state.get('comm_remaining', 0.0)
+    else:
+        # Approximate: if queue > 0, estimate some remaining time
+        for pos in range(n_platforms):
+            if queue_lengths[pos] > 0:
+                # Estimate: average execution time for platform type
+                plat_type = str(plat_types_by_pos[pos])
+                # Get average exec time across task types for this platform
+                avg_exec = 0.0
+                count = 0
+                for task_type in task_types_vocab:
+                    task_priors = _CACHED_TASK_PRIORS.get(str(task_type), {})
+                    exec_map = task_priors.get("executionTime", {})
+                    if isinstance(exec_map, dict):
+                        exec_time = exec_map.get(plat_type, 0.0)
+                        if exec_time > 0:
+                            avg_exec += exec_time
+                            count += 1
+                if count > 0:
+                    current_task_remaining[pos] = avg_exec / count
+                    # Cold start typically much shorter than execution for warm platforms
+                    cold_start_remaining[pos] = current_task_remaining[pos] * 0.1
+                    comm_remaining[pos] = current_task_remaining[pos] * 0.05
+    
+    # Normalize temporal features (assume max ~10s)
+    current_task_remaining_norm = (current_task_remaining / 10.0).reshape(-1, 1)
+    cold_start_remaining_norm = (cold_start_remaining / 10.0).reshape(-1, 1)
+    comm_remaining_norm = (comm_remaining / 10.0).reshape(-1, 1)
+    
+    # CONSOLIDATION METRICS (target concurrency and usage ratio)
+    # Calculate target concurrency per platform (similar to HRC logic)
+    # Baseline: fastest platform for each task type
+    target_concurrencies = np.zeros(n_platforms, dtype=np.float64)
+    usage_ratios = np.zeros(n_platforms, dtype=np.float64)
+    
+    # For each platform, calculate target concurrency based on task types it supports
+    for pos in range(n_platforms):
+        plat_type = str(plat_types_by_pos[pos])
+        # Find which task types can run on this platform
+        supported_task_types = []
+        for task_type in task_types_vocab:
+            task_priors = _CACHED_TASK_PRIORS.get(str(task_type), {})
+            platforms = task_priors.get("platforms", [])
+            if plat_type in platforms:
+                supported_task_types.append(str(task_type))
+        
+        # Calculate target concurrency: average of baseline concurrency for supported task types
+        # HRC uses baseline platform (fastest) as reference
+        baseline_concurrency = 5.0  # Default target (can be tuned)
+        if supported_task_types:
+            # Find fastest platform for each supported task type
+            min_exec_times = []
+            for task_type in supported_task_types:
+                task_priors = _CACHED_TASK_PRIORS.get(task_type, {})
+                exec_map = task_priors.get("executionTime", {})
+                if isinstance(exec_map, dict) and exec_map:
+                    min_exec = min(exec_map.values())
+                    min_exec_times.append(min_exec)
+            
+            if min_exec_times:
+                # Target concurrency inversely related to execution time
+                avg_min_exec = np.mean(min_exec_times)
+                exec_map_this = _CACHED_TASK_PRIORS.get(supported_task_types[0], {}).get("executionTime", {})
+                this_exec = exec_map_this.get(plat_type, avg_min_exec) if isinstance(exec_map_this, dict) else avg_min_exec
+                if this_exec > 0:
+                    target_concurrencies[pos] = baseline_concurrency * (avg_min_exec / this_exec)
+                else:
+                    target_concurrencies[pos] = baseline_concurrency
+            else:
+                target_concurrencies[pos] = baseline_concurrency
+        else:
+            target_concurrencies[pos] = baseline_concurrency
+        
+        # Usage ratio: queue_length / target_concurrency
+        if target_concurrencies[pos] > 0:
+            usage_ratios[pos] = queue_lengths[pos] / target_concurrencies[pos]
+        else:
+            usage_ratios[pos] = 0.0
+    
+    # Normalize consolidation metrics
+    target_concurrency_norm = (target_concurrencies / 20.0).reshape(-1, 1)  # Assume max ~20
+    usage_ratio_norm = (usage_ratios / 5.0).reshape(-1, 1)  # Assume max usage ratio ~5
+    
+    # Concatenate all platform features
+    platform_features = np.concatenate([
+        plat_onehot,  # 5 dims
+        has_dnn1, has_dnn2,  # 2 dims
+        queue_lengths_norm,  # 1 dim
+        current_task_remaining_norm, cold_start_remaining_norm, comm_remaining_norm,  # 3 dims
+        target_concurrency_norm, usage_ratio_norm  # 2 dims
+    ], axis=1)
     platform_features_tensor = torch.from_numpy(platform_features).to(torch.float32)
     
     # Cache feasible platforms per source node
@@ -597,6 +765,8 @@ def build_graph(df_nodes, df_tasks, df_platforms, queue_snapshot: Optional[Dict[
                 task_logit_to_placement[t_pos].append((node_id, plat_id))
                 
                 exec_time = float(exec_map.get(plat_type, 0.0)) if isinstance(exec_map, dict) else 0.0
+                
+                # Network latency
                 lat_entry = src_nm.get(plat_node_name, {}) if isinstance(src_nm, dict) else {}
                 if isinstance(lat_entry, dict):
                     latency = float(lat_entry.get('latency', 0.0))
@@ -605,13 +775,41 @@ def build_graph(df_nodes, df_tasks, df_platforms, queue_snapshot: Optional[Dict[
                         latency = float(lat_entry)
                     except Exception:
                         latency = 0.0
+                
+                # Warm replica flag
                 if task_type == 'dnn1':
                     is_warm = float(has_dnn1_arr[plat_pos])
                 elif task_type == 'dnn2':
                     is_warm = float(has_dnn2_arr[plat_pos])
                 else:
                     is_warm = 0.0
-                edge_attrs.append([exec_time, latency, is_warm])
+                
+                # Energy consumption (from task-types.json)
+                energy = 0.0
+                energy_map = task_priors.get("energy", {})
+                if isinstance(energy_map, dict):
+                    energy = float(energy_map.get(plat_type, 0.0))
+                
+                # Communication time (storage read + write)
+                # Estimate from state sizes and typical storage throughput
+                comm_time = 0.0
+                state_size_map = task_priors.get("stateSize", {})
+                if isinstance(state_size_map, dict):
+                    # Use first application type's state size (approximation)
+                    app_state = list(state_size_map.values())[0] if state_size_map else {}
+                    if isinstance(app_state, dict):
+                        input_size = app_state.get("input", 0)  # bytes
+                        output_size = app_state.get("output", 0)  # bytes
+                        # Typical storage: 100 MB/s throughput, 1ms latency
+                        storage_throughput = 100.0 * 1024 * 1024  # bytes/s
+                        storage_latency = 0.001  # seconds
+                        read_time = (input_size / storage_throughput) + storage_latency
+                        write_time = (output_size / storage_throughput) + storage_latency
+                        comm_time = read_time + write_time
+                
+                # Edge attributes: [exec_time, latency, is_warm, energy, comm_time] (5 dims)
+                # Note: penalty_score removed since co-simulation doesn't capture QoS violations as ground truth
+                edge_attrs.append([exec_time, latency, is_warm, energy, comm_time])
             
             opt_pos = plat_pos_by_id.get(opt_pid, None)
             if opt_pos is None:
@@ -628,14 +826,15 @@ def build_graph(df_nodes, df_tasks, df_platforms, queue_snapshot: Optional[Dict[
     # Stack edges
     if edge_src:
         edge_index = torch.tensor([edge_src, edge_dst], dtype=torch.long)
-        edge_attr_tensor = torch.tensor(edge_attrs, dtype=torch.float32) if edge_attrs else torch.empty((0, 3), dtype=torch.float32)
+        edge_attr_tensor = torch.tensor(edge_attrs, dtype=torch.float32) if edge_attrs else torch.empty((0, 5), dtype=torch.float32)
         num_nodes = n_tasks + n_platforms
         edge_index = to_undirected(edge_index, num_nodes=num_nodes)
         if edge_attr_tensor.numel() > 0:
-            edge_attr_tensor = torch.cat([edge_attr_tensor, torch.zeros_like(edge_attr_tensor)], dim=0)
+            # For undirected edges, duplicate edge attributes
+            edge_attr_tensor = torch.cat([edge_attr_tensor, edge_attr_tensor.clone()], dim=0)
     else:
         edge_index = torch.empty((2, 0), dtype=torch.long)
-        edge_attr_tensor = torch.empty((0, 3), dtype=torch.float32)
+        edge_attr_tensor = torch.empty((0, 5), dtype=torch.float32)
     
     y = torch.tensor(y_list, dtype=torch.long)
     
@@ -703,7 +902,7 @@ def main():
     # Build RTT hash table (parallel + chunked saving)
     print("\nStep 3: Building and saving RTT hash table in chunks...")
     step3_start = time.perf_counter()
-    num_rtt_entries = build_and_save_rtt_hash_table_chunked(BASE_DIR, CACHE_DIR, n_jobs=8)
+    num_rtt_entries = build_and_save_rtt_hash_table_chunked(BASE_DIR, CACHE_DIR, n_jobs=12)
     step3_time = time.perf_counter() - step3_start
     
     # Build graphs
@@ -718,7 +917,8 @@ def main():
                 dataset_dict['nodes'],
                 dataset_dict['tasks'],
                 dataset_dict['platforms'],
-                queue_snapshot=dataset_dict.get('queue_snapshot', {})  # Pass queue data
+                queue_snapshot=dataset_dict.get('queue_snapshot', {}),
+                temporal_state=dataset_dict.get('temporal_state', {})
             )
             graph.dataset_id = dataset_id
             graphs.append(graph)

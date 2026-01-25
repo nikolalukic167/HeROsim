@@ -49,6 +49,7 @@ class KnativeAutoscaler(Autoscaler):
 
 
     def scaling_level(self, system_state: KnativeSystemState, task_type: TaskType):
+        """Calculate scaling level - matches knative_network autoscaler."""
         # Scheduling functions called in a Simpy Process must be Generators
         # No-op as per https://stackoverflow.com/a/68628599/9568489
         if False:
@@ -65,64 +66,27 @@ class KnativeAutoscaler(Autoscaler):
             task_type["name"]
         ]
 
-        """
-        target_concurrencies: PlatformVector = {
-            platform: self.policy.queue_length if platform == baseline_platform else 0
-            for platform in self.data.platform_types
-        }
-        """
-
-        platform_count = len(
-            [
-                platform
-                for platform in self.data.platform_types.values()
-                # if platform["hardware"] == "cpu"
-            ]
-        )
+        replica_count = len(function_replicas)
 
         # Per-function concurrency level
-        # Knative only allocates CPUs (baseline platform)
-        in_system_concurrencies: PlatformVector = {
-            platform_type["shortName"]: (
-                0.0
-                if not function_concurrencies
-                else sum(function_concurrencies) / platform_count
-                # if platform_type["hardware"] == "cpu"
-                # else 0.0
-            )
-            for platform_type in self.data.platform_types.values()
-        }
-        #
-        replica_count = len(function_replicas)
-        # if task_type['name'] == 'rf' and replica_count < 1:
-        #     return {"any": 50}
-        # elif task_type['name'] == 'rf' and replica_count > 1:
-        #     return {"any": 0}
+        # Use TOTAL concurrency across all replicas (not average per replica)
+        # This matches Knative's autoscaling formula:
+        #   desired_replicas = ceil(total_concurrency / target_concurrency_per_replica)
+        total_concurrency: float = sum(function_concurrencies) if function_concurrencies else 0.0
 
         # Result > 0 means scaling up
         # Result < 0 means scaling down
         # Result == 0 means current scaling level is adequate
+        # Formula: desired = ceil(total / target), scaling_diff = desired - current
         concurrency_results: PlatformVector = {
             platform_type["shortName"]: (
                 math.ceil(
-                    in_system_concurrencies[platform_type["shortName"]]
-                    / target_concurrencies[platform_type["shortName"]]
+                    total_concurrency / target_concurrencies[platform_type["shortName"]]
                 )
                 - replica_count
-                # if platform_type["hardware"] == "cpu"
-                # else 0
             )
             for platform_type in self.data.platform_types.values()
         }
-
-        """
-        logging.error(f"[ {self.env.now} ] ===")
-        logging.error(f"[ {self.env.now} ] {task_type['name']} {in_system_concurrencies}")
-        logging.error(f"[ {self.env.now} ] {task_type['name']} {function_replicas}")
-        logging.error(f"[ {self.env.now} ] {task_type['name']} {target_concurrencies}")
-        logging.error(f"[ {self.env.now} ] {task_type['name']} {concurrency_results}")
-        logging.error(f"[ {self.env.now} ] ===")
-        """
 
         return concurrency_results
 

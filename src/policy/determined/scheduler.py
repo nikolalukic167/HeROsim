@@ -33,9 +33,7 @@ class DeterminedScheduler(Scheduler):
         logger.info("DeterminedScheduler: Starting initialization")
         super().__init__(*args, **kwargs)
         # Default batch size (can be overridden by orchestrator via infrastructure config)
-        self.batch_size = 5  # Default: process 5 tasks at once
-        self.batch_timeout = 0.1  # Default: wait up to 0.1 seconds to fill batch
-        logger.info(f"DeterminedScheduler: Initialized with default batch_size={self.batch_size}, batch_timeout={self.batch_timeout}")
+        self.batch_size = 3  # Default: process 2 tasks at once
 
     def scheduler_process(self) -> Generator:
         # keep this for the simpy generator 

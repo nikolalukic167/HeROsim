@@ -835,6 +835,12 @@ def capture_system_state_from_first_task(
     }
     logger.info("Set scheduler batch_size=1 for state capture simulation")
     
+    # Preserve fast-forward warmup flag from infra_config
+    if 'fast_forward_warmup' in infra_config:
+        sim_config['fast_forward_warmup'] = infra_config['fast_forward_warmup']
+        sim_config['fast_forward_threshold'] = infra_config.get('fast_forward_threshold', 100)
+        logger.info(f"Fast-forward warmup: enabled (threshold={sim_config['fast_forward_threshold']})")
+    
     # Verify replica_plan is present (required for warmup tasks)
     if not sim_config.get('replica_plan'):
         logger.warning("WARNING: No replica_plan in sim_config - replicas may not be pre-created!")
@@ -970,7 +976,8 @@ def generate_brute_force_placement_combinations(
         sim_inputs: Dict[str, Any],
         replica_plan: Dict[str, Any],
         active_replicas: Optional[Dict[str, List[Tuple[str, int]]]] = None,
-        use_all_replicas: bool = False
+        use_all_replicas: bool = False,
+        allow_non_unique_replicas: bool = False
 ) -> List[Dict[int, Tuple[int, int]]]:
     """
     Generate all possible placement combinations for tasks.
@@ -1384,22 +1391,30 @@ def generate_brute_force_placement_combinations(
     else:
         logger.info(f"✓ {unique_replicas_count} unique replicas available for {len(tasks)} tasks (sufficient for uniqueness constraint)")
     
-    # Generate all combinations ensuring each task has a unique replica
-    logger.info("Generating placement combinations with unique replica constraint...")
+    # Generate all combinations (unique or non-unique replicas)
+    mode_label = "non-unique" if allow_non_unique_replicas else "unique"
+    logger.info(f"Generating placement combinations with {mode_label} replica constraint...")
     # Allow skipping datasets with too many combinations (configurable via environment or config)
     skip_threshold = int(os.environ.get('MAX_PLACEMENT_COMBINATIONS_SKIP', '0'))  # 0 = never skip
-    combinations = generate_all_combinations_with_unique_replicas(
-        tasks, 
-        max_combinations_warning=100000,
-        skip_if_exceeds=skip_threshold if skip_threshold > 0 else None
-    )
+    if allow_non_unique_replicas:
+        combinations = generate_all_combinations_cartesian(
+            tasks,
+            max_combinations_warning=100000,
+            skip_if_exceeds=skip_threshold if skip_threshold > 0 else None
+        )
+    else:
+        combinations = generate_all_combinations_with_unique_replicas(
+            tasks,
+            max_combinations_warning=100000,
+            skip_if_exceeds=skip_threshold if skip_threshold > 0 else None
+        )
     
     if not combinations:
         logger.warning("No placement combinations generated (dataset skipped due to size)")
         print("⚠️  Dataset skipped: too many placement combinations")
     
-    logger.info(f"Generated {len(combinations)} valid placement combinations (all tasks have unique replicas)")
-    print(f"Generated {len(combinations)} valid placement combinations (all tasks have unique replicas)")
+    logger.info(f"Generated {len(combinations)} valid placement combinations ({mode_label} replicas)")
+    print(f"Generated {len(combinations)} valid placement combinations ({mode_label} replicas)")
     return combinations
 
 
@@ -1518,6 +1533,74 @@ def generate_all_combinations_with_unique_replicas(
     generate_recursive(0, {}, used_replicas)
     
     print(f"Valid combinations after uniqueness constraint: {len(combinations)}")
+    return combinations
+
+
+def generate_all_combinations_cartesian(
+    tasks: List[Dict],
+    max_combinations_warning: int = 100000,
+    skip_if_exceeds: Optional[int] = None
+) -> List[Dict[int, Tuple[int, int]]]:
+    """
+    Generate all possible placement combinations for tasks without uniqueness constraint.
+    Each task can use any feasible replica (replicas may be reused across tasks).
+    """
+    if not tasks:
+        return [{}]
+    
+    total_possible = 1
+    for task in tasks:
+        total_possible *= len(task['feasible_platforms'])
+    
+    print(f"Total possible combinations (no uniqueness constraint): {total_possible}")
+    
+    if skip_if_exceeds is not None and total_possible > skip_if_exceeds:
+        print(f"⚠️  SKIPPING DATASET: Combinations ({total_possible:,}) exceed threshold ({skip_if_exceeds:,})")
+        print(f"   This dataset would take too long to process. Consider:")
+        print(f"   - Reducing number of tasks")
+        print(f"   - Reducing feasible platforms per task")
+        print(f"   - Increasing skip_if_exceeds threshold")
+        return []
+    
+    if total_possible > max_combinations_warning:
+        print(f"⚠️  WARNING: Large search space detected ({total_possible:,} combinations)")
+        print(f"   This dataset may take a long time to process.")
+        print(f"   Estimated time: ~{total_possible / 100:.0f} seconds at 100 sim/s")
+    
+    combinations = []
+    
+    def generate_recursive(task_index: int, current_placement: Dict[int, Tuple[int, int]]) -> None:
+        if task_index >= len(tasks):
+            if len(current_placement) != len(tasks):
+                return
+            
+            for task_id, (node_id, platform_id) in current_placement.items():
+                if not isinstance(node_id, int) or not isinstance(platform_id, int):
+                    return
+                if node_id < 0 or platform_id < 0:
+                    return
+            
+            combinations.append(current_placement.copy())
+            return
+        
+        task = tasks[task_index]
+        if not task['feasible_platforms']:
+            return
+        
+        for platform_info in task['feasible_platforms']:
+            node_id = platform_info.get('node_id')
+            platform_id = platform_info.get('platform_id')
+            if node_id is None or platform_id is None:
+                continue
+            if not isinstance(node_id, int) or not isinstance(platform_id, int):
+                continue
+            
+            current_placement[task['task_id']] = (node_id, platform_id)
+            generate_recursive(task_index + 1, current_placement)
+            del current_placement[task['task_id']]
+    
+    generate_recursive(0, {})
+    print(f"Valid combinations without uniqueness constraint: {len(combinations)}")
     return combinations
 
 
@@ -1728,6 +1811,11 @@ def process_placement_fast(placement_plan: Dict[int, Tuple[int, int]]) -> Tuple[
             base_nodes=base_nodes,
             infrastructure_file=infrastructure_file,
         )
+        
+        # Preserve fast-forward warmup flag from infra_config
+        if 'fast_forward_warmup' in infra_config:
+            sim_config['fast_forward_warmup'] = infra_config['fast_forward_warmup']
+            sim_config['fast_forward_threshold'] = infra_config.get('fast_forward_threshold', 100)
 
         # Combine infrastructure and workload configurations
         full_config = {
@@ -1824,7 +1912,10 @@ def execute_brute_force_optimized(
         quiet: bool = False,
         final_dataset_dir: Optional[Path] = None,
         early_termination_rtt: Optional[float] = None,
-        early_termination_pct: Optional[float] = None
+        early_termination_pct: Optional[float] = None,
+        fast_forward_warmup: bool = False,
+        fast_forward_threshold: int = 100,
+        allow_non_unique_replicas: bool = False
 ) -> List[str]:
     """
     Optimized brute force placement optimization.
@@ -1850,6 +1941,7 @@ def execute_brute_force_optimized(
         final_dataset_dir: If provided, write progress/metadata files here instead of output_dir
         early_termination_rtt: If set, stop when RTT <= this value (saves time)
         early_termination_pct: If set, stop after checking this % of placements (0.0-1.0)
+        allow_non_unique_replicas: If True, allow multiple tasks to use same replica
     
     Returns:
         List of result file paths
@@ -1887,6 +1979,10 @@ def execute_brute_force_optimized(
     flattened_workloads = flatten_workloads(workloads)
     _log(f"Prepared {len(flattened_workloads['events'])} workload events")
     
+    # Add fast-forward warmup flag to infrastructure config (will be passed to workers)
+    infra_config['fast_forward_warmup'] = fast_forward_warmup
+    infra_config['fast_forward_threshold'] = fast_forward_threshold
+    
     # Prepare infrastructure configuration
     sim_config = prepare_simulation_config(sample, mapping, infra_config, infrastructure_file=infrastructure_file)
     
@@ -1919,6 +2015,52 @@ def execute_brute_force_optimized(
         raise RuntimeError("System state capture FAILED. Cannot proceed with brute-force optimization.")
     
     _log("✓ System state captured successfully")
+
+    # Persist phase-1 metadata to dataset directory (queue + temporal snapshots)
+    capture_output_dir = final_dataset_dir or output_dir
+    try:
+        capture_sim_path = output_dir / "first_task_state_capture_simulation.json"
+        if capture_sim_path.exists():
+            with open(capture_sim_path, 'r') as f:
+                capture_result = json.load(f)
+            stats = capture_result.get('stats', {})
+            system_state_results = stats.get('systemStateResults', [])
+            task_results = stats.get('taskResults', [])
+            if system_state_results:
+                final_state = system_state_results[-1]
+                task_placements = []
+                for tr in task_results:
+                    if tr.get('taskId') is not None and tr.get('taskId') >= 0:
+                        task_placements.append({
+                            "task_id": tr.get('taskId'),
+                            "task_type": tr.get('taskType', {}).get('name', 'unknown'),
+                            "source_node": tr.get('sourceNode'),
+                            "execution_node": tr.get('executionNode'),
+                            "execution_platform": tr.get('executionPlatform'),
+                            "elapsed_time": tr.get('elapsedTime'),
+                            "queue_time": tr.get('queueTime'),
+                            "queue_snapshot_at_scheduling": tr.get('queueSnapshotAtScheduling', {}),
+                            "full_queue_snapshot": tr.get('fullQueueSnapshot', {}),
+                            "temporal_state_at_scheduling": tr.get('temporalStateAtScheduling', {}),
+                        })
+                captured_state = {
+                    "timestamp": final_state.get('timestamp', 0),
+                    "replicas": final_state.get('replicas', {}),
+                    "available_resources": final_state.get('available_resources', {}),
+                    "scheduler_state": final_state.get('scheduler_state', {}),
+                    "task_placements": task_placements,
+                    "total_rtt": sum(
+                        tr.get('elapsedTime', 0)
+                        for tr in task_results
+                        if tr.get('taskId') is not None and tr.get('taskId') >= 0
+                    ),
+                }
+                output_file = capture_output_dir / "system_state_captured_unique.json"
+                with open(output_file, 'w') as f:
+                    json.dump(captured_state, f, indent=2, cls=DataclassJSONEncoder)
+                _log(f"✓ Saved {output_file} (phase 1 metadata)")
+    except Exception as e:
+        _log(f"⚠️  Failed to save phase 1 metadata: {e}", force=True)
     
     # Phase 2: Generate placement combinations
     _log("\n[Phase 2] Generating placement combinations...")
@@ -1927,7 +2069,8 @@ def execute_brute_force_optimized(
         sim_config,
         sim_inputs,
         replica_plan,
-        active_replicas=active_replicas
+        active_replicas=active_replicas,
+        allow_non_unique_replicas=allow_non_unique_replicas
     )
     
     num_placements = len(placement_combinations)

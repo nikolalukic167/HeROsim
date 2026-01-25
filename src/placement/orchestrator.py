@@ -530,6 +530,9 @@ class Orchestrator:
 
             # Timeout until event timestamp
             time_until_next_event = workload_event["timestamp"] - self.env.now
+            # fix: ? (for non-unique placements metadata generation)
+            if time_until_next_event < 0:
+                time_until_next_event = 0
             yield self.env.timeout(time_until_next_event)
 
             # Create the application according to the event properties

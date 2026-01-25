@@ -31,83 +31,35 @@ from src.placement.scheduler import Scheduler
 
 
 class HRCScheduler(Scheduler):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.batch_size = 5  # Batch size for efficient processing
-        self.batch_timeout = 0.1  # Timeout for collecting batch
-
     def scheduler_process(self):
-        """Override to check for valid network-connected replicas with batching."""
+        """
+        Process tasks ONE BY ONE (like original herocache).
+        Removed batching to avoid mutex bottleneck.
+        """
         logging.info(
             f"[ {self.env.now} ] HRC Network Scheduler started with policy"
-            f" {self.policy} (batch_size={self.batch_size})"
+            f" {self.policy}"
         )
 
         while True:
-            batch_tasks = yield self.env.process(self._collect_task_batch())
-            
-            if not batch_tasks:
-                yield self.env.timeout(0.1)
-                continue
+            # Get task with satisfied dependencies (same as base scheduler)
+            task: Task = yield self.tasks.get(
+                lambda queued_task: all(
+                    dependency.finished for dependency in queued_task.dependencies
+                )
+            )
 
-            print(f"[ {self.env.now} ] HRC Network: Processing batch of {len(batch_tasks)} tasks")
-            yield self.env.process(self._process_task_batch(batch_tasks))
+            logging.info(f"[ {self.env.now} ] Scheduler woken up")
 
-    def _collect_task_batch(self) -> Generator[Any, Any, List[Task]]:
-        """
-        Collect tasks into a batch with timeout to avoid blocking.
-        
-        Uses polling-based approach to avoid dangling get events that can
-        cause tasks to be silently consumed.
-        """
-        batch: List[Task] = []
-        
-        def task_filter(queued_task):
-            return all(dependency.finished for dependency in queued_task.dependencies)
-        
-        # First task: wait indefinitely (blocking is expected)
-        task: Task = yield self.tasks.get(task_filter)
-        batch.append(task)
-        
-        # Set deadline for collecting rest of batch
-        batch_deadline = self.env.now + self.batch_timeout
-        
-        # Collect remaining tasks using polling (avoids dangling get events)
-        while len(batch) < self.batch_size:
-            remaining_time = batch_deadline - self.env.now
-            if remaining_time <= 0:
-                break
-            
-            # Check if there are any ready tasks in the queue
-            ready_tasks = [t for t in self.tasks.items if task_filter(t)]
-            
-            if ready_tasks:
-                # Get the first ready task immediately
-                task = yield self.tasks.get(task_filter)
-                batch.append(task)
-            else:
-                # No ready tasks - wait a small step and check again
-                step_time = min(0.01, remaining_time)
-                yield self.env.timeout(step_time)
-        
-        return batch
-
-    def _process_task_batch(self, batch_tasks: List[Task]) -> Generator:
-        """Process a batch of tasks."""
-        system_state: Optional[SystemState] = yield self.mutex.get()
-        if system_state is None:
-            logging.error(f"[ {self.env.now} ] HRC Network: Failed to get system state")
-            yield self.mutex.put(None)
-            return
-        hrc_system_state: HRCSystemState = system_state  # type: ignore
-        
-        for task in batch_tasks:
+            # Get available replicas
+            system_state: SystemState = yield self.mutex.get()
+            hrc_system_state: HRCSystemState = system_state  # type: ignore
             replicas: Set[Tuple[Node, Platform]] = hrc_system_state.replicas[task.type["name"]]
 
             # Filter replicas based on network connectivity
             valid_replicas = self._get_valid_replicas(replicas, task)
 
-            # If no valid replicas (either no replicas or none are network-reachable), request autoscaling
+            # If no valid replicas, request autoscaling
             if not valid_replicas:
                 logging.warning(
                     f"[ {self.env.now} ] HRC Network Scheduler did not find network-accessible replica for"
@@ -119,39 +71,39 @@ class HRCScheduler(Scheduler):
                 yield self.tasks.put(task)
 
                 # Request a new replica from the Autoscaler
-                # Note: HRC autoscaler doesn't support source_node_name yet, but we can add it later
                 stop = yield self.env.process(
                     self.autoscaler.create_first_replica(system_state, task.type)
                 )
 
-                # Continue to next task in batch
+                # Next event
+                self.env.step()
+
+                # Release mutex
+                yield self.mutex.put(system_state)
+
+                # Next step
                 continue
 
-            # Use parent's placement method which will call our placement() method
+            # Measure wall-clock time for the scheduling decision
             from timeit import default_timer
             start = default_timer()
 
             # Schedule tasks according to policy
-            placement_result: Tuple[Node, Platform] = yield self.env.process(
+            (sched_node, sched_platform) = yield self.env.process(
                 self.placement(system_state, task)
             )
-            sched_node, sched_platform = placement_result
 
             # Update node
-            node: Optional[Node] = yield self.nodes.get(lambda node: node.id == sched_node.id)
-            if node is None:
-                logging.error(f"[ {self.env.now} ] HRC Network: Failed to get node {sched_node.id}")
-                continue
+            node: Node = yield self.nodes.get(lambda node: node.id == sched_node.id)
             task.node = node
             node.unused = False
             # Update platform
-            platform: Optional[Platform] = yield node.platforms.get(
+            platform: Platform = yield node.platforms.get(
                 lambda platform: platform.id == sched_platform.id
             )
-            if platform is None:
-                logging.error(f"[ {self.env.now} ] HRC Network: Failed to get platform {sched_platform.id}")
-                continue
             task.platform = platform
+            # Update state - release mutex IMMEDIATELY after placement
+            yield self.mutex.put(system_state)
 
             # End wall-clock time measurement
             end = default_timer()
@@ -164,9 +116,6 @@ class HRCScheduler(Scheduler):
 
             yield node.platforms.put(platform)
             yield self.nodes.put(node)
-        
-        # Release mutex after processing all tasks in batch
-        yield self.mutex.put(system_state)
 
     def placement(self, system_state: SystemState, task: Task) -> Generator[Any, Any, Tuple[Node, Platform]]:  # type: ignore[override]
         # Scheduling functions called in a Simpy Process must be Generators

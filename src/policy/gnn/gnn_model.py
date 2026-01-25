@@ -85,7 +85,7 @@ class TaskPlacementGNN(nn.Module):
             out_channels=embedding_dim
         )
         self.post_gin_dropout = nn.Dropout(p=0.2)
-        self.edge_scorer = EdgeScorer(embedding_dim, hidden_dim, edge_dim=3)
+        self.edge_scorer = EdgeScorer(embedding_dim, hidden_dim, edge_dim=5)
 
     def forward(self, data):
         n_tasks = data.n_tasks

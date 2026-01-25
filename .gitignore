@@ -197,6 +197,7 @@ simulation_data/gnn_datasets/
 simulation_data/initial_results_simple/
 simulation_data/artifacts/
 simulation_data/results/
+simulation_data/ff_tests/
 simulation_data/archive_results/
 simulation_data/gnn_datasets_analysis/
 simulation_data/gnn_datasets_analysis_results/

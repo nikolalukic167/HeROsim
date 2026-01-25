@@ -113,6 +113,7 @@ REPLICA_CONFIGS = [
 ]
 
 # Queue distribution configurations: (name, type, param1, param2, min, max, step)
+# IMPROVED: Added more high-queue scenarios to match real simulation (mean 51.35, max 2944)
 QUEUE_DISTRIBUTIONS = [
     # Zero queues (cold start - most realistic)
     ("zero", "constant", 0, 0, 0, 0, 0),
@@ -124,9 +125,14 @@ QUEUE_DISTRIBUTIONS = [
     ("pois8", "poisson", 8, 0, 0, 20, 1),
     ("norm8", "normal", 8, 3, 0, 20, 1),
     ("norm12", "normal", 12, 4, 0, 24, 1),
-    # Larger queues (hot start - less common)
+    # Larger queues (hot start - matches real sim better)
     ("pois12", "poisson", 12, 0, 0, 24, 1),
     ("norm16", "normal", 16, 5, 0, 32, 1),
+    # NEW: High-queue scenarios to match real simulation queue buildup
+    ("pois20", "poisson", 20, 0, 0, 50, 1),
+    ("norm25", "normal", 25, 8, 0, 60, 1),
+    ("pois30", "poisson", 30, 0, 0, 80, 1),
+    ("norm40", "normal", 40, 12, 0, 100, 1),
 ]
 
 # Seeds for deterministic generation
@@ -134,14 +140,20 @@ SEEDS = [101]
 
 # Task type ratios: (dnn1%, dnn2%)
 TASK_TYPE_RATIOS = [
-    (0, 100), (10, 90), (20, 80), (30, 70), (40, 60),
-    (50, 50), (60, 40), (70, 30), (80, 20), (90, 10), (100, 0)
+    (0, 100), (50, 50), (100, 0)
 ]
 
-# Workload parameters
-NUM_TASKS = 5
+# Workload parameters (can be overridden via --num-tasks)
+NUM_TASKS = 3
 NUM_CLIENT_NODES = 10
 NUM_WORKLOAD_TEMPLATES = 10
+
+# IMPROVEMENTS BASED ON ANALYSIS:
+# 1. Increase workload duration to accumulate queues (real sim has mean 51.35 vs training 1.51)
+# 2. Focus on cold start (0% preinit) - already prioritized
+# 3. Add more high-queue scenarios
+# 4. Match batch_size to num_tasks for determined scheduler
+WORKLOAD_DURATION = 30  # Increased from 10 to accumulate queues (matches real sim better)
 
 
 def log(msg: str, quiet: bool = False, force: bool = False):
@@ -180,10 +192,10 @@ def generate_workload_templates(
         # Random client node assignments
         client_nodes = [random.randint(0, NUM_CLIENT_NODES - 1) for _ in range(NUM_TASKS)]
         
-        # Create workload
+        # Create workload with improved duration for queue accumulation
         workload = {
             'rps': base_workload.get('rps', 10),
-            'duration': base_workload.get('duration', 10),
+            'duration': WORKLOAD_DURATION,  # Increased to accumulate queues
             'events': []
         }
         
@@ -217,12 +229,14 @@ def create_config_for_iteration(
     connection_prob: float,
     replica_cfg: Tuple[int, int, float, float],
     seed: int,
-    queue_dist: Tuple[str, str, int, int, int, int, int]
+    queue_dist: Tuple[str, str, int, int, int, int, int],
+    batch_size: int = 3
 ) -> Dict[str, Any]:
     """
     Create a modified config for a specific iteration.
     
-    This replaces the jq-based config modification in the bash script.
+    Args:
+        batch_size: Batch size for determined scheduler (should match num_tasks)
     """
     config = deepcopy(base_config)
     
@@ -275,6 +289,13 @@ def create_config_for_iteration(
         }
     }
     
+    # Set scheduler batch_size to match num_tasks (for determined scheduler)
+    # This ensures scheduler processes tasks in batches matching the workload
+    if 'scheduler' not in config:
+        config['scheduler'] = {}
+    config['scheduler']['batch_size'] = batch_size
+    config['scheduler']['batch_timeout'] = 0.1
+    
     return config
 
 
@@ -288,7 +309,10 @@ def generate_single_dataset(
     mapping_file: Path,
     seed: int,
     max_workers: int,
-    quiet: bool = False
+    quiet: bool = False,
+    fast_forward_warmup: bool = False,
+    fast_forward_threshold: int = 1,
+    allow_non_unique_replicas: bool = False
 ) -> Tuple[bool, float, float]:
     """
     Generate a single GNN dataset.
@@ -358,7 +382,10 @@ def generate_single_dataset(
             max_workers=max_workers,
             infrastructure_file=infra_file,
             quiet=quiet,
-            final_dataset_dir=output_dir  # Write progress files to final dataset directory
+            final_dataset_dir=output_dir,  # Write progress files to final dataset directory
+            fast_forward_warmup=fast_forward_warmup,
+            fast_forward_threshold=fast_forward_threshold,
+            allow_non_unique_replicas=allow_non_unique_replicas
         )
         sim_duration = time.time() - sim_start
         
@@ -455,32 +482,47 @@ def main():
                         help='Skip datasets that already exist')
     parser.add_argument('--start-from', type=int, default=0,
                         help='Start from dataset index (e.g., 118 to start from ds_00118)')
+    parser.add_argument('--fast-forward-warmup', action='store_true',
+                        help='Enable fast-forward warmup for queues > 1 task')
+    parser.add_argument('--fast-forward-threshold', type=int, default=1,
+                        help='Threshold for fast-forward warmup (default: 1)')
+    parser.add_argument('--allow-non-unique-replicas', action='store_true',
+                        help='Allow multiple tasks to share the same replica')
+    parser.add_argument('--num-tasks', type=int, choices=[2, 3], default=3,
+                        help='Number of tasks per workload (2 or 3). Sets batch_size accordingly.')
     args = parser.parse_args()
     
     quiet = args.quiet
-    # max_datasets is relative to start_from (e.g., --start-from 132 --max-datasets 1 means generate ds_00132 only)
+    # max_datasets is relative to start_from (e.g., --start-from xyz --max-datasets 1 means generate ds_xyz only)
     max_datasets = args.start_from + args.max_datasets
     cpu_count = os.cpu_count()
     max_workers = args.workers or (cpu_count - 1 if cpu_count and cpu_count > 1 else 1)
     
+    # Set NUM_TASKS based on argument
+    global NUM_TASKS
+    NUM_TASKS = args.num_tasks
+    batch_size = NUM_TASKS  # Match batch_size to num_tasks
+    
     # Paths
     base_dir = PROJECT_ROOT / "simulation_data"
     config_path = base_dir / "space_with_network.json"
-    output_base = base_dir / "gnn_datasets"
+    output_base = base_dir / f"gnn_datasets_{NUM_TASKS}tasks"
     sim_input_path = PROJECT_ROOT / "data" / "nofs-ids"
     samples_file = base_dir / "lhs_samples_simple.npy"
     mapping_file = base_dir / "lhs_samples_simple_mapping.pkl"
     workload_base_file = sim_input_path / "traces" / "workload-10.json"
     workload_templates_dir = sim_input_path / "traces" / "gnn_templates"
-    progress_log = PROJECT_ROOT / "logs" / "progress.txt"
+    progress_log = PROJECT_ROOT / "logs" / f"progress_{NUM_TASKS}tasks.txt"
     
     # Create directories
     output_base.mkdir(parents=True, exist_ok=True)
     (PROJECT_ROOT / "logs").mkdir(parents=True, exist_ok=True)
     
     log(f"=== Optimized GNN Dataset Generation ===", quiet)
+    log(f"Num tasks: {NUM_TASKS} (batch_size={batch_size})", quiet)
     log(f"Max datasets: {args.max_datasets} (up to ds_{max_datasets-1:05d})", quiet)
     log(f"Workers: {max_workers}", quiet)
+    log(f"Workload duration: {WORKLOAD_DURATION}s (increased for queue accumulation)", quiet)
     log(f"Using orjson: {HAS_ORJSON}", quiet)
     log(f"Quiet mode: {quiet}", quiet)
     
@@ -551,9 +593,9 @@ def main():
                     # Get workload template
                     template = templates[template_idx]
                     
-                    # Create config for this iteration
+                    # Create config for this iteration (with batch_size matching num_tasks)
                     config = create_config_for_iteration(
-                        base_config, conn_prob, replica_cfg, seed, queue_dist
+                        base_config, conn_prob, replica_cfg, seed, queue_dist, batch_size=batch_size
                     )
                     
                     qname = queue_dist[0]
@@ -573,7 +615,10 @@ def main():
                         mapping_file=mapping_file,
                         seed=seed,
                         max_workers=max_workers,
-                        quiet=quiet
+                        quiet=quiet,
+                        fast_forward_warmup=args.fast_forward_warmup,
+                        fast_forward_threshold=args.fast_forward_threshold,
+                        allow_non_unique_replicas=args.allow_non_unique_replicas
                     )
                     
                     total_time += duration

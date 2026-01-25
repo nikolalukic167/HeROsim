@@ -209,7 +209,8 @@ def execute_simulation(
 def run_knative_baseline_for_dataset(
         dataset_dir: Path,
         sim_input_path: Path,
-        logger: logging.Logger
+        logger: logging.Logger,
+        num_tasks: Optional[int] = None
 ) -> bool:
     """
     Run knative_network scheduler on a single dataset and save system state.
@@ -316,6 +317,8 @@ def run_knative_baseline_for_dataset(
                 if tr.get('taskId') is not None and tr.get('taskId') >= 0
             ),
         }
+        if num_tasks is not None:
+            captured_state["num_tasks"] = int(num_tasks)
 
         # Save to dataset directory (unique placements version)
         output_file = dataset_dir / "system_state_captured_unique.json"
@@ -339,8 +342,8 @@ def main():
     Main entry point for knative baseline co-simulation.
     
     Usage:
-        python -m src.executeknativecosim --dataset-dir <path_to_ds_directory>
-        python -m src.executeknativecosim --datasets-base <path_to_gnn_datasets>
+        python -m src.executeknativecosim --dataset-dir <path_to_ds_directory> [--num-tasks N]
+        python -m src.executeknativecosim --datasets-base <path_to_gnn_datasets> [--num-tasks N]
     """
     # Configuration
     sim_input_path = Path("data/nofs-ids")
@@ -348,6 +351,7 @@ def main():
     # Parse arguments
     dataset_dir = None
     datasets_base = None
+    num_tasks = None
 
     if '--dataset-dir' in sys.argv:
         idx = sys.argv.index('--dataset-dir')
@@ -358,6 +362,14 @@ def main():
         idx = sys.argv.index('--datasets-base')
         if idx + 1 < len(sys.argv):
             datasets_base = Path(sys.argv[idx + 1])
+    
+    if '--num-tasks' in sys.argv:
+        idx = sys.argv.index('--num-tasks')
+        if idx + 1 < len(sys.argv):
+            try:
+                num_tasks = int(sys.argv[idx + 1])
+            except ValueError:
+                num_tasks = None
 
     # Setup logging
     logger = setup_logging(Path("."))
@@ -368,7 +380,9 @@ def main():
             print(f"ERROR: Dataset directory not found: {dataset_dir}")
             sys.exit(1)
 
-        success = run_knative_baseline_for_dataset(dataset_dir, sim_input_path, logger)
+        success = run_knative_baseline_for_dataset(
+            dataset_dir, sim_input_path, logger, num_tasks=num_tasks
+        )
         sys.exit(0 if success else 1)
 
     elif datasets_base:
@@ -394,7 +408,9 @@ def main():
 
         for ds_dir in ds_dirs:
             print(f"\n[{ds_dir.name}]")
-            if run_knative_baseline_for_dataset(ds_dir, sim_input_path, logger):
+            if run_knative_baseline_for_dataset(
+                ds_dir, sim_input_path, logger, num_tasks=num_tasks
+            ):
                 success_count += 1
             else:
                 skip_count += 1
@@ -405,8 +421,8 @@ def main():
 
     else:
         print("Usage:")
-        print("  python -m src.executeknativecosim --dataset-dir <path_to_ds_directory>")
-        print("  python -m src.executeknativecosim --datasets-base <path_to_gnn_datasets>")
+        print("  python -m src.executeknativecosim --dataset-dir <path_to_ds_directory> [--num-tasks N]")
+        print("  python -m src.executeknativecosim --datasets-base <path_to_gnn_datasets> [--num-tasks N]")
         sys.exit(1)
 
 

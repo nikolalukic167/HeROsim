@@ -91,10 +91,16 @@ class Application:
         # Penalty is True if application finished later than worst case response time
         # Application response time is the sum of the response time of its tasks
         # Values are weighted by QoS maximum allowed deviation
-        tasks_wcet: float = sum(
-            max(task.type["executionTime"].values()) * self.qos["maxDurationDeviation"]
-            for task in self.tasks
-        )
+        # Handle case where qos might be a string (QoS type name) instead of dict
+        if isinstance(self.qos, str):
+            # If qos is a string, we can't calculate WCET properly - skip penalty calculation
+            # This can happen for warmup tasks or improperly initialized applications
+            tasks_wcet: float = float('inf')
+        else:
+            tasks_wcet: float = sum(
+                max(task.type["executionTime"].values()) * self.qos["maxDurationDeviation"]
+                for task in self.tasks
+            )
 
         self.penalty = self.elapsed_time > tasks_wcet
             
@@ -567,6 +573,9 @@ class Platform:
         self.node = node
 
         self.env = env
+        # Check if fast-forward warmup is enabled (from environment or infrastructure config)
+        self.fast_forward_warmup = getattr(env, 'fast_forward_warmup', False)
+        self.fast_forward_threshold = getattr(env, 'fast_forward_threshold', 100)
         self.run = env.process(self.platform_process())
 
         self.queue = Store(env)
@@ -609,31 +618,224 @@ class Platform:
             "storageTime": self.storage_time,
         }
 
+    def _calculate_single_warmup_time(self, task: Task) -> Dict[str, float]:
+        """
+        Calculate execution time components for a single warmup task.
+        
+        Returns dict with: execution, cold_start, comm, network
+        """
+        # Check if warm (same task type as previous)
+        warm_function = (
+            self.previous_task is not None
+            and self.previous_task.type["name"] == task.type["name"]
+        )
+        
+        # Cold start duration
+        cold_start = (
+            task.type["coldStartDuration"][self.type["shortName"]]
+            if not warm_function
+            else 0.0
+        )
+        
+        # Execution time
+        execution = task.type["executionTime"][self.type["shortName"]]
+        
+        # Network latency (if remote)
+        network = 0.0
+        if task.node_name != self.node.node_name and task.node and task.node.network_map:
+            if task.node_name in self.node.network_map:
+                network = self.node.network_map[task.node_name]
+        
+        # Communication time (I/O) - approximate using state size
+        # Use average I/O time based on task type
+        app_name = task.application.type["name"]
+        input_size = task.type["stateSize"].get(app_name, {}).get("input", 0)
+        output_size = task.type["stateSize"].get(app_name, {}).get("output", 0)
+        
+        # Get storage throughput (assume local storage for warmup)
+        storage_throughput = 100.0 * 1024 * 1024  # bytes/s
+        storage_latency = 0.001  # seconds
+        read_time = (input_size / storage_throughput) + storage_latency if input_size > 0 else 0.0
+        write_time = (output_size / storage_throughput) + storage_latency if output_size > 0 else 0.0
+        comm = read_time + write_time
+        
+        return {
+            'execution': execution,
+            'cold_start': cold_start,
+            'comm': comm,
+            'network': network
+        }
+    
+    def _calculate_warmup_total_time(self, warmup_tasks: List[Task]) -> float:
+        """
+        Calculate total execution time for a batch of warmup tasks.
+        
+        Tasks execute sequentially, so we sum their times.
+        First task may have cold start, subsequent tasks of same type are warm.
+        """
+        if not warmup_tasks:
+            return 0.0
+        
+        total_time = 0.0
+        previous_task_type = None
+        
+        for task in warmup_tasks:
+            # Check if warm (same type as previous task)
+            warm_function = (
+                previous_task_type is not None
+                and previous_task_type == task.type["name"]
+            )
+            
+            # Cold start (only for first task or when task type changes)
+            cold_start = (
+                task.type["coldStartDuration"][self.type["shortName"]]
+                if not warm_function
+                else 0.0
+            )
+            
+            # Execution time
+            execution = task.type["executionTime"][self.type["shortName"]]
+            
+            # Network latency (if remote)
+            network = 0.0
+            if task.node_name != self.node.node_name and task.node and task.node.network_map:
+                if task.node_name in self.node.network_map:
+                    network = self.node.network_map[task.node_name]
+            
+            # Communication time (I/O)
+            app_name = task.application.type["name"]
+            input_size = task.type["stateSize"].get(app_name, {}).get("input", 0)
+            output_size = task.type["stateSize"].get(app_name, {}).get("output", 0)
+            
+            storage_throughput = 100.0 * 1024 * 1024  # bytes/s
+            storage_latency = 0.001  # seconds
+            read_time = (input_size / storage_throughput) + storage_latency if input_size > 0 else 0.0
+            write_time = (output_size / storage_throughput) + storage_latency if output_size > 0 else 0.0
+            comm = read_time + write_time
+            
+            # Total time for this task
+            task_total = network + cold_start + execution + comm
+            total_time += task_total
+            
+            previous_task_type = task.type["name"]
+        
+        return total_time
+
     def platform_process(self):
+        """
+        Platform process that executes tasks from the queue.
+        Supports fast-forward warmup for large queues (> threshold).
+        """
         logging.info(f"[ {self.env.now} ] {self} started")
 
-        while True:
-            # Wait for replica initialization
-            before_initialize = self.env.now
+        # Fast-forward warmup tasks if enabled
+        fast_forwarded = False
+        if self.fast_forward_warmup:
+            # Wait for initialization first
             yield self.initialized
-            after_initialize = self.env.now
+            
+            # Check if we have warmup tasks attached to this platform
+            if hasattr(self, '_warmup_tasks') and self._warmup_tasks:
+                warmup_count = len(self._warmup_tasks)
+                
+                if warmup_count > self.fast_forward_threshold:
+                    # Calculate total time for all warmup tasks
+                    total_time = self._calculate_warmup_total_time(self._warmup_tasks)
+                    print(f"[FF] Fast-forwarding {warmup_count} warmup tasks on {self} (total time: {total_time:.3f}s)")
+                    logging.info(f"[ {self.env.now} ] Fast-forwarding {warmup_count} warmup tasks on {self} "
+                               f"(total time: {total_time:.3f}s)")
+                    
+                    # Fast-forward simulation time
+                    yield self.env.timeout(total_time)
+                    
+                    # Mark all warmup tasks as completed
+                    # We'll process them from the queue and skip execution
+                    fast_forwarded_tasks = set(self._warmup_tasks)
+                    
+                    # Calculate per-task times for accurate metrics
+                    # Use the time before fast-forward as the base
+                    fast_forward_start_time = self.env.now - total_time
+                    cumulative_time = 0.0
+                    previous_task_type = None
+                    for warmup_task in self._warmup_tasks:
+                        # Check if warm (same type as previous)
+                        warm_function = (
+                            previous_task_type is not None
+                            and previous_task_type == warmup_task.type["name"]
+                        )
+                        
+                        # Calculate time for this task
+                        task_time = self._calculate_single_warmup_time(warmup_task)
+                        if not warm_function and previous_task_type is None:
+                            # First task may have cold start
+                            task_time['cold_start'] = warmup_task.type["coldStartDuration"][self.type["shortName"]]
+                        
+                        task_duration = (task_time['network'] + task_time['cold_start'] + 
+                                        task_time['execution'] + task_time['comm'])
+                        
+                        # Set timing metrics (absolute simulation time)
+                        warmup_task.arrived_time = fast_forward_start_time + cumulative_time
+                        warmup_task.started_time = fast_forward_start_time + cumulative_time
+                        warmup_task.done_time = fast_forward_start_time + cumulative_time + task_duration
+                        warmup_task.finished = True
+                        
+                        warmup_task.execution_time = task_time['execution']
+                        warmup_task.cold_start_time = task_time['cold_start']
+                        warmup_task.communications_time = task_time['comm']
+                        warmup_task.network_latency = task_time['network']
+                        warmup_task.cache_hit = (task_time['cold_start'] == 0.0)
+                        
+                        cumulative_time += task_duration
+                        
+                        # Update platform cache for next task
+                        previous_task_type = warmup_task.type["name"]
+                    
+                    # Update platform's previous_task to last warmup task
+                    if self._warmup_tasks:
+                        self.previous_task = self._warmup_tasks[-1]
+                    
+                    fast_forwarded = True
+                    logging.info(f"[ {self.env.now} ] Fast-forward complete for {self}")
+        
+        while True:
+            # Wait for replica initialization (if not already done)
+            if not fast_forwarded:
+                before_initialize = self.env.now
+                yield self.initialized
+                after_initialize = self.env.now
+            else:
+                before_initialize = self.env.now
+                after_initialize = self.env.now
 
             # FIFO task selection in platform queue
             task: Task = yield self.queue.get()
+            
+            # Skip warmup tasks that were fast-forwarded
+            if fast_forwarded and getattr(task, 'is_internal', False) and hasattr(self, '_warmup_tasks') and task in self._warmup_tasks:
+                # Task was already fast-forwarded, just trigger events and continue
+                if not task.arrived.processed:
+                    task.arrived.succeed()
+                if not task.started.processed:
+                    task.started.succeed()
+                if not task.done.processed:
+                    task.done.succeed()
+                continue
 
-            if task.node_name != self.node.node_name and task.node and task.node.network_map:
-                # print("network map:", task.node.network_map)
-                # print("node name:", task.node_name)
-                # print("platform node name:", self.node.node_name)
-                if task.node_name in self.node.network_map:
-                    network_time = self.node.network_map[task.node_name]
-                    task.network_latency = network_time
-                    # print(f"network_time for {task}: {network_time}")
-                    yield self.env.timeout(network_time)
-                else:
-                    # very important, do not remove this
-                    import sys
-                    sys.exit(1)
+            # Network latency for remote task execution
+            # Check if task is being executed on a different node than where it originated
+            if task.node_name != self.node.node_name:
+                # Check platform's node network_map for connectivity to task's source
+                if hasattr(self.node, 'network_map') and self.node.network_map:
+                    if task.node_name in self.node.network_map:
+                        network_time = self.node.network_map[task.node_name]
+                        task.network_latency = network_time
+                        yield self.env.timeout(network_time)
+                    else:
+                        # No network connectivity - this should not happen if scheduler filters correctly
+                        logging.error(f"No network connectivity from {self.node.node_name} to {task.node_name}")
+                        # very important, do not remove this
+                        import sys
+                        sys.exit(1)
 
             # todo: questionable if this should be here
             # if task.gnn_decision_time:

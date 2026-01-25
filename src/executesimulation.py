@@ -8,7 +8,7 @@ Workflow:
 1. Load space_with_network.json config file
 2. Generate infrastructure (nodes + network topology) deterministically
 3. Load workload from file
-4. Run simulation with chosen policy (kn_network_kn_network or gnn_cosim_gnn_cosim)
+4. Run simulation with chosen policy (kn_network_kn_network or gnn_gnn)
 5. Save simulation results
 
 Usage:
@@ -17,7 +17,6 @@ Usage:
     python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy roundrobin [--seed <seed>]
     python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy knative_network [--seed <seed>]
     python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy knative_network_batch [--seed <seed>]
-    python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy multiloop [--seed <seed>]
     python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy herocache_network [--seed <seed>]
 """
 
@@ -377,7 +376,7 @@ def execute_simulation(
 def load_gnn_model(model_path: Path):
     """Load the trained GNN model."""
     import torch
-    from src.policy.gnn_cosim.gnn_model import TaskPlacementGNN
+    from src.policy.gnn.gnn_model import TaskPlacementGNN
     
     try:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -386,7 +385,7 @@ def load_gnn_model(model_path: Path):
         # Model architecture must match training
         model = TaskPlacementGNN(
             task_feature_dim=3,
-            platform_feature_dim=8,  # With queue_length feature
+            platform_feature_dim=13,
             embedding_dim=64,
             hidden_dim=64,
             num_layers=3
@@ -427,6 +426,7 @@ def run_simulation(
         policy: str,
         seed: Optional[int] = None,
         gnn_model: Any = None,
+        gnn_device: Any = None,
         task_types_data: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """
@@ -448,8 +448,8 @@ def run_simulation(
     logger.info(f"Running {policy} simulation")
 
     # Validate policy
-    if policy not in ['knative', 'gnn', 'roundrobin', 'knative_network', 'knative_network_batch', 'multiloop', 'herocache_network', 'herocache_network_batch']:
-        logger.error(f"Invalid policy: {policy}. Must be 'knative', 'gnn', 'roundrobin', 'knative_network', 'knative_network_batch', 'multiloop', 'herocache_network', or 'herocache_network_batch'")
+    if policy not in ['knative', 'gnn', 'roundrobin', 'knative_network', 'knative_network_batch', 'herocache_network', 'herocache_network_batch']:
+        logger.error(f"Invalid policy: {policy}. Must be 'knative', 'gnn', 'roundrobin', 'knative_network', 'knative_network_batch', 'herocache_network', or 'herocache_network_batch'")
         return False
 
     # For GNN policy, check if model is provided
@@ -500,6 +500,7 @@ def run_simulation(
             scheduling_strategy = 'gnn_gnn'
             models = {
                 'gnn_model': gnn_model,
+                'device': gnn_device,
                 'task_types_data': task_types_data,
             }
         elif policy == 'roundrobin':
@@ -510,9 +511,6 @@ def run_simulation(
             models = None
         elif policy == 'knative_network_batch':
             scheduling_strategy = 'kn_network_batch_kn_network_batch'
-            models = None
-        elif policy == 'multiloop':
-            scheduling_strategy = 'multiloop_multiloop'
             models = None
         elif policy == 'herocache_network':
             scheduling_strategy = 'hrc_network_hrc_network'
@@ -593,12 +591,11 @@ def main():
         python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy knative_network [--seed <seed>]
     python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy knative_network_batch [--seed <seed>] [--output <output.json>]
         python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy herocache_network [--seed <seed>] [--output <output.json>]
-        python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy multiloop [--seed <seed>] [--output <output.json>]
         python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy herocache_network [--seed <seed>] [--output <output.json>]
     """
     # Configuration
     sim_input_path = Path("data/nofs-ids")
-    gnn_model_path = Path("src/notebooks/new/best_gnn_regret_model.pt")
+    gnn_model_path = Path("src/notebooks/non_unique/best_gnn_regret_model.pt")
     default_output_dir = Path("simulation_data/results")
 
     # Parse arguments
@@ -645,16 +642,16 @@ def main():
 
     if not workload_file:
         print("ERROR: --workload is required")
-        print("Usage: python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy <knative|gnn|roundrobin|knative_network|knative_network_batch|multiloop|herocache_network> [--seed <seed>] [--output <output.json>]")
+        print("Usage: python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy <knative|gnn|roundrobin|knative_network|knative_network_batch|herocache_network> [--seed <seed>] [--output <output.json>]")
         sys.exit(1)
 
     if not policy:
         print("ERROR: --policy is required")
-        print("Usage: python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy <knative|gnn|roundrobin|knative_network|knative_network_batch|multiloop|herocache_network> [--seed <seed>] [--output <output.json>]")
+        print("Usage: python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy <knative|gnn|roundrobin|knative_network|knative_network_batch|herocache_network> [--seed <seed>] [--output <output.json>]")
         sys.exit(1)
 
-    if policy not in ['knative', 'gnn', 'roundrobin', 'knative_network', 'knative_network_batch', 'multiloop', 'herocache_network', 'herocache_network_batch']:
-        print(f"ERROR: Invalid policy '{policy}'. Must be 'knative', 'gnn', 'roundrobin', 'knative_network', 'knative_network_batch', 'multiloop', 'herocache_network', or 'herocache_network_batch'")
+    if policy not in ['knative', 'gnn', 'roundrobin', 'knative_network', 'knative_network_batch', 'herocache_network', 'herocache_network_batch']:
+        print(f"ERROR: Invalid policy '{policy}'. Must be 'knative', 'gnn', 'roundrobin', 'knative_network', 'knative_network_batch', 'herocache_network', or 'herocache_network_batch'")
         sys.exit(1)
 
     if not config_file.exists():
@@ -675,19 +672,20 @@ def main():
 
     # Load GNN model if needed
     gnn_model = None
+    gnn_device = None
     task_types_data = None
     if policy == 'gnn':
         if not gnn_model_path.exists():
             print(f"ERROR: GNN model not found at {gnn_model_path}")
             sys.exit(1)
         
-        gnn_model, device = load_gnn_model(gnn_model_path)
+        gnn_model, gnn_device = load_gnn_model(gnn_model_path)
         task_types_data = load_task_types_data(sim_input_path)
 
     # Run simulation
     success = run_simulation(
         config_file, workload_file, output_file, sim_input_path, logger, policy,
-        seed=seed, gnn_model=gnn_model, task_types_data=task_types_data
+        seed=seed, gnn_model=gnn_model, gnn_device=gnn_device, task_types_data=task_types_data
     )
     sys.exit(0 if success else 1)
 

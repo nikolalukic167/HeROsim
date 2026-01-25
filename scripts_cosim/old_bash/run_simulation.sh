@@ -13,7 +13,6 @@ set -uo pipefail
 #   ./scripts_cosim/run_simulation.sh --roundrobin [--timeout N] [--seed N]
 #   ./scripts_cosim/run_simulation.sh --knative_network [--timeout N] [--seed N]
 #   ./scripts_cosim/run_simulation.sh --knative_network_batch [--timeout N] [--seed N]
-#   ./scripts_cosim/run_simulation.sh --multiloop [--timeout N] [--seed N]
 #   ./scripts_cosim/run_simulation.sh --herocache_network [--timeout N] [--seed N]
 #   ./scripts_cosim/run_simulation.sh --herocache_network_batch [--timeout N] [--seed N]
 #
@@ -23,7 +22,6 @@ set -uo pipefail
 #   --roundrobin      Run with roundrobin network policy (rr_network_rr_network)
 #   --knative_network Run with knative network policy (no batching) (kn_network_kn_network)
 #   --knative_network_batch Run with knative network batch policy (kn_network_batch_kn_network_batch)
-#   --multiloop       Run with multiloop policy (multiloop_multiloop)
 #   --herocache_network Run with herocache network policy (hrc_network_hrc_network)
 #   --herocache_network_batch Run with herocache network batch policy (hrc_network_batch_hrc_network_batch)
 #   --timeout N       Timeout in seconds (default: 3600)
@@ -67,10 +65,6 @@ while [[ $# -gt 0 ]]; do
             POLICY="knative_network_batch"
             shift
             ;;
-        --multiloop)
-            POLICY="multiloop"
-            shift
-            ;;
         --herocache_network)
             POLICY="herocache_network"
             shift
@@ -96,7 +90,7 @@ done
 
 # Validate policy selection
 if [ -z "$POLICY" ]; then
-    echo "ERROR: Must specify either --knative, --gnn, --roundrobin, --knative_network, --knative_network_batch, --multiloop, --herocache_network, or --herocache_network_batch"
+    echo "ERROR: Must specify either --knative, --gnn, --roundrobin, --knative_network, --knative_network_batch, --herocache_network, or --herocache_network_batch"
     echo ""
     echo "Usage:"
     echo "  $0 --knative [--timeout N] [--seed N]"
@@ -104,7 +98,6 @@ if [ -z "$POLICY" ]; then
     echo "  $0 --roundrobin [--timeout N] [--seed N]"
     echo "  $0 --knative_network [--timeout N] [--seed N]"
     echo "  $0 --knative_network_batch [--timeout N] [--seed N]"
-    echo "  $0 --multiloop [--timeout N] [--seed N]"
     echo "  $0 --herocache_network [--timeout N] [--seed N]"
     echo "  $0 --herocache_network_batch [--timeout N] [--seed N]"
     exit 1
@@ -136,11 +129,6 @@ elif [ "$POLICY" = "knative_network_batch" ]; then
     POLICY_NAME="knative network batch"
     SCHEDULING_STRATEGY="kn_network_batch_kn_network_batch"
     OUTPUT_FILE="${OUTPUT_DIR}/simulation_result_knative_network_batch.json"
-elif [ "$POLICY" = "multiloop" ]; then
-    PROGRESS_LOG="${BASE}/logs/multiloop_simulation_progress.txt"
-    POLICY_NAME="multiloop"
-    SCHEDULING_STRATEGY="multiloop_multiloop"
-    OUTPUT_FILE="${OUTPUT_DIR}/simulation_result_multiloop.json"
 elif [ "$POLICY" = "herocache_network" ]; then
     PROGRESS_LOG="${BASE}/logs/herocache_network_simulation_progress.txt"
     POLICY_NAME="herocache network"
@@ -207,19 +195,19 @@ if [ $EXIT_CODE -eq 0 ] && [ -f "${OUTPUT_FILE}" ]; then
     echo "Duration: ${duration}s"
     echo "Total RTT: ${RTT}s"
     echo "Output file: ${OUTPUT_FILE}"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') SUCCESS ${duration}s RTT=${RTT}" >> "${PROGRESS_LOG}"
+    # echo "$(date '+%Y-%m-%d %H:%M:%S') SUCCESS ${duration}s RTT=${RTT}" >> "${PROGRESS_LOG}"
     exit 0
 elif [ $EXIT_CODE -eq 124 ]; then
     echo ""
     echo "=== TIMEOUT ==="
     echo "Simulation timed out after ${TIMEOUT}s"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') TIMEOUT ${duration}s" >> "${PROGRESS_LOG}"
+    # echo "$(date '+%Y-%m-%d %H:%M:%S') TIMEOUT ${duration}s" >> "${PROGRESS_LOG}"
     exit 1
 else
     echo ""
     echo "=== FAILED ==="
     echo "Exit code: ${EXIT_CODE}"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') FAILED ${duration}s exit_code=${EXIT_CODE}" >> "${PROGRESS_LOG}"
+    # echo "$(date '+%Y-%m-%d %H:%M:%S') FAILED ${duration}s exit_code=${EXIT_CODE}" >> "${PROGRESS_LOG}"
     exit 1
 fi
 

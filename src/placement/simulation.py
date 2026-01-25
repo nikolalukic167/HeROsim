@@ -93,9 +93,6 @@ from src.policy.knative_network.orchestrator import KnativeOrchestrator as Knati
 from src.policy.knative_network.autoscaler import KnativeAutoscaler as KnativeNetworkAutoscaler
 from src.policy.knative_network.scheduler import KnativeScheduler as KnativeNetworkScheduler
 
-from src.policy.gnn_cosim.orchestrator import GNNCosimOrchestrator
-from src.policy.gnn_cosim.autoscaler import KnativeAutoscaler as GNNCosimAutoscaler
-from src.policy.gnn_cosim.scheduler import GNNCosimScheduler
 from src.policy.roundrobin_network.orchestrator import RoundRobinNetworkOrchestrator
 from src.policy.roundrobin_network.autoscaler import RoundRobinNetworkAutoscaler
 from src.policy.roundrobin_network.scheduler import RoundRobinScheduler as RoundRobinNetworkScheduler
@@ -508,7 +505,15 @@ def create_warmup_tasks(
         application_type = list(simulation_data.application_types.values())[0]
     
     # Use medium QoS as default
-    qos_type = simulation_data.qos_types.get('medium', list(simulation_data.qos_types.values())[0])
+    # Ensure we get a dict, not a string
+    if 'medium' in simulation_data.qos_types:
+        qos_type = simulation_data.qos_types['medium']
+    elif simulation_data.qos_types:
+        # Get first available QoS type as fallback
+        qos_type = next(iter(simulation_data.qos_types.values()))
+    else:
+        # Fallback: create a minimal QoS dict if none available
+        qos_type = {"maxDurationDeviation": 1.0}
     
     for i in range(count):
         # Create a lightweight application for the warmup task
@@ -578,6 +583,10 @@ def start_simulation(
     # Simulation
     env = Environment()
     finished = env.event()
+    
+    # Set fast-forward warmup flag from infrastructure config
+    env.fast_forward_warmup = infrastructure.get('fast_forward_warmup', False)
+    env.fast_forward_threshold = infrastructure.get('fast_forward_threshold', 10)
 
     # Initialize infrastructure
     nodes: FilterStore = create_nodes(
@@ -646,7 +655,6 @@ def start_simulation(
         "kn_network_batch_kn_network_batch": (KnativeNetworkBatchOrchestrator, KnativeNetworkBatchAutoscaler, KnativeNetworkBatchScheduler),
         "kn_network_kn_network": (KnativeNetworkOrchestrator, KnativeNetworkAutoscaler, KnativeNetworkScheduler),
         "kn_network_batch_kn_network_batch": (KnativeNetworkBatchOrchestrator, KnativeNetworkBatchAutoscaler, KnativeNetworkBatchScheduler),
-        "gnn_cosim_gnn_cosim": (GNNCosimOrchestrator, GNNCosimAutoscaler, GNNCosimScheduler),
         "rr_network_rr_network": (RoundRobinNetworkOrchestrator, RoundRobinNetworkAutoscaler, RoundRobinNetworkScheduler),
         "hrc_network_hrc_network": (HRCNetworkOrchestrator, HRCNetworkAutoscaler, HRCNetworkScheduler),
         "hrc_network_batch_hrc_network_batch": (HRCNetworkBatchOrchestrator, HRCNetworkBatchAutoscaler, HRCNetworkBatchScheduler),
@@ -680,6 +688,9 @@ def start_simulation(
     # Add scheduler config for GNN orchestrator (for soft blending configuration)
     if orchestrator_type.__name__ == 'GNNOrchestrator':
         orchestrator_args['scheduler_config'] = infrastructure.get('scheduler', {})
+        print(f"[simulation.py] Creating GNNOrchestrator with models={models is not None}", flush=True)
+        if models:
+            print(f"[simulation.py] models keys: {list(models.keys())}", flush=True)
     
     orchestrator = orchestrator_type(**orchestrator_args)
     env.run(until=finished)

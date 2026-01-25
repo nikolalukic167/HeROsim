@@ -1,2 +1,0 @@
-# GNN Cosim Policy Module
-

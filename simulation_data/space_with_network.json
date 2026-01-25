@@ -235,14 +235,5 @@
         "penalty": 0.15
       }
     }
-  },
-  "scheduler": {
-    "batch_size": 5,
-    "batch_timeout": 0.01,
-    "soft_blending": {
-      "enabled": true,
-      "gnn_weight": 0.6,
-      "queue_norm": 50.0
-    }
   }
 }

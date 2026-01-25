@@ -543,7 +543,6 @@ scheduling_strategies: Dict[str, str] = {
     "evaluator_evaluator": "EVALUATOR-EVALUATOR",
     "kn_network_kn_network": "KN-NETWORK-KN-NETWORK",
     "kn_network_batch_kn_network_batch": "KN-NETWORK-BATCH-KN-NETWORK-BATCH",
-    "gnn_cosim_gnn_cosim": "GNN-COSIM-GNN-COSIM",
     "rr_network_rr_network": "RR-NETWORK-RR-NETWORK",
     "hrc_network_hrc_network": "HRC-NETWORK-HRC-NETWORK",
     "hrc_network_batch_hrc_network_batch": "HRC-NETWORK-BATCH-HRC-NETWORK-BATCH",

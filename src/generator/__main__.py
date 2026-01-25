@@ -101,7 +101,7 @@ def main() -> int:
         '--app-weights',
         type=str,
         required=False,
-        default="nofs-dnn1=0.85,nofs-dnn2=0.15",
+        default="nofs-dnn1=0.5,nofs-dnn2=0.5",
         help="Comma-separated app=weight list (e.g. nofs-dnn1=0.85,nofs-dnn2=0.15)",
     )
 

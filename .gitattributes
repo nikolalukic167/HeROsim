@@ -1,3 +1,0 @@
-simulation_data/archive_results/results/simulation_result_knative.json filter=lfs diff=lfs merge=lfs -text
-simulation_data/results/simulation_result_roundrobin.json filter=lfs diff=lfs merge=lfs -text
-simulation_data/archive_results/results/simulation_result_gnn.json filter=lfs diff=lfs merge=lfs -text

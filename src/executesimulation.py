@@ -16,7 +16,6 @@ Usage:
     python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy gnn [--seed <seed>]
     python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy roundrobin [--seed <seed>]
     python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy knative_network [--seed <seed>]
-    python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy knative_network_batch [--seed <seed>]
     python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy herocache_network [--seed <seed>]
 """
 
@@ -448,8 +447,8 @@ def run_simulation(
     logger.info(f"Running {policy} simulation")
 
     # Validate policy
-    if policy not in ['knative', 'gnn', 'roundrobin', 'knative_network', 'knative_network_batch', 'herocache_network', 'herocache_network_batch']:
-        logger.error(f"Invalid policy: {policy}. Must be 'knative', 'gnn', 'roundrobin', 'knative_network', 'knative_network_batch', 'herocache_network', or 'herocache_network_batch'")
+    if policy not in ['knative', 'gnn', 'roundrobin', 'knative_network', 'herocache_network', 'herocache_network_batch']:
+        logger.error(f"Invalid policy: {policy}. Must be 'knative', 'gnn', 'roundrobin', 'knative_network', 'herocache_network', or 'herocache_network_batch'")
         return False
 
     # For GNN policy, check if model is provided
@@ -508,9 +507,6 @@ def run_simulation(
             models = None
         elif policy == 'knative_network':
             scheduling_strategy = 'kn_network_kn_network'
-            models = None
-        elif policy == 'knative_network_batch':
-            scheduling_strategy = 'kn_network_batch_kn_network_batch'
             models = None
         elif policy == 'herocache_network':
             scheduling_strategy = 'hrc_network_hrc_network'
@@ -589,7 +585,6 @@ def main():
         python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy gnn [--seed <seed>] [--output <output.json>]
         python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy roundrobin [--seed <seed>] [--output <output.json>]
         python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy knative_network [--seed <seed>]
-    python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy knative_network_batch [--seed <seed>] [--output <output.json>]
         python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy herocache_network [--seed <seed>] [--output <output.json>]
         python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy herocache_network [--seed <seed>] [--output <output.json>]
     """
@@ -642,16 +637,16 @@ def main():
 
     if not workload_file:
         print("ERROR: --workload is required")
-        print("Usage: python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy <knative|gnn|roundrobin|knative_network|knative_network_batch|herocache_network> [--seed <seed>] [--output <output.json>]")
+        print("Usage: python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy <knative|gnn|roundrobin|knative_network|herocache_network> [--seed <seed>] [--output <output.json>]")
         sys.exit(1)
 
     if not policy:
         print("ERROR: --policy is required")
-        print("Usage: python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy <knative|gnn|roundrobin|knative_network|knative_network_batch|herocache_network> [--seed <seed>] [--output <output.json>]")
+        print("Usage: python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy <knative|gnn|roundrobin|knative_network|herocache_network> [--seed <seed>] [--output <output.json>]")
         sys.exit(1)
 
-    if policy not in ['knative', 'gnn', 'roundrobin', 'knative_network', 'knative_network_batch', 'herocache_network', 'herocache_network_batch']:
-        print(f"ERROR: Invalid policy '{policy}'. Must be 'knative', 'gnn', 'roundrobin', 'knative_network', 'knative_network_batch', 'herocache_network', or 'herocache_network_batch'")
+    if policy not in ['knative', 'gnn', 'roundrobin', 'knative_network', 'herocache_network', 'herocache_network_batch']:
+        print(f"ERROR: Invalid policy '{policy}'. Must be 'knative', 'gnn', 'roundrobin', 'knative_network', 'herocache_network', or 'herocache_network_batch'")
         sys.exit(1)
 
     if not config_file.exists():

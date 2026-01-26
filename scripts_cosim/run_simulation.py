@@ -10,7 +10,6 @@ Usage:
     python scripts_cosim/run_simulation.py --gnn [--timeout N] [--seed N]
     python scripts_cosim/run_simulation.py --roundrobin [--timeout N] [--seed N]
     python scripts_cosim/run_simulation.py --knative_network [--timeout N] [--seed N]
-    python scripts_cosim/run_simulation.py --knative_network_batch [--timeout N] [--seed N]
     python scripts_cosim/run_simulation.py --herocache_network [--timeout N] [--seed N]
     python scripts_cosim/run_simulation.py --herocache_network_batch [--timeout N] [--seed N]
 
@@ -19,7 +18,6 @@ Options:
     --gnn             Run with vanilla gnn policy (gnn_gnn)
     --roundrobin      Run with roundrobin network policy (rr_network_rr_network)
     --knative_network Run with knative network policy (no batching) (kn_network_kn_network)
-    --knative_network_batch Run with knative network batch policy (kn_network_batch_kn_network_batch)
     --herocache_network Run with herocache network policy (hrc_network_hrc_network)
     --herocache_network_batch Run with herocache network batch policy (hrc_network_batch_hrc_network_batch)
     --timeout N       Timeout in seconds (default: 3600)
@@ -73,12 +71,6 @@ POLICY_CONFIG: Dict[str, Dict[str, str]] = {
         "scheduling_strategy": "kn_network_kn_network",
         "output_file": OUTPUT_DIR / "simulation_result_knative_network.json",
     },
-    "knative_network_batch": {
-        "progress_log": BASE_DIR / "logs/knative_network_batch_simulation_progress.txt",
-        "policy_name": "knative network batch",
-        "scheduling_strategy": "kn_network_batch_kn_network_batch",
-        "output_file": OUTPUT_DIR / "simulation_result_knative_network_batch.json",
-    },
     "herocache_network": {
         "progress_log": BASE_DIR / "logs/herocache_network_simulation_progress.txt",
         "policy_name": "herocache network",
@@ -112,8 +104,6 @@ def parse_arguments() -> argparse.Namespace:
                              help="Run with roundrobin network policy")
     policy_group.add_argument("--knative_network", action="store_const", const="knative_network", dest="policy",
                              help="Run with knative network policy (no batching)")
-    policy_group.add_argument("--knative_network_batch", action="store_const", const="knative_network_batch", dest="policy",
-                             help="Run with knative network batch policy")
     policy_group.add_argument("--herocache_network", action="store_const", const="herocache_network", dest="policy",
                              help="Run with herocache network policy")
     policy_group.add_argument("--herocache_network_batch", action="store_const", const="herocache_network_batch", dest="policy",

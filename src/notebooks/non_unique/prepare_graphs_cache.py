@@ -7,7 +7,7 @@ This script builds all graphs and saves them to pickle files for faster training
 NON-UNIQUE PLACEMENTS:
 - Supports datasets where multiple tasks can be placed on the same replica
 - Creates edges between tasks and all compatible platforms (no uniqueness constraint)
-- Compatible with gnn_datasets_2tasks and gnn_datasets_3tasks
+- Compatible with gnn_datasets_2tasks, gnn_datasets_3tasks, and gnn_datasets_4tasks
 - Includes system state, temporal features, queue info, and consolidation metrics
 """
 
@@ -39,18 +39,19 @@ torch.manual_seed(42)
 # Configuration
 # ============================================================================
 # MERGED DATASET SUPPORT: Load from multiple directories with different task counts
-# Set MERGE_DATASETS=True to combine 2-task and 3-task datasets
+# Set MERGE_DATASETS=True to combine 2-task, 3-task, and 4-task datasets
 # Set MERGE_DATASETS=False to use single dataset (specify in BASE_DIRS[0])
 
 MERGE_DATASETS = True  # Set to False for single dataset
 
 if MERGE_DATASETS:
-    # Load both 2-task and 3-task datasets
+    # Load 2-task, 3-task, and 4-task datasets
     BASE_DIRS = [
         Path("/root/projects/my-herosim/simulation_data/artifacts/run_queue_big/gnn_datasets_2tasks"),
-        Path("/root/projects/my-herosim/simulation_data/artifacts/run_queue_big/gnn_datasets_3tasks")
+        Path("/root/projects/my-herosim/simulation_data/artifacts/run_queue_big/gnn_datasets_3tasks"),
+        Path("/root/projects/my-herosim/simulation_data/artifacts/run_queue_big/gnn_datasets_4tasks")
     ]
-    CACHE_DIR = BASE_DIRS[0].parent / "graphs_cache_merged_2_3_tasks"
+    CACHE_DIR = BASE_DIRS[0].parent / "graphs_cache_merged_2_3_4_tasks"
 else:
     # Single dataset mode (change path as needed)
     BASE_DIRS = [

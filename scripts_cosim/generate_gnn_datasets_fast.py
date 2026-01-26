@@ -144,16 +144,9 @@ TASK_TYPE_RATIOS = [
 ]
 
 # Workload parameters (can be overridden via --num-tasks)
-NUM_TASKS = 3
+NUM_TASKS = 4
 NUM_CLIENT_NODES = 10
 NUM_WORKLOAD_TEMPLATES = 10
-
-# IMPROVEMENTS BASED ON ANALYSIS:
-# 1. Increase workload duration to accumulate queues (real sim has mean 51.35 vs training 1.51)
-# 2. Focus on cold start (0% preinit) - already prioritized
-# 3. Add more high-queue scenarios
-# 4. Match batch_size to num_tasks for determined scheduler
-WORKLOAD_DURATION = 30  # Increased from 10 to accumulate queues (matches real sim better)
 
 
 def log(msg: str, quiet: bool = False, force: bool = False):
@@ -194,8 +187,8 @@ def generate_workload_templates(
         
         # Create workload with improved duration for queue accumulation
         workload = {
-            'rps': base_workload.get('rps', 10),
-            'duration': WORKLOAD_DURATION,  # Increased to accumulate queues
+            'rps': base_workload.get('rps', 1),
+            'duration': 1,
             'events': []
         }
         
@@ -230,7 +223,7 @@ def create_config_for_iteration(
     replica_cfg: Tuple[int, int, float, float],
     seed: int,
     queue_dist: Tuple[str, str, int, int, int, int, int],
-    batch_size: int = 3
+    batch_size: int = 4
 ) -> Dict[str, Any]:
     """
     Create a modified config for a specific iteration.
@@ -472,9 +465,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
-    parser.add_argument('--quiet', '-q', action='store_true',
-                        help='Suppress per-placement logging')
-    parser.add_argument('--max-datasets', '-n', type=int, default=3000,
+    parser.add_argument('--quiet', '-q', default=True, action='store_true',
+                        help='Suppress per-placement logging (default: True)')
+    parser.add_argument('--no-quiet', action='store_false', dest='quiet',
+                        help='Disable quiet mode (show per-placement logging)')
+    parser.add_argument('--max-datasets', '-n', type=int, default=300000,
                         help='Maximum number of datasets to generate')
     parser.add_argument('--workers', '-w', type=int, default=None,
                         help='Number of parallel workers (default: CPU count - 1)')
@@ -482,14 +477,16 @@ def main():
                         help='Skip datasets that already exist')
     parser.add_argument('--start-from', type=int, default=0,
                         help='Start from dataset index (e.g., 118 to start from ds_00118)')
-    parser.add_argument('--fast-forward-warmup', action='store_true',
-                        help='Enable fast-forward warmup for queues > 1 task')
+    parser.add_argument('--fast-forward-warmup', default=True, action='store_true',
+                        help='Enable fast-forward warmup for queues > 1 task (default: True)')
+    parser.add_argument('--no-fast-forward-warmup', action='store_false', dest='fast_forward_warmup',
+                        help='Disable fast-forward warmup')
     parser.add_argument('--fast-forward-threshold', type=int, default=1,
                         help='Threshold for fast-forward warmup (default: 1)')
     parser.add_argument('--allow-non-unique-replicas', action='store_true',
                         help='Allow multiple tasks to share the same replica')
-    parser.add_argument('--num-tasks', type=int, choices=[2, 3], default=3,
-                        help='Number of tasks per workload (2 or 3). Sets batch_size accordingly.')
+    parser.add_argument('--num-tasks', type=int, choices=[2, 3, 4], default=4,
+                        help='Number of tasks per workload (2, 3 or 4). Sets batch_size accordingly.')
     args = parser.parse_args()
     
     quiet = args.quiet
@@ -522,7 +519,6 @@ def main():
     log(f"Num tasks: {NUM_TASKS} (batch_size={batch_size})", quiet)
     log(f"Max datasets: {args.max_datasets} (up to ds_{max_datasets-1:05d})", quiet)
     log(f"Workers: {max_workers}", quiet)
-    log(f"Workload duration: {WORKLOAD_DURATION}s (increased for queue accumulation)", quiet)
     log(f"Using orjson: {HAS_ORJSON}", quiet)
     log(f"Quiet mode: {quiet}", quiet)
     

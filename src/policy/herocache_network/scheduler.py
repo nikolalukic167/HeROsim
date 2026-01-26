@@ -28,9 +28,15 @@ if TYPE_CHECKING:
 
 from src.placement.model import SystemState
 from src.placement.scheduler import Scheduler
+from src.policy.state_capture import StateCaptureHelper
 
 
 class HRCScheduler(Scheduler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # State capture helper (initialized lazily when env/nodes are available)
+        self._state_capture: Optional[StateCaptureHelper] = None
+    
     def scheduler_process(self):
         """
         Process tasks ONE BY ONE (like original herocache).
@@ -84,6 +90,11 @@ class HRCScheduler(Scheduler):
                 # Next step
                 continue
 
+            # Capture state BEFORE placement decision (for analysis)
+            task.queue_snapshot_at_scheduling = self._capture_queue_snapshot_for_replicas(valid_replicas)
+            task.full_queue_snapshot = self._capture_full_queue_snapshot()
+            task.temporal_state_at_scheduling = self._capture_temporal_state_for_replicas(valid_replicas)
+
             # Measure wall-clock time for the scheduling decision
             from timeit import default_timer
             start = default_timer()
@@ -92,6 +103,10 @@ class HRCScheduler(Scheduler):
             (sched_node, sched_platform) = yield self.env.process(
                 self.placement(system_state, task)
             )
+
+            # Store execution node/platform on task
+            task.execution_node = sched_node.node_name
+            task.execution_platform = str(sched_platform.id)
 
             # Update node
             node: Node = yield self.nodes.get(lambda node: node.id == sched_node.id)
@@ -352,3 +367,144 @@ class HRCScheduler(Scheduler):
                     valid_replicas.append((node, platform))
         
         return valid_replicas
+
+    # ==================== State Capture Methods ====================
+    
+    @property
+    def state_capture(self) -> StateCaptureHelper:
+        """Lazy initialization of state capture helper."""
+        if self._state_capture is None:
+            self._state_capture = StateCaptureHelper(self.env, self.nodes)
+        return self._state_capture
+    
+    def enable_state_capture(self, output_path: str):
+        """Enable state capture and set output path."""
+        self.state_capture.enable_capture(output_path)
+    
+    def disable_state_capture(self):
+        """Disable state capture."""
+        self.state_capture.disable_capture()
+    
+    def capture_task_placement(
+        self,
+        task: 'Task',
+        execution_node: str,
+        execution_platform: str,
+        elapsed_time: float,
+        valid_replicas: List[Tuple['Node', 'Platform']]
+    ) -> Dict[str, Any]:
+        """
+        Capture a task placement decision with full state information.
+        
+        Args:
+            task: The task being placed
+            execution_node: Node where task will execute
+            execution_platform: Platform ID where task will execute
+            elapsed_time: Wall-clock time for scheduling decision
+            valid_replicas: Set of valid replicas for this task
+            
+        Returns:
+            Dict with placement information
+        """
+        # Calculate queue time
+        queue_time = self.env.now - task.arrived_time if hasattr(task, 'arrived_time') else 0.0
+        
+        # Capture queue snapshots
+        valid_replicas_set = set(valid_replicas)
+        queue_snapshot_at_scheduling = self.state_capture.capture_queue_snapshot_for_replicas(valid_replicas_set)
+        full_queue_snapshot = self.state_capture.capture_full_queue_snapshot()
+        
+        # Capture temporal state
+        temporal_state_at_scheduling = self.state_capture.capture_temporal_state_for_replicas(valid_replicas_set)
+        
+        return self.state_capture.capture_task_placement(
+            task=task,
+            execution_node=execution_node,
+            execution_platform=execution_platform,
+            elapsed_time=elapsed_time,
+            queue_time=queue_time,
+            queue_snapshot_at_scheduling=queue_snapshot_at_scheduling,
+            full_queue_snapshot=full_queue_snapshot,
+            temporal_state_at_scheduling=temporal_state_at_scheduling,
+        )
+    
+    def save_captured_state(self, system_state: 'SystemState', total_rtt: float = 0.0, output_path: Optional[str] = None):
+        """Save captured state to JSON file."""
+        self.state_capture.save_captured_state(system_state, total_rtt, output_path)
+    
+    def get_captured_state(self, system_state: 'SystemState', total_rtt: float = 0.0) -> Dict[str, Any]:
+        """Get captured state as dictionary."""
+        return self.state_capture.get_captured_state(system_state, total_rtt)
+    
+    def reset_state_capture(self):
+        """Reset captured placements for a new simulation run."""
+        self.state_capture.reset()
+
+    # ==================== Direct State Capture (for task results) ====================
+    
+    def _capture_queue_snapshot_for_replicas(self, replicas: List[Tuple['Node', 'Platform']]) -> Dict[str, int]:
+        """Capture queue lengths for a specific set of replicas."""
+        queue_snapshot = {}
+        for node, platform in replicas:
+            key = f"{node.node_name}:{platform.id}"
+            queue_snapshot[key] = len(platform.queue.items)
+        return queue_snapshot
+    
+    def _capture_full_queue_snapshot(self) -> Dict[str, int]:
+        """Capture queue lengths for ALL platforms in the system."""
+        queue_snapshot = {}
+        for node in self.nodes.items:
+            for platform in node.platforms.items:
+                key = f"{node.node_name}:{platform.id}"
+                queue_snapshot[key] = len(platform.queue.items)
+        return queue_snapshot
+    
+    def _capture_temporal_state_for_replicas(self, replicas: List[Tuple['Node', 'Platform']]) -> Dict[str, Dict[str, float]]:
+        """Capture temporal state (remaining times) for a set of replicas."""
+        temporal_state = {}
+        now = self.env.now
+        
+        for node, platform in replicas:
+            key = f"{node.node_name}:{platform.id}"
+            
+            current_task_remaining = 0.0
+            cold_start_remaining = 0.0
+            comm_remaining = 0.0
+            
+            if platform.current_task is not None:
+                current_task = platform.current_task
+                
+                # Check if task is in cold start phase
+                if current_task.cold_started and not hasattr(current_task, "started_time"):
+                    cold_start_duration = current_task.type["coldStartDuration"].get(
+                        platform.type["shortName"], 0.0
+                    )
+                    elapsed_cold_start = now - current_task.arrived_time
+                    cold_start_remaining = max(0.0, cold_start_duration - elapsed_cold_start)
+                
+                # Check if task is executing
+                if hasattr(current_task, "started_time") and current_task.started_time is not None:
+                    exec_duration = current_task.type["executionTime"].get(
+                        platform.type["shortName"], 0.0
+                    )
+                    elapsed_exec = now - current_task.started_time
+                    current_task_remaining = max(0.0, exec_duration - elapsed_exec)
+                    
+                    # Estimate communication remaining
+                    if current_task.application:
+                        state_size_map = current_task.type.get("stateSize", {})
+                        app_name = current_task.application.type.get("name", "")
+                        if isinstance(state_size_map, dict) and app_name in state_size_map:
+                            output_size = state_size_map[app_name].get("output", 0)
+                            if isinstance(output_size, (int, float)) and output_size > 0:
+                                throughput = 100.0 * 1024 * 1024  # 100 MB/s
+                                latency = 0.001  # 1ms
+                                comm_remaining = (output_size / throughput) + latency
+            
+            temporal_state[key] = {
+                "current_task_remaining": current_task_remaining,
+                "cold_start_remaining": cold_start_remaining,
+                "comm_remaining": comm_remaining,
+            }
+        
+        return temporal_state

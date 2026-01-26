@@ -14,7 +14,7 @@ The StructuredRegretLoss:
 NON-UNIQUE PLACEMENTS:
 - Multiple tasks can be placed on the same replica (node_id, platform_id)
 - Decoder uses greedy per-task selection (no uniqueness constraint)
-- Supports datasets: gnn_datasets_2tasks and gnn_datasets_3tasks
+- Supports datasets: gnn_datasets_2tasks, gnn_datasets_3tasks, and gnn_datasets_4tasks
 """
 
 import os
@@ -54,10 +54,11 @@ torch.backends.cudnn.benchmark = False
 # Configuration
 # MERGED DATASET SUPPORT: Set to use merged cache or specific single-task-count cache
 # Options:
-#   - graphs_cache_merged_2_3_tasks (MERGED: 2-task and 3-task datasets combined)
+#   - graphs_cache_merged_2_3_4_tasks (MERGED: 2-task, 3-task, and 4-task datasets combined)
 #   - graphs_cache_gnn_datasets_2tasks (SINGLE: 2-task only)
 #   - graphs_cache_gnn_datasets_3tasks (SINGLE: 3-task only)
-CACHE_DIR = Path("/root/projects/my-herosim/simulation_data/artifacts/run_queue_big/graphs_cache_merged_2_3_tasks")
+#   - graphs_cache_gnn_datasets_4tasks (SINGLE: 4-task only)
+CACHE_DIR = Path("/root/projects/my-herosim/simulation_data/artifacts/run_queue_big/graphs_cache_merged_2_3_4_tasks")
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Load metadata to check if merged

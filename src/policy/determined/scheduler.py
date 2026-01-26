@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 from src.placement.model import SystemState
 from src.placement.scheduler import Scheduler
+from src.policy.state_capture import StateCaptureHelper
 
 
 class DeterminedScheduler(Scheduler):
@@ -34,6 +35,8 @@ class DeterminedScheduler(Scheduler):
         super().__init__(*args, **kwargs)
         # Default batch size (can be overridden by orchestrator via infrastructure config)
         self.batch_size = 3  # Default: process 2 tasks at once
+        # State capture helper (initialized lazily when env/nodes are available)
+        self._state_capture: Optional[StateCaptureHelper] = None
 
     def scheduler_process(self) -> Generator:
         # keep this for the simpy generator 
@@ -161,6 +164,11 @@ class DeterminedScheduler(Scheduler):
                 f"{node.node_name}:{plat.id}": batch_queue_snapshot.get(f"{node.node_name}:{plat.id}", 0)
                 for node, plat in valid_replicas
             }
+            
+            # Capture full queue snapshot and temporal state for this task
+            task.full_queue_snapshot = self._capture_full_queue_snapshot()
+            valid_replicas_set = set(valid_replicas)
+            task.temporal_state_at_scheduling = self.state_capture.capture_temporal_state_for_replicas(valid_replicas_set)
 
             # Update node
             node: Node = yield self.nodes.get(lambda node: node.id == sched_node.id)
@@ -211,6 +219,15 @@ class DeterminedScheduler(Scheduler):
                 if key not in queue_snapshot:
                     queue_snapshot[key] = len(platform.queue.items)
         
+        return queue_snapshot
+    
+    def _capture_full_queue_snapshot(self) -> Dict[str, int]:
+        """Capture queue lengths for ALL platforms across all nodes."""
+        queue_snapshot = {}
+        for node in self.nodes.items:
+            for platform in node.platforms.items:
+                key = f"{node.node_name}:{platform.id}"
+                queue_snapshot[key] = len(platform.queue.items)
         return queue_snapshot
 
 
@@ -410,3 +427,75 @@ class DeterminedScheduler(Scheduler):
         )
 
         return valid_replicas
+
+    # ==================== State Capture Methods ====================
+    
+    @property
+    def state_capture(self) -> StateCaptureHelper:
+        """Lazy initialization of state capture helper."""
+        if self._state_capture is None:
+            self._state_capture = StateCaptureHelper(self.env, self.nodes)
+        return self._state_capture
+    
+    def enable_state_capture(self, output_path: str):
+        """Enable state capture and set output path."""
+        self.state_capture.enable_capture(output_path)
+    
+    def disable_state_capture(self):
+        """Disable state capture."""
+        self.state_capture.disable_capture()
+    
+    def capture_task_placement(
+        self,
+        task: 'Task',
+        execution_node: str,
+        execution_platform: str,
+        elapsed_time: float,
+        valid_replicas: List[Tuple['Node', 'Platform']]
+    ) -> Dict[str, Any]:
+        """
+        Capture a task placement decision with full state information.
+        
+        Args:
+            task: The task being placed
+            execution_node: Node where task will execute
+            execution_platform: Platform ID where task will execute
+            elapsed_time: Wall-clock time for scheduling decision
+            valid_replicas: Set of valid replicas for this task
+            
+        Returns:
+            Dict with placement information
+        """
+        # Calculate queue time
+        queue_time = self.env.now - task.arrived_time if hasattr(task, 'arrived_time') else 0.0
+        
+        # Capture queue snapshots
+        valid_replicas_set = set(valid_replicas)
+        queue_snapshot_at_scheduling = self.state_capture.capture_queue_snapshot_for_replicas(valid_replicas_set)
+        full_queue_snapshot = self.state_capture.capture_full_queue_snapshot()
+        
+        # Capture temporal state
+        temporal_state_at_scheduling = self.state_capture.capture_temporal_state_for_replicas(valid_replicas_set)
+        
+        return self.state_capture.capture_task_placement(
+            task=task,
+            execution_node=execution_node,
+            execution_platform=execution_platform,
+            elapsed_time=elapsed_time,
+            queue_time=queue_time,
+            queue_snapshot_at_scheduling=queue_snapshot_at_scheduling,
+            full_queue_snapshot=full_queue_snapshot,
+            temporal_state_at_scheduling=temporal_state_at_scheduling,
+        )
+    
+    def save_captured_state(self, system_state: 'SystemState', total_rtt: float = 0.0, output_path: Optional[str] = None):
+        """Save captured state to JSON file."""
+        self.state_capture.save_captured_state(system_state, total_rtt, output_path)
+    
+    def get_captured_state(self, system_state: 'SystemState', total_rtt: float = 0.0) -> Dict[str, Any]:
+        """Get captured state as dictionary."""
+        return self.state_capture.get_captured_state(system_state, total_rtt)
+    
+    def reset_state_capture(self):
+        """Reset captured placements for a new simulation run."""
+        self.state_capture.reset()

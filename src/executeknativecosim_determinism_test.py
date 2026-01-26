@@ -145,7 +145,7 @@ def run_single_simulation(dataset_dir: Path, sim_input_path: Path, run_id: int) 
         KEEP_ALIVE,
         'fifo',
         QUEUE_LENGTH,
-        'kn_network_batch_kn_network_batch',
+        'kn_network_kn_network',
         full_config['workload'],
         'workload-knative',
     )

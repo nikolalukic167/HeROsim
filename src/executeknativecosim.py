@@ -259,14 +259,10 @@ def run_knative_baseline_for_dataset(
             "workload": workload,
         }
 
-        logger.info(f"Running knative_network_batch simulation for {dataset_dir.name}...")
-        print(f"  Running knative_network_batch simulation...")
-
-        # Execute simulation with knative_network_batch scheduler
         result = execute_simulation(
             full_config,
             sim_inputs,
-            scheduling_strategy='kn_network_batch_kn_network_batch',
+            scheduling_strategy='kn_network_kn_network',
             cache_policy='fifo',
             task_priority='fifo',
             keep_alive=KEEP_ALIVE,

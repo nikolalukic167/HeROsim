@@ -264,6 +264,10 @@ class TaskResult(TypedDict):
     executionPlatform: str
     gnn_decision_time: DurationSecond
     systemStateResult: SystemStateResult | None
+    # State capture fields for analysis (matching system_state_captured_unique.json format)
+    queueSnapshotAtScheduling: Dict[str, int] | None  # {node:platform -> queue_length} for valid replicas
+    fullQueueSnapshot: Dict[str, int] | None  # All platforms queue lengths
+    temporalStateAtScheduling: Dict[str, Dict[str, float]] | None  # {node:platform -> {current_task_remaining, cold_start_remaining, comm_remaining}}
 
 
 @final
@@ -542,7 +546,6 @@ scheduling_strategies: Dict[str, str] = {
     "determined_determined": "DETERMINED-DETERMINED",
     "evaluator_evaluator": "EVALUATOR-EVALUATOR",
     "kn_network_kn_network": "KN-NETWORK-KN-NETWORK",
-    "kn_network_batch_kn_network_batch": "KN-NETWORK-BATCH-KN-NETWORK-BATCH",
     "rr_network_rr_network": "RR-NETWORK-RR-NETWORK",
     "hrc_network_hrc_network": "HRC-NETWORK-HRC-NETWORK",
     "hrc_network_batch_hrc_network_batch": "HRC-NETWORK-BATCH-HRC-NETWORK-BATCH",

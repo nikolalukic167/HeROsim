@@ -165,6 +165,7 @@ cython_debug/
 .ruff_cache
 
 .cursorindexingignore
+.cursorrules
 
 # Project specific directories
 /chart
@@ -185,6 +186,7 @@ src/notebooks/data/results_sim/
 
 # logs
 logs/
+logs_sim/
 
 # wandb
 wandb
@@ -192,17 +194,8 @@ src/wandb
 src/notebooks/old/wandb
 src/notebooks/new/wandb
 
-# gnn datasets
-simulation_data/gnn_datasets/
-simulation_data/initial_results_simple/
-simulation_data/artifacts/
-simulation_data/results/
-simulation_data/ff_tests/
-simulation_data/archive_results/
-simulation_data/gnn_datasets_analysis/
-simulation_data/gnn_datasets_analysis_results/
-simulation_data/gnn_datasets_mixed_warmth/
-simulation_data/gnn_datasets_test/
+# gnn datasets - ignore all directories in simulation_data/ but not files
+simulation_data/**/
 
 # gnn model
 src/notebooks/old/best_gnn_placement_model.pt

@@ -68,9 +68,6 @@ from src.policy.heteroproactiveknative.scheduler import HeteroProactiveKnativeSc
 from src.policy.knative.orchestrator import KnativeOrchestrator
 from src.policy.knative.autoscaler import KnativeAutoscaler
 from src.policy.knative.scheduler import KnativeScheduler
-from src.policy.knative_network_batch.orchestrator import KnativeNetworkOrchestrator as KnativeNetworkBatchOrchestrator
-from src.policy.knative_network_batch.autoscaler import KnativeAutoscaler as KnativeNetworkBatchAutoscaler
-from src.policy.knative_network_batch.scheduler import KnativeNetworkScheduler as KnativeNetworkBatchScheduler
 from src.policy.proactiveknative.autoscaler import ProactiveKnativeAutoscaler
 from src.policy.proactiveknative.orchestrator import ProactiveKnativeOrchestrator
 from src.policy.proactiveknative.scheduler import ProactiveKnativeScheduler
@@ -652,9 +649,7 @@ def start_simulation(
         "multiloop_multiloop": (MultiLoopOrchestrator, MultiLoopAutoscaler, MultiLoopScheduler),
         "determined_determined": (DeterminedOrchestrator, DeterminedAutoscaler, DeterminedScheduler),
         "evaluator_evaluator": (EvaluatorOrchestrator, EvaluatorAutoscaler, EvaluatorScheduler),
-        "kn_network_batch_kn_network_batch": (KnativeNetworkBatchOrchestrator, KnativeNetworkBatchAutoscaler, KnativeNetworkBatchScheduler),
         "kn_network_kn_network": (KnativeNetworkOrchestrator, KnativeNetworkAutoscaler, KnativeNetworkScheduler),
-        "kn_network_batch_kn_network_batch": (KnativeNetworkBatchOrchestrator, KnativeNetworkBatchAutoscaler, KnativeNetworkBatchScheduler),
         "rr_network_rr_network": (RoundRobinNetworkOrchestrator, RoundRobinNetworkAutoscaler, RoundRobinNetworkScheduler),
         "hrc_network_hrc_network": (HRCNetworkOrchestrator, HRCNetworkAutoscaler, HRCNetworkScheduler),
         "hrc_network_batch_hrc_network_batch": (HRCNetworkBatchOrchestrator, HRCNetworkBatchAutoscaler, HRCNetworkBatchScheduler),

@@ -86,10 +86,10 @@
   },
   "nodes": {
     "client_nodes": {
-      "count": 10
+      "count": 20
     },
     "server_nodes": {
-      "count": 10
+      "count": 20
     }
   },
   "network": {

@@ -42,7 +42,7 @@ torch.manual_seed(42)
 # Set MERGE_DATASETS=True to combine 2-task, 3-task, and 4-task datasets
 # Set MERGE_DATASETS=False to use single dataset (specify in BASE_DIRS[0])
 
-MERGE_DATASETS = True  # Set to False for single dataset
+MERGE_DATASETS = False  # Set to False for single dataset
 
 if MERGE_DATASETS:
     # Load 2-task, 3-task, and 4-task datasets
@@ -55,7 +55,7 @@ if MERGE_DATASETS:
 else:
     # Single dataset mode (change path as needed)
     BASE_DIRS = [
-        Path("/root/projects/my-herosim/simulation_data/artifacts/run_queue_big/gnn_datasets_2tasks")
+        Path("/root/projects/my-herosim/simulation_data/artifacts/run_queue_big/gnn_datasets_4tasks")
     ]
     CACHE_DIR = BASE_DIRS[0].parent / f"graphs_cache_{BASE_DIRS[0].name}"
 
@@ -73,7 +73,7 @@ METADATA_CACHE_PATH = CACHE_DIR / "metadata.json"
 QUEUE_NORM_FACTOR = 50.0
 
 # Version for cache invalidation (increment when graph construction logic changes)
-CACHE_VERSION = "4.0"  # Non-unique placements: multiple tasks can be placed on same replica
+CACHE_VERSION = "4.1"  # Non-unique placements: multiple tasks can be placed on same replica
 # - Removed QoS features (qos_deviation, deadline) since co-simulation doesn't capture QoS violations as ground truth
 # - Supports datasets where 2+ tasks can be placed on the same (node_id, platform_id)
 
@@ -801,8 +801,21 @@ def build_graph(
     for t_pos, (src_name, opt_pid, task_type) in enumerate(zip(src_names, optimal_platform_ids, task_types_arr)):
         network_feas_plats = feasible_platform_positions(src_name)
         compat_plats = filter_compatible_platforms(network_feas_plats, task_type)
+        # Replica limiting (match simulator / RTT hash space):
+        # Only allow platforms that currently have a replica for this task type.
+        if compat_plats.size:
+            if task_type == 'dnn1':
+                compat_plats = compat_plats[has_dnn1_arr[compat_plats]]
+            elif task_type == 'dnn2':
+                compat_plats = compat_plats[has_dnn2_arr[compat_plats]]
+            else:
+                compat_plats = np.empty(0, dtype=np.int64)
         
         if compat_plats.size:
+            # Sort compatible platforms so their order matches the per-task
+            # edge ordering produced by to_undirected (lexicographic by column).
+            compat_plats = np.sort(compat_plats)
+            
             task_node_idx = task_offset + t_pos
             edge_src.extend([task_node_idx] * compat_plats.size)
             dst_list = (platform_offset + compat_plats).tolist()
@@ -888,10 +901,11 @@ def build_graph(
         edge_index = torch.tensor([edge_src, edge_dst], dtype=torch.long)
         edge_attr_tensor = torch.tensor(edge_attrs, dtype=torch.float32) if edge_attrs else torch.empty((0, 5), dtype=torch.float32)
         num_nodes = n_tasks + n_platforms
-        edge_index = to_undirected(edge_index, num_nodes=num_nodes)
         if edge_attr_tensor.numel() > 0:
-            # For undirected edges, duplicate edge attributes
-            edge_attr_tensor = torch.cat([edge_attr_tensor, edge_attr_tensor.clone()], dim=0)
+            # Use PyG to duplicate and align edge attributes with undirected edges
+            edge_index, edge_attr_tensor = to_undirected(edge_index, edge_attr_tensor, num_nodes=num_nodes)
+        else:
+            edge_index = to_undirected(edge_index, num_nodes=num_nodes)
     else:
         edge_index = torch.empty((2, 0), dtype=torch.long)
         edge_attr_tensor = torch.empty((0, 5), dtype=torch.float32)

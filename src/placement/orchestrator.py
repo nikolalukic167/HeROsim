@@ -331,6 +331,13 @@ class Orchestrator:
         for node in self.nodes.items:
             network_topology[node.node_name] = node.network_map
 
+        total_rtt = sum(t["elapsedTime"] for t in task_results)
+        num_tasks = len(task_results)
+        offloading_rate = (
+            len([t for t in task_results if t["sourceNode"] != t["executionNode"]]) / num_tasks * 100
+            if num_tasks else 0.0
+        )
+
         result = {
             "policy": dataclasses.asdict(self.policy),
             "endTime": self.end_time,
@@ -358,25 +365,24 @@ class Orchestrator:
             "penaltyDistributionOverTime": penalty_distribution_over_time,
             "energy": energy_total,
             "reclaimableEnergy": reclaimable_energy,
-            "applicationResults": application_results,
+            "applicationResults": [],  # Omit full list to avoid OOM/serialization with 400k+ tasks
             "nodeResults": node_results,
-            "taskResults": task_results,
+            "taskResults": [],  # Omit full list to avoid OOM/serialization with 400k+ tasks
+            "total_rtt": total_rtt,
+            "num_tasks": num_tasks,
             "scaleEvents": self.autoscaler.scale_events,
             "systemEvents": self.autoscaler.system_status_events,
             "averageNetworkLatency": average_network_latency,
             "nodePairLatencies": average_node_pair_latencies,
             "networkTopology": network_topology,
-            "offloadingRate": len([
-                task for task in task_results
-                if task["sourceNode"] != task["executionNode"]
-            ]) / len(task_results) * 100,
+            "offloadingRate": offloading_rate,
             "systemStateResults": self.system_state_results,
         }
-        
+
         # Debug: Check for non-serializable types
         logging.info("Checking for non-serializable types in stats...")
         check_serializable(result, "stats")
-        
+
         return result
 
     def create_application(
@@ -521,10 +527,12 @@ class Orchestrator:
 
         # TODO: maybe pop more tasks at once here?
         events_processed = 0
+        log_every = 10000  # Log every N events to reduce I/O and memory (was every event → OOM with 400k)
         while self.time_series.events:
             events_processed += 1
             remaining = len(self.time_series.events)
-            print(f"[ {self.env.now} ] Gateway: Processing event {events_processed} ({remaining} remaining)")
+            if events_processed == 1 or remaining % log_every == 0 or remaining <= 1:
+                print(f"[ {self.env.now} ] Gateway: Processing event {events_processed} ({remaining} remaining)", flush=True)
             # Process workload events (FIFO)
             workload_event: WorkloadEvent = self.time_series.events.pop(0)
 
@@ -597,14 +605,18 @@ class Orchestrator:
         # Debug logging: final task status after all tasks complete
         completed_tasks = [task for task in real_tasks if task.done.triggered]
         failed_tasks = [task for task in real_tasks if getattr(task, 'failed', False)]
-        print(f"[ {self.env.now} ] Gateway: All tasks complete - {len(completed_tasks)} done, {len(failed_tasks)} failed")
+        print(f"[ {self.env.now} ] Gateway: All tasks complete - {len(completed_tasks)} done, {len(failed_tasks)} failed", flush=True)
         if failed_tasks:
             print(f"[ {self.env.now} ] Gateway: Failed tasks: {[{'id': t.id, 'type': t.type['name'], 'reason': getattr(t, 'failure_reason', 'unknown')} for t in failed_tasks[:10]]}")
         
         # End simulation
         # Capture final system state
         system_state = yield self.mutex.get()
-        self.system_state_results.append(system_state.result(self.env.now))
+        state_result = system_state.result(self.env.now)
+        max_system_states = 500  # Cap to avoid OOM with 400k apps
+        if len(self.system_state_results) >= max_system_states:
+            self.system_state_results.pop(0)
+        self.system_state_results.append(state_result)
         yield self.mutex.put(system_state)
         self.end_time = self.env.now
         yield self.end_event.succeed()

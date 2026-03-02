@@ -14,6 +14,7 @@ set -uo pipefail
 #   ./scripts_cosim/run_simulation.sh --knative_network [--timeout N] [--seed N]
 #   ./scripts_cosim/run_simulation.sh --herocache_network [--timeout N] [--seed N]
 #   ./scripts_cosim/run_simulation.sh --herocache_network_batch [--timeout N] [--seed N]
+#   ./scripts_cosim/run_simulation.sh --offload_network [--timeout N] [--seed N]
 #
 # Options:
 #   --knative         Run with vanilla knative policy (kn_network_kn_network)
@@ -22,6 +23,7 @@ set -uo pipefail
 #   --knative_network Run with knative network policy (no batching) (kn_network_kn_network)
 #   --herocache_network Run with herocache network policy (hrc_network_hrc_network)
 #   --herocache_network_batch Run with herocache network batch policy (hrc_network_batch_hrc_network_batch)
+#   --offload_network Run with offload network policy (offload_network_offload_network)
 #   --timeout N       Timeout in seconds (default: 3600)
 #   --seed N          Random seed for deterministic network topology (optional)
 #
@@ -67,6 +69,10 @@ while [[ $# -gt 0 ]]; do
             POLICY="herocache_network_batch"
             shift
             ;;
+        --offload_network)
+            POLICY="offload_network"
+            shift
+            ;;
         --timeout)
             TIMEOUT="$2"
             shift 2
@@ -84,7 +90,7 @@ done
 
 # Validate policy selection
 if [ -z "$POLICY" ]; then
-    echo "ERROR: Must specify either --knative, --gnn, --roundrobin, --knative_network, --herocache_network, or --herocache_network_batch"
+    echo "ERROR: Must specify either --knative, --gnn, --roundrobin, --knative_network, --herocache_network, --herocache_network_batch, or --offload_network"
     echo ""
     echo "Usage:"
     echo "  $0 --knative [--timeout N] [--seed N]"
@@ -93,6 +99,7 @@ if [ -z "$POLICY" ]; then
     echo "  $0 --knative_network [--timeout N] [--seed N]"
     echo "  $0 --herocache_network [--timeout N] [--seed N]"
     echo "  $0 --herocache_network_batch [--timeout N] [--seed N]"
+    echo "  $0 --offload_network [--timeout N] [--seed N]"
     exit 1
 fi
 
@@ -127,6 +134,11 @@ elif [ "$POLICY" = "herocache_network_batch" ]; then
     POLICY_NAME="herocache network batch"
     SCHEDULING_STRATEGY="hrc_network_batch_hrc_network_batch"
     OUTPUT_FILE="${OUTPUT_DIR}/simulation_result_herocache_network_batch.json"
+elif [ "$POLICY" = "offload_network" ]; then
+    PROGRESS_LOG="${BASE}/logs/offload_network_simulation_progress.txt"
+    POLICY_NAME="offload network"
+    SCHEDULING_STRATEGY="offload_network_offload_network"
+    OUTPUT_FILE="${OUTPUT_DIR}/simulation_result_offload_network.json"
 fi
 
 mkdir -p "${BASE}/logs" "${OUTPUT_DIR}"

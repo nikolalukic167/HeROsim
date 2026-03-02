@@ -447,8 +447,20 @@ def run_simulation(
     logger.info(f"Running {policy} simulation")
 
     # Validate policy
-    if policy not in ['knative', 'gnn', 'roundrobin', 'knative_network', 'herocache_network', 'herocache_network_batch']:
-        logger.error(f"Invalid policy: {policy}. Must be 'knative', 'gnn', 'roundrobin', 'knative_network', 'herocache_network', or 'herocache_network_batch'")
+    valid_policies = [
+        'knative',
+        'gnn',
+        'roundrobin',
+        'knative_network',
+        'herocache_network',
+        'herocache_network_batch',
+        'random_network',
+        'offload_network',
+    ]
+    if policy not in valid_policies:
+        logger.error(
+            f"Invalid policy: {policy}. Must be one of: {', '.join(valid_policies)}"
+        )
         return False
 
     # For GNN policy, check if model is provided
@@ -514,6 +526,12 @@ def run_simulation(
         elif policy == 'herocache_network_batch':
             scheduling_strategy = 'hrc_network_batch_hrc_network_batch'
             models = None
+        elif policy == 'random_network':
+            scheduling_strategy = 'rp_network_rp_network'
+            models = None
+        elif policy == 'offload_network':
+            scheduling_strategy = 'offload_network_offload_network'
+            models = None
         
         if scheduling_strategy is None:
             logger.error(f"Unknown policy: {policy}")
@@ -537,14 +555,18 @@ def run_simulation(
 
         # Extract stats
         stats = result.get('stats', {})
-        
-        # Calculate total RTT from task results
+        # Use precomputed total_rtt/num_tasks when present (avoids holding full taskResults in memory)
         task_results = stats.get('taskResults', [])
-        total_rtt = sum(
-            tr.get('elapsedTime', 0)
-            for tr in task_results
-            if tr.get('taskId') is not None and tr.get('taskId') >= 0
-        )
+        if stats.get('total_rtt') is not None and stats.get('num_tasks') is not None:
+            total_rtt = stats['total_rtt']
+            num_tasks = stats['num_tasks']
+        else:
+            total_rtt = sum(
+                tr.get('elapsedTime', 0)
+                for tr in task_results
+                if tr.get('taskId') is not None and tr.get('taskId') >= 0
+            )
+            num_tasks = len([tr for tr in task_results if tr.get('taskId') is not None and tr.get('taskId') >= 0])
 
         # Build result summary
         result_summary = {
@@ -555,7 +577,7 @@ def run_simulation(
             "workload_file": str(workload_file),
             "seed": seed,
             "total_rtt": total_rtt,
-            "num_tasks": len([tr for tr in task_results if tr.get('taskId') is not None and tr.get('taskId') >= 0]),
+            "num_tasks": num_tasks,
             "stats": stats,
         }
 
@@ -590,7 +612,7 @@ def main():
     """
     # Configuration
     sim_input_path = Path("data/nofs-ids")
-    gnn_model_path = Path("src/notebooks/non_unique/best_gnn_regret_model.pt")
+    gnn_model_path = Path("models/firm-feather-4.pt")
     default_output_dir = Path("simulation_data/results")
 
     # Parse arguments
@@ -637,16 +659,38 @@ def main():
 
     if not workload_file:
         print("ERROR: --workload is required")
-        print("Usage: python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy <knative|gnn|roundrobin|knative_network|herocache_network> [--seed <seed>] [--output <output.json>]")
+        print(
+            "Usage: python -m src.executesimulation "
+            "--config <space_config.json> --workload <workload.json> "
+            "--policy <knative|gnn|roundrobin|knative_network|herocache_network|"
+            "herocache_network_batch|random_network|offload_network> "
+            "[--seed <seed>] [--output <output.json>]"
+        )
         sys.exit(1)
-
+    
     if not policy:
         print("ERROR: --policy is required")
-        print("Usage: python -m src.executesimulation --config <space_config.json> --workload <workload.json> --policy <knative|gnn|roundrobin|knative_network|herocache_network> [--seed <seed>] [--output <output.json>]")
+        print(
+            "Usage: python -m src.executesimulation "
+            "--config <space_config.json> --workload <workload.json> "
+            "--policy <knative|gnn|roundrobin|knative_network|herocache_network|"
+            "herocache_network_batch|random_network|offload_network> "
+            "[--seed <seed>] [--output <output.json>]"
+        )
         sys.exit(1)
-
-    if policy not in ['knative', 'gnn', 'roundrobin', 'knative_network', 'herocache_network', 'herocache_network_batch']:
-        print(f"ERROR: Invalid policy '{policy}'. Must be 'knative', 'gnn', 'roundrobin', 'knative_network', 'herocache_network', or 'herocache_network_batch'")
+    
+    cli_valid_policies = [
+        'knative',
+        'gnn',
+        'roundrobin',
+        'knative_network',
+        'herocache_network',
+        'herocache_network_batch',
+        'random_network',
+        'offload_network',
+    ]
+    if policy not in cli_valid_policies:
+        print(f"ERROR: Invalid policy '{policy}'. Must be one of: {', '.join(cli_valid_policies)}")
         sys.exit(1)
 
     if not config_file.exists():

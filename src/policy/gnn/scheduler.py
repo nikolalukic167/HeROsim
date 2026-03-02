@@ -57,7 +57,7 @@ class GNNScheduler(Scheduler):
         # - 0.05s (50ms): Good balance for batching 2-3 tasks
         # - 0.1s (100ms): Better batching but adds latency
         # Looking at task arrival patterns (~10-50ms apart), 50ms should collect 2-3 tasks
-        self.batch_timeout = 0.02  # 50ms to collect tasks for GNN batching
+        self.batch_timeout = 0.002  # 2ms to collect tasks for GNN batching
         
         # GNN model will be set via models dict from orchestrator
         self.gnn_model = None
@@ -567,6 +567,12 @@ class GNNScheduler(Scheduler):
                     if source_node not in network_maps[node_name]:
                         continue
                 
+                # after network feasibility, before “Add edge”
+                if task_type == "dnn1" and (node_id, plat_id) not in dnn1_replicas:
+                    continue
+                if task_type == "dnn2" and (node_id, plat_id) not in dnn2_replicas:
+                    continue
+
                 # Add edge
                 task_node_idx = task_offset + t_idx
                 plat_node_idx = platform_offset + pos

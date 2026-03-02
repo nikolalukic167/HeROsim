@@ -2,24 +2,22 @@
 """
 Simulation Runner Script with Policy Selection (Python Wrapper)
 
-Runs simulations with different policies (vanilla knative or vanilla gnn)
+Runs simulations with different policies (gnn, knative_network, herocache_network, etc.)
 for real simulation (full workload, no warmup tasks, autoscaling from zero).
 
 Usage:
-    python scripts_cosim/run_simulation.py --knative [--timeout N] [--seed N]
     python scripts_cosim/run_simulation.py --gnn [--timeout N] [--seed N]
     python scripts_cosim/run_simulation.py --roundrobin [--timeout N] [--seed N]
     python scripts_cosim/run_simulation.py --knative_network [--timeout N] [--seed N]
     python scripts_cosim/run_simulation.py --herocache_network [--timeout N] [--seed N]
-    python scripts_cosim/run_simulation.py --herocache_network_batch [--timeout N] [--seed N]
+    python scripts_cosim/run_simulation.py --random_network [--timeout N] [--seed N]
 
 Options:
-    --knative         Run with vanilla knative policy (kn_network_kn_network)
     --gnn             Run with vanilla gnn policy (gnn_gnn)
     --roundrobin      Run with roundrobin network policy (rr_network_rr_network)
-    --knative_network Run with knative network policy (no batching) (kn_network_kn_network)
+    --knative_network Run with knative network policy (kn_network_kn_network)
     --herocache_network Run with herocache network policy (hrc_network_hrc_network)
-    --herocache_network_batch Run with herocache network batch policy (hrc_network_batch_hrc_network_batch)
+    --random_network Run with random network-aware policy (rp_network_rp_network)
     --timeout N       Timeout in seconds (default: 3600)
     --seed N          Random seed for deterministic network topology (optional)
 
@@ -41,18 +39,12 @@ from typing import Optional, Dict, Tuple
 # Constants
 BASE_DIR = Path("/root/projects/my-herosim")
 CONFIG_FILE = BASE_DIR / "simulation_data/space_with_network.json"
-WORKLOAD_FILE = BASE_DIR / "data/nofs-ids/traces/workload-35-35.json"
+WORKLOAD_FILE = BASE_DIR / "data/nofs-ids/traces/workload-200-200.json"
 OUTPUT_DIR = BASE_DIR / "simulation_data/results"
 DEFAULT_TIMEOUT = 3600
 
 # Policy configuration mapping
 POLICY_CONFIG: Dict[str, Dict[str, str]] = {
-    "knative": {
-        "progress_log": BASE_DIR / "logs/knative_simulation_progress.txt",
-        "policy_name": "vanilla knative",
-        "scheduling_strategy": "kn_kn",
-        "output_file": OUTPUT_DIR / "simulation_result_knative.json",
-    },
     "gnn": {
         "progress_log": BASE_DIR / "logs/gnn_simulation_progress.txt",
         "policy_name": "vanilla gnn",
@@ -77,11 +69,17 @@ POLICY_CONFIG: Dict[str, Dict[str, str]] = {
         "scheduling_strategy": "hrc_network_hrc_network",
         "output_file": OUTPUT_DIR / "simulation_result_herocache_network.json",
     },
-    "herocache_network_batch": {
-        "progress_log": BASE_DIR / "logs/herocache_network_batch_simulation_progress.txt",
-        "policy_name": "herocache network batch",
-        "scheduling_strategy": "hrc_network_batch_hrc_network_batch",
-        "output_file": OUTPUT_DIR / "simulation_result_herocache_network_batch.json",
+    "random_network": {
+        "progress_log": BASE_DIR / "logs/random_network_simulation_progress.txt",
+        "policy_name": "random network",
+        "scheduling_strategy": "rp_network_rp_network",
+        "output_file": OUTPUT_DIR / "simulation_result_random_network.json",
+    },
+    "offload_network": {
+        "progress_log": BASE_DIR / "logs/offload_network_simulation_progress.txt",
+        "policy_name": "offload network",
+        "scheduling_strategy": "offload_network_offload_network",
+        "output_file": OUTPUT_DIR / "simulation_result_offload_network.json",
     },
 }
 
@@ -96,24 +94,28 @@ def parse_arguments() -> argparse.Namespace:
     
     # Policy selection (mutually exclusive group)
     policy_group = parser.add_mutually_exclusive_group(required=True)
-    policy_group.add_argument("--knative", action="store_const", const="knative", dest="policy",
-                             help="Run with vanilla knative policy")
     policy_group.add_argument("--gnn", action="store_const", const="gnn", dest="policy",
                              help="Run with vanilla gnn policy")
     policy_group.add_argument("--roundrobin", action="store_const", const="roundrobin", dest="policy",
                              help="Run with roundrobin network policy")
     policy_group.add_argument("--knative_network", action="store_const", const="knative_network", dest="policy",
-                             help="Run with knative network policy (no batching)")
+                             help="Run with knative network policy")
     policy_group.add_argument("--herocache_network", action="store_const", const="herocache_network", dest="policy",
                              help="Run with herocache network policy")
-    policy_group.add_argument("--herocache_network_batch", action="store_const", const="herocache_network_batch", dest="policy",
-                             help="Run with herocache network batch policy")
+    policy_group.add_argument("--random_network", action="store_const", const="random_network", dest="policy",
+                             help="Run with random network-aware policy")
+    policy_group.add_argument("--offload_network", action="store_const", const="offload_network", dest="policy",
+                             help="Run with offload-to-server network-aware policy")
     
     # Optional arguments
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
                        help=f"Timeout in seconds (default: {DEFAULT_TIMEOUT})")
     parser.add_argument("--seed", type=int, default=None,
                        help="Random seed for deterministic network topology")
+    parser.add_argument("--workload", type=str, default=None,
+                       help="Path to workload JSON (default: workload-200-200.json)")
+    parser.add_argument("--output", type=str, default=None,
+                       help="Path to result JSON (default: simulation_data/results/simulation_result_<policy>.json)")
     
     return parser.parse_args()
 
@@ -205,33 +207,32 @@ def main():
     progress_log = config["progress_log"]
     policy_name = config["policy_name"]
     scheduling_strategy = config["scheduling_strategy"]
-    output_file = config["output_file"]
+    output_file = Path(config["output_file"]) if args.output is None else Path(args.output)
+    workload_file = WORKLOAD_FILE if args.workload is None else Path(args.workload)
     
     # Create necessary directories
     (BASE_DIR / "logs").mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
-    # Print configuration
-    print(f"=== Simulation Runner: {policy_name} ===")
-    print(f"Config file: {CONFIG_FILE}")
-    print(f"Workload file: {WORKLOAD_FILE}")
-    print(f"Output file: {output_file}")
-    print(f"Scheduling strategy: {scheduling_strategy}")
-    print(f"Timeout: {args.timeout}s")
+    # Print configuration (flush so nohup logs show header first, not after child output)
+    def log(msg: str) -> None:
+        print(msg, flush=True)
+    log(f"=== Simulation Runner: {policy_name} ===")
+    log(f"Config file: {CONFIG_FILE}")
+    log(f"Workload file: {workload_file}")
+    log(f"Output file: {output_file}")
+    log(f"Scheduling strategy: {scheduling_strategy}")
+    log(f"Timeout: {args.timeout}s")
     if args.seed is not None:
-        print(f"Seed: {args.seed}")
-    print(f"Progress log: {progress_log}")
-    print()
-    
-    # Validate files
-    validate_files(CONFIG_FILE, WORKLOAD_FILE)
-    
-    # Run simulation
-    print("Starting simulation...")
+        log(f"Seed: {args.seed}")
+    log(f"Progress log: {progress_log}")
+    log("")
+    validate_files(CONFIG_FILE, workload_file)
+    log("Starting simulation...")
     exit_code, duration = run_simulation(
         policy=args.policy,
         config_file=CONFIG_FILE,
-        workload_file=WORKLOAD_FILE,
+        workload_file=workload_file,
         output_file=output_file,
         timeout=args.timeout,
         seed=args.seed,
@@ -241,21 +242,23 @@ def main():
     if exit_code == 0 and output_file.exists():
         rtt = extract_rtt(output_file)
         rtt_str = f"{rtt}s" if rtt is not None else "N/A"
-        print()
-        print("=== SUCCESS ===")
-        print(f"Duration: {duration:.1f}s")
-        print(f"Total RTT: {rtt_str}")
-        print(f"Output file: {output_file}")
+        log("")
+        log("=== SUCCESS ===")
+        log(f"Duration: {duration:.1f}s")
+        log(f"Total RTT: {rtt_str}")
+        log(f"Output file: {output_file}")
         sys.exit(0)
     elif exit_code == 124:
-        print()
-        print("=== TIMEOUT ===")
-        print(f"Simulation timed out after {args.timeout}s")
+        log("")
+        log("=== TIMEOUT ===")
+        log(f"Simulation timed out after {args.timeout}s")
         sys.exit(1)
     else:
-        print()
-        print("=== FAILED ===")
-        print(f"Exit code: {exit_code}")
+        log("")
+        log("=== FAILED ===")
+        log(f"Exit code: {exit_code}")
+        if exit_code == -9:
+            log("(Exit -9 usually means SIGKILL, e.g. out-of-memory killer.)")
         sys.exit(1)
 
 

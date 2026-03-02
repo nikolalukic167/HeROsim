@@ -72,7 +72,7 @@ from src.policy.proactiveknative.autoscaler import ProactiveKnativeAutoscaler
 from src.policy.proactiveknative.orchestrator import ProactiveKnativeOrchestrator
 from src.policy.proactiveknative.scheduler import ProactiveKnativeScheduler
 
-from src.policy.random.scheduler import RandomScheduler
+from src.policy.random.scheduler import RandomScheduler, RandomNetworkScheduler
 
 from src.policy.bpff.scheduler import BPFFScheduler
 
@@ -89,6 +89,7 @@ from src.policy.evaluator.scheduler import EvaluatorScheduler
 from src.policy.knative_network.orchestrator import KnativeOrchestrator as KnativeNetworkOrchestrator
 from src.policy.knative_network.autoscaler import KnativeAutoscaler as KnativeNetworkAutoscaler
 from src.policy.knative_network.scheduler import KnativeScheduler as KnativeNetworkScheduler
+from src.policy.offload_network.scheduler import OffloadNetworkScheduler
 
 from src.policy.roundrobin_network.orchestrator import RoundRobinNetworkOrchestrator
 from src.policy.roundrobin_network.autoscaler import RoundRobinNetworkAutoscaler
@@ -653,6 +654,8 @@ def start_simulation(
         "rr_network_rr_network": (RoundRobinNetworkOrchestrator, RoundRobinNetworkAutoscaler, RoundRobinNetworkScheduler),
         "hrc_network_hrc_network": (HRCNetworkOrchestrator, HRCNetworkAutoscaler, HRCNetworkScheduler),
         "hrc_network_batch_hrc_network_batch": (HRCNetworkBatchOrchestrator, HRCNetworkBatchAutoscaler, HRCNetworkBatchScheduler),
+        "rp_network_rp_network": (KnativeNetworkOrchestrator, KnativeNetworkAutoscaler, RandomNetworkScheduler),
+        "offload_network_offload_network": (KnativeNetworkOrchestrator, KnativeNetworkAutoscaler, OffloadNetworkScheduler),
     }
 
     # Retrieve relevant Autoscaler and Scheduler classes

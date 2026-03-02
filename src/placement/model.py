@@ -549,6 +549,8 @@ scheduling_strategies: Dict[str, str] = {
     "rr_network_rr_network": "RR-NETWORK-RR-NETWORK",
     "hrc_network_hrc_network": "HRC-NETWORK-HRC-NETWORK",
     "hrc_network_batch_hrc_network_batch": "HRC-NETWORK-BATCH-HRC-NETWORK-BATCH",
+    "rp_network_rp_network": "RP-NETWORK-RP-NETWORK",
+    "offload_network_offload_network": "OFFLOAD-NETWORK-OFFLOAD-NETWORK",
 }
 
 cache_policies: Set[str] = {

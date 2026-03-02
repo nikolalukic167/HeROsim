@@ -303,9 +303,9 @@ def generate_single_dataset(
     seed: int,
     max_workers: int,
     quiet: bool = False,
-    fast_forward_warmup: bool = False,
+    fast_forward_warmup: bool = True,
     fast_forward_threshold: int = 1,
-    allow_non_unique_replicas: bool = False
+    allow_non_unique_replicas: bool = True
 ) -> Tuple[bool, float, float]:
     """
     Generate a single GNN dataset.

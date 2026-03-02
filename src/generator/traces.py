@@ -142,7 +142,7 @@ def generate_time_series(
     if config and 'nodes' in config and 'client_nodes' in config['nodes']:
         n_clients = config['nodes']['client_nodes']['count']
     else:
-        n_clients = 10  # Default fallback
+        n_clients = 20  # Default fallback
     
     client_ids = []
     # Generate Poisson process arrivals

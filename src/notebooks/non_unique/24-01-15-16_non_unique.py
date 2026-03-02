@@ -4,7 +4,7 @@
 GNN for Task-to-Platform Placement Prediction - REGRET-FOCUSED TRAINING (NON-UNIQUE VERSION)
 
 This version uses a combined loss:
-  Loss = α * CrossEntropy + β * StructuredRegretLoss
+  Loss = alpha * CrossEntropy + beta * StructuredRegretLoss
 
 The StructuredRegretLoss:
 1. Samples negative placements (from hash table when available, random otherwise)
@@ -53,12 +53,15 @@ torch.backends.cudnn.benchmark = False
 # %%
 # Configuration
 # MERGED DATASET SUPPORT: Set to use merged cache or specific single-task-count cache
-# Options:
-#   - graphs_cache_merged_2_3_4_tasks (MERGED: 2-task, 3-task, and 4-task datasets combined)
-#   - graphs_cache_gnn_datasets_2tasks (SINGLE: 2-task only)
-#   - graphs_cache_gnn_datasets_3tasks (SINGLE: 3-task only)
-#   - graphs_cache_gnn_datasets_4tasks (SINGLE: 4-task only)
-CACHE_DIR = Path("/root/projects/my-herosim/simulation_data/artifacts/run_queue_big/graphs_cache_merged_2_3_4_tasks")
+# - USE_MERGED_CACHE=True  -> graphs_cache_merged_2_3_4_tasks (2-, 3-, and 4-task combined)
+# - USE_MERGED_CACHE=False -> graphs_cache_gnn_datasets_4tasks (4-task only; use 4tasks when not merged)
+CACHE_BASE = Path("/root/projects/my-herosim/simulation_data/artifacts/run_queue_big")
+USE_MERGED_CACHE = False  # Set False to use single 4-task cache
+CACHE_DIR = (
+    CACHE_BASE / "graphs_cache_merged_2_3_4_tasks"
+    if USE_MERGED_CACHE
+    else CACHE_BASE / "graphs_cache_gnn_datasets_4tasks"
+)
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Load metadata to check if merged
@@ -88,20 +91,28 @@ OPTIMAL_RTT_CACHE_PATH = CACHE_DIR / "optimal_rtt.pkl"
 # Hyperparameters
 EMBEDDING_DIM = 64
 HIDDEN_DIM = 64
-LEARNING_RATE = 0.001
-BATCH_SIZE = 16
+LEARNING_RATE = 0.0005
+BATCH_SIZE = 32
 NUM_GIN_LAYERS = 3
 WEIGHT_DECAY = 1e-3
-EPOCHS = 200
+EPOCHS = 100
 
 # Regret Loss Configuration
 RTT_SCALE_FACTOR = 1.0  # RTTs are already in seconds (0.5-13s range)
 MAX_REGRET_PENALTY = 40.0  # Penalty for impossible/invalid placements
-REGRET_LOSS_WEIGHT = 0.1  # β in Loss = α*CE + β*Regret (start small)
+REGRET_LOSS_WEIGHT = 0.3  # β in Loss = α*CE + β*Regret (increased from 0.1 for stronger regret signal)
 CE_LOSS_WEIGHT = 1.0  # α
 
-# Negative sampling: probability of sampling from hash table vs random
-VALID_NEGATIVE_PROB = 0  # 70% valid negatives from hash table
+# Negative sampling for StructuredRegretLoss:
+# Prob of sampling a *negative* from the RTT hash (valid but suboptimal combo) vs random invalid placement.
+# > 0 gives harder, in-distribution negatives; 0 = always random. Recommended 0.5--0.7.
+VALID_NEGATIVE_PROB = 0
+
+# Collapse detection: treat as collapsed if val acc or hash hit rate fall below these
+COLLAPSE_ACC_THRESHOLD = 0.05
+COLLAPSE_HASH_HIT_THRESHOLD = 0.10
+COLLAPSE_LR_FACTOR = 0.5  # Multiply LR by this when reverting after collapse
+MIN_LR = 1e-6
 
 # %%
 # ============================================================================
@@ -339,8 +350,6 @@ class TaskPlacementGNN(nn.Module):
         for t in range(n_tasks):
             mask_t = (ti == t)
             logits_t = edge_scores[mask_t]
-            if logits_t.numel() > 0:
-                logits_t = torch.clamp(logits_t, min=-50.0, max=50.0)
             logits_per_task.append(logits_t)
 
         return logits_per_task
@@ -390,7 +399,7 @@ class StructuredRegretLoss(nn.Module):
     2. Make the score gap proportional to the regret (RTT difference)
     """
     
-    def __init__(self, max_regret: float, rtt_scale: float, valid_neg_prob: float = 0.7):
+    def __init__(self, max_regret: float, rtt_scale: float, valid_neg_prob: float = 0.5):
         super().__init__()
         self.max_regret = max_regret
         self.rtt_scale = rtt_scale
@@ -497,15 +506,12 @@ class StructuredRegretLoss(nn.Module):
                 n_choices = logits_per_task[t_idx].numel()
                 if n_choices == 0:
                     return torch.tensor(0.0, device=device), 0, {}
-                
-                # Pick a random index different from optimal
-                if n_choices > 1:
-                    candidates = [i for i in range(n_choices) if i != opt_indices[t_idx]]
-                    rand_idx = random.choice(candidates)
+                candidates = [i for i in range(n_choices) if i != opt_indices[t_idx]]
+                if not candidates:
+                    rand_idx = opt_indices[t_idx]
                 else:
-                    rand_idx = 0
+                    rand_idx = random.choice(candidates)
                 neg_indices.append(rand_idx)
-            
             neg_rtt = None  # Will use max_regret
         
         # 3. Calculate Score of Negative Path
@@ -577,8 +583,8 @@ def train_epoch(
     regret_criterion: StructuredRegretLoss,
     valid_combos_map: Dict,
     optimal_rtt_map: Dict,
-    ce_weight: float = 1.0,
-    regret_weight: float = 0.1,
+    ce_weight: float,
+    regret_weight: float,
     is_last_epoch: bool = False
 ):
     model.train()
@@ -685,7 +691,7 @@ def decode_inference_placement(logits_per_task, data):
         if t_idx not in task_logit_to_placement:
             return None
         
-        logits_t = logits_per_task[t_idx]
+        logits_t = logits_per_task[t_idx].float().clone()
         if logits_t.numel() == 0:
             return None
         
@@ -756,7 +762,7 @@ def evaluate(model, loader, device, placement_rtt_hash_table, optimal_rtt_map, i
                         'correct': 0, 'total': 0, 'regret_sum': 0.0, 'regret_count': 0
                     }
 
-                # Accuracy
+                # Accuracy: per-task argmax over logits
                 graph_all_correct = True
                 graph_valid_tasks = 0
                 
@@ -860,6 +866,8 @@ print("Valid labels:", np.sum(ys >= 0), "/", len(ys))
 print("Graphs with no edges:", sum([g.edge_index.numel() == 0 for g in graphs]), "/", len(graphs))
 print("Avg edges:", np.mean([g.edge_index.size(1) for g in graphs]))
 print("Avg valid tasks:", np.mean([(g.y >= 0).sum().item() for g in graphs]))
+print("Max valid tasks:", np.max([(g.y >= 0).sum().item() for g in graphs]))
+print("Min valid tasks:", np.min([(g.y >= 0).sum().item() for g in graphs]))
 
 print(f"\nLoaded {len(graphs)} graphs from cache")
 
@@ -904,7 +912,7 @@ print()
 os.environ['WANDB_API_KEY'] = '85cccc04212d62b698dbc4549b87818a95850133'
 
 wandb.init(
-    project="more-features-gnn-non-unique",  # Updated project name for non-unique
+    project="2-3-4-tasks-non-unique",  # Updated project name for non-unique
     entity="nikolalukic167-tu-wien",
     config={
         "embedding_dim": int(EMBEDDING_DIM),
@@ -920,6 +928,9 @@ wandb.init(
         "max_regret_penalty": float(MAX_REGRET_PENALTY),
         "valid_negative_prob": float(VALID_NEGATIVE_PROB),
         "rtt_scale_factor": float(RTT_SCALE_FACTOR),
+        "collapse_acc_threshold": float(COLLAPSE_ACC_THRESHOLD),
+        "collapse_hash_hit_threshold": float(COLLAPSE_HASH_HIT_THRESHOLD),
+        "collapse_lr_factor": float(COLLAPSE_LR_FACTOR),
         "loss_type": "CE + StructuredRegret",
         "cache_mode": "merged" if IS_MERGED_CACHE else "single",
         "task_count_distribution": {str(k): int(v) for k, v in TASK_COUNT_DIST.items()} if TASK_COUNT_DIST else {},
@@ -930,6 +941,8 @@ wandb.init(
         "num_test": int(len(test_graphs)),
     }
 )
+
+MODEL_FILENAME = f"{wandb.run.name}.pt"
 
 # %%
 # ========================================================================
@@ -982,6 +995,7 @@ print("TRAINING (CE + Structured Regret Loss)")
 print("="*80)
 print(f"CE Weight: {CE_LOSS_WEIGHT}, Regret Weight: {REGRET_LOSS_WEIGHT}")
 print(f"Max Regret Penalty: {MAX_REGRET_PENALTY}, Valid Neg Prob: {VALID_NEGATIVE_PROB}")
+print(f"Collapse thresholds: acc>={COLLAPSE_ACC_THRESHOLD}, hash_hit>={COLLAPSE_HASH_HIT_THRESHOLD}")
 print()
 
 wandb.watch(model, log="gradients", log_freq=100)
@@ -1014,6 +1028,12 @@ for epoch in range(EPOCHS):
         is_last_epoch=is_last_epoch
     )
     
+    # Collapse detection: low acc or hash hit rate → degenerate policy (e.g. constant logits, NaN)
+    is_collapsed = (
+        val_metrics['acc'] < COLLAPSE_ACC_THRESHOLD or
+        val_metrics['hash_hit_rate'] < COLLAPSE_HASH_HIT_THRESHOLD
+    )
+    
     # Wandb logging
     log_dict = {
         "train/loss_ce": safe_float(train_losses['ce']),
@@ -1027,6 +1047,7 @@ for epoch in range(EPOCHS):
         "val/regret_pct": safe_float(val_metrics['regret_pct']),
         "val/count_regret": int(val_metrics['count_regret']),
         "val/hash_hit_rate": safe_float(val_metrics['hash_hit_rate']),
+        "val/collapsed": int(is_collapsed),
         "lr": safe_float(optimizer.param_groups[0]["lr"]),
     }
     
@@ -1042,12 +1063,26 @@ for epoch in range(EPOCHS):
     
     wandb.log(log_dict, step=epoch)
     
-    # Save best model based on REGRET (minimize)
-    if val_metrics['regret'] < best_val_regret and val_metrics['count_regret'] > 0:
+    # Save best model only when healthy and better regret; never overwrite with collapsed model
+    if not is_collapsed and val_metrics['regret'] < best_val_regret and val_metrics['count_regret'] > 0:
         best_val_regret = val_metrics['regret']
         best_val_acc = val_metrics['acc']
-        torch.save(model.state_dict(), 'best_gnn_regret_model.pt')
+        os.makedirs("models", exist_ok=True)
+        torch.save(model.state_dict(), "models/" + MODEL_FILENAME)
         print(f"  *** New best model: regret={best_val_regret:.4f}s, acc={best_val_acc*100:.1f}%")
+    
+    # Revert to best checkpoint and reduce LR when collapsed
+    if is_collapsed:
+        best_path = Path("models/" + MODEL_FILENAME)
+        if best_path.exists():
+            model.load_state_dict(torch.load(best_path, map_location=DEVICE))
+            lr = optimizer.param_groups[0]['lr']
+            new_lr = max(MIN_LR, lr * COLLAPSE_LR_FACTOR)
+            for g in optimizer.param_groups:
+                g['lr'] = new_lr
+            print(f"  [Collapse detected] Reverted to best checkpoint, LR {lr:.2e} -> {new_lr:.2e}")
+        else:
+            print(f"  [Collapse detected] No best checkpoint yet; continuing (next epoch may recover)")
     
     if epoch % 10 == 0 or epoch == EPOCHS - 1:
         print(f"Epoch {epoch:3d}/{EPOCHS} | "
@@ -1067,7 +1102,7 @@ print("="*80)
 print("FINAL EVALUATION")
 print("="*80)
 
-model.load_state_dict(torch.load('best_gnn_regret_model.pt'))
+model.load_state_dict(torch.load("models/" + MODEL_FILENAME))
 
 train_loader_eval = DataLoader(train_graphs, batch_size=BATCH_SIZE, shuffle=False, num_workers=0, pin_memory=False)
 val_loader_eval = DataLoader(val_graphs, batch_size=BATCH_SIZE, shuffle=False, num_workers=0, pin_memory=False)
@@ -1137,7 +1172,7 @@ if IS_MERGED_CACHE:
         wandb.summary[f"test_{n_tasks}tasks_regret"] = float(regret_n)
 
 artifact = wandb.Artifact("placement-gnn-regret", type="model")
-artifact.add_file("best_gnn_regret_model.pt")
+artifact.add_file("models/" + MODEL_FILENAME)
 wandb.log_artifact(artifact)
 
 wandb.finish()
@@ -1152,6 +1187,6 @@ print(f"Test:  CE={test_metrics['ce']:.4f}, Acc={test_metrics['acc']*100:.2f}%, 
 print("\n" + "="*80)
 print("TRAINING COMPLETE!")
 print("="*80)
-print(f"Model saved to: best_gnn_regret_model.pt")
+print(f"Model saved to: models/{MODEL_FILENAME}")
 print(f"Best validation regret: {best_val_regret:.4f}s")
 print(f"Best validation accuracy: {best_val_acc*100:.2f}%")
